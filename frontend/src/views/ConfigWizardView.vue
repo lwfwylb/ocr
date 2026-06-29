@@ -1,0 +1,568 @@
+<script setup lang="ts">
+import { computed, reactive, ref } from 'vue'
+import { ElMessage } from 'element-plus'
+import { configFields } from '../mock/data'
+
+type TransformRuleType = 'DICT' | 'API' | 'SQL'
+
+interface DictItem {
+  source: string
+  target: string
+}
+
+interface TransformRule {
+  id: string
+  ruleName: string
+  ruleType: TransformRuleType
+  inputField: string
+  outputField: string
+  enabled: boolean
+  onFail: 'KEEP_ORIGINAL' | 'SET_NULL' | 'BLOCK' | 'REVIEW'
+  dictItems: DictItem[]
+  apiEndpoint: string
+  apiMethod: 'GET' | 'POST'
+  apiParamName: string
+  apiResponsePath: string
+  sqlDatasource: string
+  sqlText: string
+  sqlResultColumn: string
+}
+
+const activeStep = ref(0)
+const fields = ref(configFields.map((item) => ({ ...item })))
+const transformRules = ref<TransformRule[]>([
+  {
+    id: 'rule-dict-amount',
+    ruleName: '金额区间字典转换',
+    ruleType: 'DICT',
+    inputField: 'amount',
+    outputField: 'amount_level',
+    enabled: true,
+    onFail: 'KEEP_ORIGINAL',
+    dictItems: [
+      { source: '0-100000', target: '普通金额' },
+      { source: '100000-1000000', target: '大额' }
+    ],
+    apiEndpoint: '',
+    apiMethod: 'GET',
+    apiParamName: '',
+    apiResponsePath: '',
+    sqlDatasource: '主数据只读库',
+    sqlText: '',
+    sqlResultColumn: ''
+  },
+  {
+    id: 'rule-api-account',
+    ruleName: '账号查询交易对手名称',
+    ruleType: 'API',
+    inputField: 'payee_account',
+    outputField: 'counterparty_name',
+    enabled: true,
+    onFail: 'REVIEW',
+    dictItems: [],
+    apiEndpoint: '/master-data/accounts/{accountNo}',
+    apiMethod: 'GET',
+    apiParamName: 'accountNo',
+    apiResponsePath: '$.data.accountName',
+    sqlDatasource: '主数据只读库',
+    sqlText: '',
+    sqlResultColumn: ''
+  },
+  {
+    id: 'rule-sql-product',
+    ruleName: 'SQL 查询产品名称',
+    ruleType: 'SQL',
+    inputField: 'product_code',
+    outputField: 'product_name',
+    enabled: false,
+    onFail: 'SET_NULL',
+    dictItems: [],
+    apiEndpoint: '',
+    apiMethod: 'GET',
+    apiParamName: '',
+    apiResponsePath: '',
+    sqlDatasource: '产品主数据只读库',
+    sqlText: 'select product_name from md_product where product_code = :product_code',
+    sqlResultColumn: 'product_name'
+  }
+])
+const selectedRuleId = ref(transformRules.value[0].id)
+const previewInput = ref('100000-1000000')
+const previewOutput = ref('大额')
+const form = reactive({
+  configName: '划款指令-运营部-提取配置',
+  documentType: '划款指令',
+  departmentId: '运营部',
+  sourceTypes: ['MANUAL_UPLOAD', 'API'],
+  defaultPriority: 'HIGH',
+  engineCode: 'paddleocr_vl',
+  outputFormat: 'Markdown',
+  storageMode: 'REUSE',
+  mappingProfileName: '划款指令-资金结果表映射',
+  targetTable: 'ext_fund_business_result',
+  saveMode: 'SINGLE',
+  outputMode: 'SINGLE',
+  defaultStrategy: 'AI_FIRST_RULE_FALLBACK',
+  confidenceThreshold: 0.9,
+  reviewerRole: '运营复核岗'
+})
+
+const steps = ['基础信息', '解析配置', '字段配置', '落库配置', '提取策略', '加工校验', '复核策略', '验证发布']
+const existingTables = [
+  { label: 'ext_fund_business_result - 基金业务要素结果表', value: 'ext_fund_business_result' },
+  { label: 'ext_payment_instruction - 划款指令结果表', value: 'ext_payment_instruction' },
+  { label: 'ext_bank_receipt - 银行回单结果表', value: 'ext_bank_receipt' }
+]
+const reusableColumns = [
+  'biz_no',
+  'source_system',
+  'document_type',
+  'payer_name',
+  'counterparty_name',
+  'counterparty_account',
+  'business_amount',
+  'business_date',
+  'product_code',
+  'product_name',
+  'review_status'
+]
+const mappingProfiles = [
+  {
+    name: '划款指令-资金结果表映射',
+    documentType: '划款指令',
+    targetTable: 'ext_fund_business_result',
+    mapping: 'payer_name -> payer_name, payee_account -> counterparty_account, amount -> business_amount'
+  },
+  {
+    name: '银行回单-资金结果表映射',
+    documentType: '银行回单',
+    targetTable: 'ext_fund_business_result',
+    mapping: 'payer_name -> counterparty_name, transaction_no -> biz_no, amount -> business_amount'
+  }
+]
+const generatedPrompt = computed(() => {
+  const names = fields.value.map((field) => `${field.fieldCode}(${field.fieldName})`).join('、')
+  const mappings = fields.value.map((field) => `${field.fieldCode}->${field.targetColumn}`).join('；')
+  return `请从${form.documentType}中提取以下字段：${names}。字段需按映射关系 ${mappings} 写入结果对象。严格输出 JSON，无法识别返回 null，并提供 confidence、evidence、sourcePage。`
+})
+const selectedTransformRule = computed(() => {
+  return transformRules.value.find((rule) => rule.id === selectedRuleId.value) || transformRules.value[0]
+})
+const transformTypeLabel: Record<TransformRuleType, string> = {
+  DICT: '字典转换',
+  API: 'API 取数',
+  SQL: 'SQL 查询'
+}
+
+const next = () => {
+  if (activeStep.value < steps.length - 1) activeStep.value += 1
+}
+const prev = () => {
+  if (activeStep.value > 0) activeStep.value -= 1
+}
+const saveDraft = () => ElMessage.success('草稿已保存')
+const validate = () => ElMessage.success('验证完成，字段映射与 JSON Schema 均通过')
+const publish = () => ElMessage.success('配置已发布为 V1')
+const addField = () => {
+  fields.value.push({
+    fieldCode: `field_${fields.value.length + 1}`,
+    fieldName: '新增字段',
+    dataType: 'string',
+    fieldLength: 100,
+    required: false,
+    multiple: false,
+    targetColumn: `field_${fields.value.length + 1}`
+  })
+}
+const addTransformRule = (ruleType: TransformRuleType) => {
+  const id = `rule-${Date.now()}`
+  transformRules.value.push({
+    id,
+    ruleName: `新增${transformTypeLabel[ruleType]}规则`,
+    ruleType,
+    inputField: fields.value[0]?.fieldCode || '',
+    outputField: '',
+    enabled: true,
+    onFail: 'REVIEW',
+    dictItems: ruleType === 'DICT' ? [{ source: '', target: '' }] : [],
+    apiEndpoint: ruleType === 'API' ? '/api/example/{value}' : '',
+    apiMethod: 'GET',
+    apiParamName: 'value',
+    apiResponsePath: '$.data.value',
+    sqlDatasource: '只读数据源',
+    sqlText: ruleType === 'SQL' ? 'select target_value from table_name where source_value = :source_value' : '',
+    sqlResultColumn: 'target_value'
+  })
+  selectedRuleId.value = id
+}
+const addDictItem = () => {
+  selectedTransformRule.value.dictItems.push({ source: '', target: '' })
+}
+const runTransformPreview = () => {
+  const rule = selectedTransformRule.value
+  if (rule.ruleType === 'DICT') {
+    previewOutput.value = rule.dictItems.find((item) => item.source === previewInput.value)?.target || '未命中字典，按失败策略处理'
+  } else if (rule.ruleType === 'API') {
+    previewOutput.value = `模拟调用 ${rule.apiEndpoint.replace('{accountNo}', previewInput.value).replace('{value}', previewInput.value)}，读取 ${rule.apiResponsePath}`
+  } else {
+    previewOutput.value = `模拟执行只读 SQL，返回 ${rule.sqlResultColumn || 'result'}`
+  }
+  ElMessage.success('已生成加工预览')
+}
+</script>
+
+<template>
+  <div class="page-stack">
+    <el-card shadow="never">
+      <template #header>
+        <div class="card-header">
+          <span>配置向导</span>
+          <div>
+            <el-button @click="saveDraft">保存草稿</el-button>
+            <el-button type="primary" @click="validate">验证</el-button>
+            <el-button type="success" @click="publish">发布</el-button>
+          </div>
+        </div>
+      </template>
+      <el-steps :active="activeStep" finish-status="success" align-center>
+        <el-step v-for="step in steps" :key="step" :title="step" />
+      </el-steps>
+    </el-card>
+
+    <el-card shadow="never" class="wizard-card">
+      <template v-if="activeStep === 0">
+        <h2>基础信息</h2>
+        <el-form :model="form" label-width="120px" class="form-grid">
+          <el-form-item label="配置名称"><el-input v-model="form.configName" /></el-form-item>
+          <el-form-item label="文档类型"><el-select v-model="form.documentType"><el-option label="划款指令" value="划款指令" /></el-select></el-form-item>
+          <el-form-item label="所属部门"><el-select v-model="form.departmentId"><el-option label="运营部" value="运营部" /></el-select></el-form-item>
+          <el-form-item label="默认优先级">
+            <el-radio-group v-model="form.defaultPriority">
+              <el-radio-button label="HIGH">高</el-radio-button>
+              <el-radio-button label="MEDIUM">中</el-radio-button>
+              <el-radio-button label="LOW">低</el-radio-button>
+            </el-radio-group>
+          </el-form-item>
+          <el-form-item label="来源范围" class="wide">
+            <el-checkbox-group v-model="form.sourceTypes">
+              <el-checkbox label="MANUAL_UPLOAD">手工上传</el-checkbox>
+              <el-checkbox label="API">API 推送</el-checkbox>
+              <el-checkbox label="EMAIL">邮件分拣</el-checkbox>
+              <el-checkbox label="FILE_DISPATCH">文件分拣</el-checkbox>
+            </el-checkbox-group>
+          </el-form-item>
+        </el-form>
+      </template>
+
+      <template v-if="activeStep === 1">
+        <h2>解析配置</h2>
+        <el-form :model="form" label-width="130px" class="form-grid">
+          <el-form-item label="OCR 引擎">
+            <el-select v-model="form.engineCode">
+              <el-option label="PaddleOCR-VL-1.6" value="paddleocr_vl" />
+              <el-option label="MinerU" value="mineru" />
+            </el-select>
+          </el-form-item>
+          <el-form-item label="输出格式">
+            <el-radio-group v-model="form.outputFormat">
+              <el-radio-button label="Markdown">Markdown</el-radio-button>
+              <el-radio-button label="JSON">JSON</el-radio-button>
+              <el-radio-button label="PlainText">PlainText</el-radio-button>
+            </el-radio-group>
+          </el-form-item>
+          <el-form-item label="解析选项" class="wide">
+            <el-checkbox checked>文档预处理</el-checkbox>
+            <el-checkbox checked>解析表格</el-checkbox>
+            <el-checkbox>解析页头</el-checkbox>
+            <el-checkbox>解析页尾</el-checkbox>
+            <el-checkbox checked>识别印章</el-checkbox>
+          </el-form-item>
+        </el-form>
+        <el-input type="textarea" :rows="6" model-value='{"enablePreprocess":true,"enableTable":true,"enableSeal":true,"outputFormat":"Markdown"}' />
+      </template>
+
+      <template v-if="activeStep === 2">
+        <div class="card-header">
+          <div>
+            <h2>字段配置</h2>
+            <p class="muted">这里只定义当前任务需要提取的逻辑字段，不直接决定写入哪张物理表。</p>
+          </div>
+          <el-button type="primary" @click="addField">添加字段</el-button>
+        </div>
+        <el-alert
+          class="mb-12"
+          title="同一结果表可被多个任务复用，字段与表字段的对应关系在下一步“落库配置”中单独维护。"
+          type="info"
+          :closable="false"
+        />
+        <el-table :data="fields">
+          <el-table-column label="字段编码" min-width="150"><template #default="{ row }"><el-input v-model="row.fieldCode" /></template></el-table-column>
+          <el-table-column label="字段名称" min-width="150"><template #default="{ row }"><el-input v-model="row.fieldName" /></template></el-table-column>
+          <el-table-column label="类型" width="130"><template #default="{ row }"><el-select v-model="row.dataType"><el-option label="string" value="string" /><el-option label="amount" value="amount" /><el-option label="date" value="date" /></el-select></template></el-table-column>
+          <el-table-column label="长度" width="110"><template #default="{ row }"><el-input-number v-model="row.fieldLength" :min="1" /></template></el-table-column>
+          <el-table-column label="必填" width="90"><template #default="{ row }"><el-switch v-model="row.required" /></template></el-table-column>
+          <el-table-column label="多值" width="90"><template #default="{ row }"><el-switch v-model="row.multiple" /></template></el-table-column>
+        </el-table>
+      </template>
+
+      <template v-if="activeStep === 3">
+        <h2>落库配置</h2>
+        <el-form :model="form" label-width="120px" class="form-grid">
+          <el-form-item label="落库模式">
+            <el-radio-group v-model="form.storageMode">
+              <el-radio-button label="REUSE">复用已有表</el-radio-button>
+              <el-radio-button label="CREATE">新建结果表</el-radio-button>
+            </el-radio-group>
+          </el-form-item>
+          <el-form-item label="目标表">
+            <el-select v-if="form.storageMode === 'REUSE'" v-model="form.targetTable" filterable>
+              <el-option v-for="table in existingTables" :key="table.value" :label="table.label" :value="table.value" />
+            </el-select>
+            <el-input v-else v-model="form.targetTable" />
+          </el-form-item>
+          <el-form-item label="映射方案名称"><el-input v-model="form.mappingProfileName" /></el-form-item>
+          <el-form-item label="保存模式"><el-radio-group v-model="form.saveMode"><el-radio-button label="SINGLE">单对象</el-radio-button><el-radio-button label="BATCH">数组批量</el-radio-button></el-radio-group></el-form-item>
+        </el-form>
+        <el-alert
+          class="mb-12"
+          title="推荐做法：物理表保存通用业务结果字段；不同任务只新建映射方案，不重复建表。"
+          type="success"
+          :closable="false"
+        />
+        <el-table :data="mappingProfiles" class="mb-12">
+          <el-table-column prop="name" label="已有映射方案" min-width="190" />
+          <el-table-column prop="documentType" label="适用文档" width="110" />
+          <el-table-column prop="targetTable" label="复用表" min-width="190" />
+          <el-table-column prop="mapping" label="映射摘要" min-width="320" />
+        </el-table>
+        <el-table :data="fields">
+          <el-table-column prop="fieldCode" label="提取字段" />
+          <el-table-column label="目标字段">
+            <template #default="{ row }">
+              <el-select v-if="form.storageMode === 'REUSE'" v-model="row.targetColumn" filterable allow-create>
+                <el-option v-for="column in reusableColumns" :key="column" :label="column" :value="column" />
+              </el-select>
+              <el-input v-else v-model="row.targetColumn" />
+            </template>
+          </el-table-column>
+          <el-table-column prop="dataType" label="字段类型" />
+          <el-table-column prop="fieldLength" label="长度" />
+          <el-table-column label="映射说明" min-width="160">
+            <template #default="{ row }">
+              <span class="muted">{{ row.fieldCode }} 写入 {{ row.targetColumn }}</span>
+            </template>
+          </el-table-column>
+        </el-table>
+        <el-input
+          class="mt-16"
+          type="textarea"
+          :rows="7"
+          :model-value="form.storageMode === 'REUSE'
+            ? `-- 复用已有表 ${form.targetTable}\\n-- 仅保存映射方案：${form.mappingProfileName}\\n-- 不执行 DDL，仅校验目标字段是否存在。`
+            : `CREATE TABLE ${form.targetTable} (...);`"
+        />
+      </template>
+
+      <template v-if="activeStep === 4">
+        <h2>提取策略</h2>
+        <el-form :model="form" label-width="130px" class="form-grid">
+          <el-form-item label="输出模式"><el-radio-group v-model="form.outputMode"><el-radio-button label="SINGLE">单对象</el-radio-button><el-radio-button label="ARRAY">数组对象</el-radio-button></el-radio-group></el-form-item>
+          <el-form-item label="默认策略"><el-select v-model="form.defaultStrategy"><el-option label="AI 优先，规则兜底" value="AI_FIRST_RULE_FALLBACK" /><el-option label="规则优先，AI 兜底" value="RULE_FIRST_AI_FALLBACK" /></el-select></el-form-item>
+          <el-form-item label="置信度阈值"><el-input-number v-model="form.confidenceThreshold" :min="0" :max="1" :step="0.01" /></el-form-item>
+        </el-form>
+        <el-alert title="已根据字段配置自动生成提示词" type="success" :closable="false" />
+        <el-input class="mt-12" type="textarea" :rows="5" :model-value="generatedPrompt" />
+      </template>
+
+      <template v-if="activeStep === 5">
+        <div class="card-header">
+          <div>
+            <h2>加工校验</h2>
+            <p class="muted">通过可视化规则把提取值转换为标准值，或衍生出新的入库字段。</p>
+          </div>
+          <div>
+            <el-button @click="addTransformRule('DICT')">新增字典转换</el-button>
+            <el-button @click="addTransformRule('API')">新增 API 取数</el-button>
+            <el-button type="primary" @click="addTransformRule('SQL')">新增 SQL 查询</el-button>
+          </div>
+        </div>
+        <el-alert
+          class="mb-12"
+          title="建议优先使用数据字典和主数据 API；SQL 查询仅允许只读数据源和参数化查询。"
+          type="info"
+          :closable="false"
+        />
+
+        <div class="transform-designer">
+          <el-card shadow="never" class="rule-list-card">
+            <template #header>加工规则流水线</template>
+            <div
+              v-for="(rule, index) in transformRules"
+              :key="rule.id"
+              class="rule-item"
+              :class="{ active: selectedRuleId === rule.id }"
+              @click="selectedRuleId = rule.id"
+            >
+              <div class="rule-index">{{ index + 1 }}</div>
+              <div class="rule-main">
+                <strong>{{ rule.ruleName }}</strong>
+                <span>{{ rule.inputField }} -> {{ rule.outputField || '待配置输出字段' }}</span>
+              </div>
+              <el-tag :type="rule.ruleType === 'DICT' ? 'success' : rule.ruleType === 'API' ? 'primary' : 'warning'">
+                {{ transformTypeLabel[rule.ruleType] }}
+              </el-tag>
+              <el-switch v-model="rule.enabled" @click.stop />
+            </div>
+          </el-card>
+
+          <el-card shadow="never" class="rule-editor-card">
+            <template #header>
+              <div class="card-header">
+                <span>规则编辑器</span>
+                <el-tag :type="selectedTransformRule.enabled ? 'success' : 'info'">
+                  {{ selectedTransformRule.enabled ? '启用' : '停用' }}
+                </el-tag>
+              </div>
+            </template>
+
+            <el-form label-width="120px" class="form-grid">
+              <el-form-item label="规则名称">
+                <el-input v-model="selectedTransformRule.ruleName" />
+              </el-form-item>
+              <el-form-item label="转换方式">
+                <el-radio-group v-model="selectedTransformRule.ruleType">
+                  <el-radio-button label="DICT">字典转换</el-radio-button>
+                  <el-radio-button label="API">API 取数</el-radio-button>
+                  <el-radio-button label="SQL">SQL 查询</el-radio-button>
+                </el-radio-group>
+              </el-form-item>
+              <el-form-item label="输入字段">
+                <el-select v-model="selectedTransformRule.inputField" filterable allow-create>
+                  <el-option v-for="field in fields" :key="field.fieldCode" :label="`${field.fieldName}（${field.fieldCode}）`" :value="field.fieldCode" />
+                  <el-option label="产品代码（product_code）" value="product_code" />
+                </el-select>
+              </el-form-item>
+              <el-form-item label="输出字段">
+                <el-select v-model="selectedTransformRule.outputField" filterable allow-create>
+                  <el-option v-for="field in fields" :key="field.fieldCode" :label="`${field.fieldName}（覆盖原字段）`" :value="field.fieldCode" />
+                  <el-option label="产品名称（product_name）" value="product_name" />
+                  <el-option label="交易对手名称（counterparty_name）" value="counterparty_name" />
+                  <el-option label="金额等级（amount_level）" value="amount_level" />
+                </el-select>
+              </el-form-item>
+              <el-form-item label="失败策略">
+                <el-select v-model="selectedTransformRule.onFail">
+                  <el-option label="保留原值" value="KEEP_ORIGINAL" />
+                  <el-option label="置为空" value="SET_NULL" />
+                  <el-option label="进入复核" value="REVIEW" />
+                  <el-option label="阻断任务" value="BLOCK" />
+                </el-select>
+              </el-form-item>
+            </el-form>
+
+            <section v-if="selectedTransformRule.ruleType === 'DICT'" class="rule-section">
+              <div class="card-header">
+                <h3>字典映射</h3>
+                <el-button size="small" @click="addDictItem">添加映射</el-button>
+              </div>
+              <el-table :data="selectedTransformRule.dictItems">
+                <el-table-column label="原始值/区间">
+                  <template #default="{ row }"><el-input v-model="row.source" placeholder="如：买入、0-100000" /></template>
+                </el-table-column>
+                <el-table-column label="标准值">
+                  <template #default="{ row }"><el-input v-model="row.target" placeholder="如：BUY、普通金额" /></template>
+                </el-table-column>
+              </el-table>
+            </section>
+
+            <section v-if="selectedTransformRule.ruleType === 'API'" class="rule-section">
+              <h3>API 取数配置</h3>
+              <el-form label-width="130px" class="form-grid">
+                <el-form-item label="请求方式">
+                  <el-radio-group v-model="selectedTransformRule.apiMethod">
+                    <el-radio-button label="GET">GET</el-radio-button>
+                    <el-radio-button label="POST">POST</el-radio-button>
+                  </el-radio-group>
+                </el-form-item>
+                <el-form-item label="参数名">
+                  <el-input v-model="selectedTransformRule.apiParamName" placeholder="如 accountNo" />
+                </el-form-item>
+                <el-form-item label="接口地址" class="wide">
+                  <el-input v-model="selectedTransformRule.apiEndpoint" placeholder="/master-data/accounts/{accountNo}" />
+                </el-form-item>
+                <el-form-item label="响应取值路径" class="wide">
+                  <el-input v-model="selectedTransformRule.apiResponsePath" placeholder="$.data.accountName" />
+                </el-form-item>
+              </el-form>
+            </section>
+
+            <section v-if="selectedTransformRule.ruleType === 'SQL'" class="rule-section">
+              <h3>SQL 查询配置</h3>
+              <el-alert class="mb-12" title="SQL 仅支持 SELECT，只允许使用参数占位符，禁止拼接用户输入。" type="warning" :closable="false" />
+              <el-form label-width="130px" class="form-grid">
+                <el-form-item label="只读数据源">
+                  <el-select v-model="selectedTransformRule.sqlDatasource">
+                    <el-option label="产品主数据只读库" value="产品主数据只读库" />
+                    <el-option label="客户主数据只读库" value="客户主数据只读库" />
+                    <el-option label="主数据只读库" value="主数据只读库" />
+                  </el-select>
+                </el-form-item>
+                <el-form-item label="结果字段">
+                  <el-input v-model="selectedTransformRule.sqlResultColumn" placeholder="product_name" />
+                </el-form-item>
+                <el-form-item label="SQL 模板" class="wide">
+                  <el-input v-model="selectedTransformRule.sqlText" type="textarea" :rows="5" />
+                </el-form-item>
+              </el-form>
+            </section>
+
+            <section class="rule-preview">
+              <div>
+                <strong>转换预览</strong>
+                <span class="muted">输入样例会按当前规则生成模拟输出。</span>
+              </div>
+              <el-input v-model="previewInput" placeholder="输入样例值" />
+              <el-button type="primary" @click="runTransformPreview">运行预览</el-button>
+              <el-result icon="success" title="输出预览" :sub-title="previewOutput" />
+            </section>
+          </el-card>
+        </div>
+      </template>
+
+      <template v-if="activeStep === 6">
+        <h2>复核策略</h2>
+        <el-form :model="form" label-width="140px" class="form-grid">
+          <el-form-item label="复核阈值"><el-input-number v-model="form.confidenceThreshold" :min="0" :max="1" :step="0.01" /></el-form-item>
+          <el-form-item label="复核角色"><el-select v-model="form.reviewerRole"><el-option label="运营复核岗" value="运营复核岗" /></el-select></el-form-item>
+          <el-form-item label="强制复核字段" class="wide">
+            <el-checkbox checked>划款金额</el-checkbox>
+            <el-checkbox checked>收款账号</el-checkbox>
+            <el-checkbox>付款方名称</el-checkbox>
+          </el-form-item>
+        </el-form>
+      </template>
+
+      <template v-if="activeStep === 7">
+        <h2>验证发布</h2>
+        <div class="validation-grid">
+          <el-upload drag action="#" :auto-upload="false">
+            <div class="el-upload__text">上传样本文档执行验证</div>
+          </el-upload>
+          <el-tabs type="border-card">
+            <el-tab-pane label="解析结果">## 划款指令<br />付款方：示例基金管理有限公司</el-tab-pane>
+            <el-tab-pane label="提取结果">
+              <el-table :data="fields"><el-table-column prop="fieldName" label="字段" /><el-table-column prop="targetColumn" label="落库字段" /><el-table-column label="置信度"><el-tag type="success">96%</el-tag></el-table-column></el-table>
+            </el-tab-pane>
+            <el-tab-pane label="落库预览">目标表：{{ form.targetTable }}</el-tab-pane>
+          </el-tabs>
+        </div>
+      </template>
+
+      <div class="wizard-actions">
+        <el-button :disabled="activeStep === 0" @click="prev">上一步</el-button>
+        <el-button v-if="activeStep < steps.length - 1" type="primary" @click="next">下一步</el-button>
+        <el-button v-else type="success" @click="publish">发布配置</el-button>
+      </div>
+    </el-card>
+  </div>
+</template>
