@@ -90,6 +90,7 @@ const openDetail = (task: TaskItem) => {
       </template>
       <el-table :data="filteredTasks" stripe>
         <el-table-column prop="taskId" label="任务编号" min-width="180" fixed />
+        <el-table-column prop="traceId" label="TraceId" min-width="170" />
         <el-table-column prop="fileName" label="文件名" min-width="170" />
         <el-table-column prop="sourceType" label="来源" width="130" />
         <el-table-column prop="documentType" label="文档类型" width="110" />
@@ -124,6 +125,7 @@ const openDetail = (task: TaskItem) => {
       <template v-if="selectedTask">
         <el-descriptions :column="1" border>
           <el-descriptions-item label="任务编号">{{ selectedTask.taskId }}</el-descriptions-item>
+          <el-descriptions-item label="TraceId">{{ selectedTask.traceId }}</el-descriptions-item>
           <el-descriptions-item label="文件名">{{ selectedTask.fileName }}</el-descriptions-item>
           <el-descriptions-item label="部门">{{ selectedTask.department }}</el-descriptions-item>
           <el-descriptions-item label="当前阶段">{{ selectedTask.currentStage }}</el-descriptions-item>

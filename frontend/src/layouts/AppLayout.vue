@@ -21,7 +21,7 @@ const go = (path: string) => router.push(path)
 
 <template>
   <el-container class="app-shell">
-    <el-aside width="244px" class="sidebar">
+    <el-aside width="216px" class="sidebar">
       <div class="brand">
         <div class="brand-mark">OCR</div>
         <div>
@@ -49,6 +49,7 @@ const go = (path: string) => router.push(path)
             <span>任务中心</span>
           </template>
           <el-menu-item index="/tasks">全部任务</el-menu-item>
+          <el-menu-item index="/monitor/traces">全链路监控</el-menu-item>
           <el-menu-item index="/tasks/failed">失败任务</el-menu-item>
         </el-sub-menu>
         <el-sub-menu index="/configs">
@@ -63,10 +64,14 @@ const go = (path: string) => router.push(path)
           <el-icon><Checked /></el-icon>
           <span>复核中心</span>
         </el-menu-item>
-        <el-menu-item index="/results">
-          <el-icon><Finished /></el-icon>
-          <span>结果中心</span>
-        </el-menu-item>
+        <el-sub-menu index="/results-menu">
+          <template #title>
+            <el-icon><Finished /></el-icon>
+            <span>结果中心</span>
+          </template>
+          <el-menu-item index="/results">提取结果</el-menu-item>
+          <el-menu-item index="/storage-data">落库数据查询</el-menu-item>
+        </el-sub-menu>
         <el-sub-menu index="/models">
           <template #title>
             <el-icon><Cpu /></el-icon>

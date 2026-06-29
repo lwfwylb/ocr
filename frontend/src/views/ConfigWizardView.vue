@@ -30,6 +30,18 @@ interface TransformRule {
 
 const activeStep = ref(0)
 const fields = ref(configFields.map((item) => ({ ...item })))
+fields.value.forEach((field) => {
+  const mutable = field as any
+  mutable.extractByRegex = field.fieldCode === 'amount' || field.fieldCode === 'payee_account'
+  mutable.regexPattern =
+    field.fieldCode === 'amount'
+      ? '(?:金额|付款金额|划款金额)[:：]?\\s*([0-9,]+(?:\\.\\d{1,2})?)'
+      : field.fieldCode === 'payee_account'
+        ? '(?:收款账号|账号)[:：]?\\s*([0-9*\\s]+)'
+        : ''
+  mutable.regexFlags = ''
+  mutable.regexGroup = 1
+})
 const transformRules = ref<TransformRule[]>([
   {
     id: 'rule-dict-amount',
@@ -87,12 +99,23 @@ const transformRules = ref<TransformRule[]>([
   }
 ])
 const selectedRuleId = ref(transformRules.value[0].id)
+const selectedExtractFieldCode = ref(fields.value[0]?.fieldCode || '')
+const aiEnabled = ref(true)
+const aiSystemPrompt = ref('你是基金公司智能要素提取助手。请基于解析后的文档文本、表格和页面位置信息，按字段定义一次性提取全部业务要素。')
+const aiUserPrompt = ref('')
+const regexSampleText = ref('付款方：示例基金管理有限公司\n收款账号：6222 **** 8910\n金额：100000.00\n划款日期：2026年6月28日')
+const regexPreview = ref('100000.00')
 const previewInput = ref('100000-1000000')
 const previewOutput = ref('大额')
 const form = reactive({
   configName: '划款指令-运营部-提取配置',
+  category: '资金业务',
+  subCategory: '划款指令',
+  templateType: '通用划款指令模板',
   documentType: '划款指令',
   departmentId: '运营部',
+  visibleRoles: ['模板配置员', '复核人员'],
+  ownerRole: '模板配置员',
   sourceTypes: ['MANUAL_UPLOAD', 'API'],
   defaultPriority: 'HIGH',
   engineCode: 'paddleocr_vl',
@@ -113,6 +136,37 @@ const existingTables = [
   { label: 'ext_payment_instruction - 划款指令结果表', value: 'ext_payment_instruction' },
   { label: 'ext_bank_receipt - 银行回单结果表', value: 'ext_bank_receipt' }
 ]
+const categoryOptions = [
+  {
+    label: '资金业务',
+    value: '资金业务',
+    children: [
+      { label: '划款指令', value: '划款指令', templates: ['通用划款指令模板', '托管行划款指令模板'] },
+      { label: '银行回单', value: '银行回单', templates: ['通用银行回单模板'] }
+    ]
+  },
+  {
+    label: '基金交易',
+    value: '基金交易',
+    children: [
+      { label: '基金申购', value: '基金申购', templates: ['大成基金申购单', '南方基金申购单', '华夏基金申购单'] },
+      { label: '基金赎回', value: '基金赎回', templates: ['大成基金赎回单', '南方基金赎回单'] }
+    ]
+  },
+  {
+    label: '客户业务',
+    value: '客户业务',
+    children: [
+      { label: '开户资料', value: '开户资料', templates: ['机构客户开户资料', '产品户开户资料'] }
+    ]
+  }
+]
+const subCategoryOptions = computed(() => {
+  return categoryOptions.find((item) => item.value === form.category)?.children || []
+})
+const templateTypeOptions = computed(() => {
+  return subCategoryOptions.value.find((item) => item.value === form.subCategory)?.templates || []
+})
 const reusableColumns = [
   'biz_no',
   'source_system',
@@ -145,8 +199,12 @@ const generatedPrompt = computed(() => {
   const mappings = fields.value.map((field) => `${field.fieldCode}->${field.targetColumn}`).join('；')
   return `请从${form.documentType}中提取以下字段：${names}。字段需按映射关系 ${mappings} 写入结果对象。严格输出 JSON，无法识别返回 null，并提供 confidence、evidence、sourcePage。`
 })
+const effectiveAiUserPrompt = computed(() => aiUserPrompt.value.trim() || generatedPrompt.value)
 const selectedTransformRule = computed(() => {
   return transformRules.value.find((rule) => rule.id === selectedRuleId.value) || transformRules.value[0]
+})
+const selectedExtractField = computed(() => {
+  return fields.value.find((field) => field.fieldCode === selectedExtractFieldCode.value) || fields.value[0]
 })
 const transformTypeLabel: Record<TransformRuleType, string> = {
   DICT: '字典转换',
@@ -171,8 +229,12 @@ const addField = () => {
     fieldLength: 100,
     required: false,
     multiple: false,
-    targetColumn: `field_${fields.value.length + 1}`
-  })
+    targetColumn: `field_${fields.value.length + 1}`,
+    extractByRegex: false,
+    regexPattern: '',
+    regexFlags: '',
+    regexGroup: 1
+  } as any)
 }
 const addTransformRule = (ruleType: TransformRuleType) => {
   const id = `rule-${Date.now()}`
@@ -209,6 +271,21 @@ const runTransformPreview = () => {
   }
   ElMessage.success('已生成加工预览')
 }
+const runRegexPreview = () => {
+  const field = selectedExtractField.value as any
+  if (!field.regexPattern) {
+    regexPreview.value = '请先配置正则表达式'
+  } else {
+    try {
+      const match = regexSampleText.value.match(new RegExp(field.regexPattern, field.regexFlags || undefined))
+      const group = Number(field.regexGroup ?? 1)
+      regexPreview.value = match?.[group] || match?.[0] || '未匹配到结果'
+    } catch (error) {
+      regexPreview.value = '正则表达式格式错误'
+    }
+  }
+  ElMessage.success('已运行正则测试')
+}
 </script>
 
 <template>
@@ -234,8 +311,37 @@ const runTransformPreview = () => {
         <h2>基础信息</h2>
         <el-form :model="form" label-width="120px" class="form-grid">
           <el-form-item label="配置名称"><el-input v-model="form.configName" /></el-form-item>
-          <el-form-item label="文档类型"><el-select v-model="form.documentType"><el-option label="划款指令" value="划款指令" /></el-select></el-form-item>
+          <el-form-item label="业务分类">
+            <el-select v-model="form.category" filterable @change="form.subCategory = ''; form.templateType = ''">
+              <el-option v-for="item in categoryOptions" :key="item.value" :label="item.label" :value="item.value" />
+            </el-select>
+          </el-form-item>
+          <el-form-item label="业务子类">
+            <el-select v-model="form.subCategory" filterable @change="form.templateType = ''; form.documentType = form.subCategory">
+              <el-option v-for="item in subCategoryOptions" :key="item.value" :label="item.label" :value="item.value" />
+            </el-select>
+          </el-form-item>
+          <el-form-item label="模板/表单类型">
+            <el-select v-model="form.templateType" filterable allow-create>
+              <el-option v-for="item in templateTypeOptions" :key="item" :label="item" :value="item" />
+            </el-select>
+          </el-form-item>
+          <el-form-item label="文档类型"><el-input v-model="form.documentType" /></el-form-item>
           <el-form-item label="所属部门"><el-select v-model="form.departmentId"><el-option label="运营部" value="运营部" /></el-select></el-form-item>
+          <el-form-item label="配置负责人角色">
+            <el-select v-model="form.ownerRole">
+              <el-option label="模板配置员" value="模板配置员" />
+              <el-option label="部门管理员" value="部门管理员" />
+            </el-select>
+          </el-form-item>
+          <el-form-item label="可见角色">
+            <el-select v-model="form.visibleRoles" multiple filterable clearable collapse-tags collapse-tags-tooltip>
+              <el-option label="普通业务用户" value="普通业务用户" />
+              <el-option label="复核人员" value="复核人员" />
+              <el-option label="模板配置员" value="模板配置员" />
+              <el-option label="部门管理员" value="部门管理员" />
+            </el-select>
+          </el-form-item>
           <el-form-item label="默认优先级">
             <el-radio-group v-model="form.defaultPriority">
               <el-radio-button label="HIGH">高</el-radio-button>
@@ -252,6 +358,11 @@ const runTransformPreview = () => {
             </el-checkbox-group>
           </el-form-item>
         </el-form>
+        <el-alert
+          title="权限绑定说明：所属部门只定义配置归属；用户还必须在该部门下拥有可见角色，并命中数据权限策略，才能查看该配置和相关任务结果。"
+          type="info"
+          :closable="false"
+        />
       </template>
 
       <template v-if="activeStep === 1">
@@ -364,14 +475,144 @@ const runTransformPreview = () => {
       </template>
 
       <template v-if="activeStep === 4">
-        <h2>提取策略</h2>
+        <div class="card-header">
+          <div>
+            <h2>提取策略</h2>
+            <p class="muted">AI 使用一套配置级提示词一次性提取全部字段；正则按字段一一配置取数规则，可按策略链自动兜底。</p>
+          </div>
+          <el-button type="primary" @click="runRegexPreview">测试当前正则</el-button>
+        </div>
         <el-form :model="form" label-width="130px" class="form-grid">
           <el-form-item label="输出模式"><el-radio-group v-model="form.outputMode"><el-radio-button label="SINGLE">单对象</el-radio-button><el-radio-button label="ARRAY">数组对象</el-radio-button></el-radio-group></el-form-item>
-          <el-form-item label="默认策略"><el-select v-model="form.defaultStrategy"><el-option label="AI 优先，规则兜底" value="AI_FIRST_RULE_FALLBACK" /><el-option label="规则优先，AI 兜底" value="RULE_FIRST_AI_FALLBACK" /></el-select></el-form-item>
+          <el-form-item label="默认策略"><el-select v-model="form.defaultStrategy"><el-option label="AI 优先，正则兜底" value="AI_FIRST_RULE_FALLBACK" /><el-option label="正则优先，AI 兜底" value="RULE_FIRST_AI_FALLBACK" /><el-option label="AI + 正则比对" value="MULTI_EXTRACTOR_VOTE" /></el-select></el-form-item>
           <el-form-item label="置信度阈值"><el-input-number v-model="form.confidenceThreshold" :min="0" :max="1" :step="0.01" /></el-form-item>
         </el-form>
-        <el-alert title="已根据字段配置自动生成提示词" type="success" :closable="false" />
-        <el-input class="mt-12" type="textarea" :rows="5" :model-value="generatedPrompt" />
+
+        <div class="extract-strategy-layout">
+          <el-card shadow="never" class="rule-list-card">
+            <template #header>字段提取规则</template>
+            <div
+              v-for="field in fields"
+              :key="field.fieldCode"
+              class="rule-item"
+              :class="{ active: selectedExtractFieldCode === field.fieldCode }"
+              @click="selectedExtractFieldCode = field.fieldCode"
+            >
+              <div class="rule-index">{{ field.required ? '必' : '选' }}</div>
+              <div class="rule-main">
+                <strong>{{ field.fieldName }}</strong>
+                <span>{{ field.fieldCode }} -> {{ field.targetColumn }}</span>
+              </div>
+              <el-tag type="primary">AI统一</el-tag>
+              <el-tag v-if="(field as any).extractByRegex" type="success">正则</el-tag>
+            </div>
+          </el-card>
+
+          <el-card shadow="never" class="rule-editor-card">
+            <template #header>
+              <div class="card-header">
+                <span>提取策略配置</span>
+                <span class="muted">AI 全局 + 正则字段级</span>
+              </div>
+            </template>
+
+            <el-tabs type="border-card">
+              <el-tab-pane label="AI 统一提示词">
+                <el-alert
+                  class="mb-12"
+                  title="AI 提取按当前配置整体执行：一个系统提示词 + 一个用户提示词覆盖全部字段，不再为每个字段单独维护 AI 提示词。"
+                  type="info"
+                  :closable="false"
+                />
+                <el-form label-width="120px" class="form-grid">
+                  <el-form-item label="启用 AI">
+                    <el-switch v-model="aiEnabled" />
+                  </el-form-item>
+                  <el-form-item label="覆盖字段数">
+                    <el-tag type="primary">{{ fields.length }} 个字段</el-tag>
+                  </el-form-item>
+                  <el-form-item label="系统提示词" class="wide">
+                    <el-input v-model="aiSystemPrompt" type="textarea" :rows="3" />
+                  </el-form-item>
+                  <el-form-item label="用户提示词" class="wide">
+                    <el-input
+                      v-model="aiUserPrompt"
+                      type="textarea"
+                      :rows="5"
+                      :placeholder="generatedPrompt"
+                    />
+                  </el-form-item>
+                </el-form>
+                <el-table :data="fields" class="mb-12">
+                  <el-table-column prop="fieldName" label="字段" width="140" />
+                  <el-table-column prop="fieldCode" label="输出键" width="150" />
+                  <el-table-column prop="targetColumn" label="落库字段" width="170" />
+                  <el-table-column label="JSON 要求" min-width="260">
+                    <template #default="{ row }">
+                      <span class="muted">{{ row.fieldCode }}: { value, confidence, evidence, sourcePage }</span>
+                    </template>
+                  </el-table-column>
+                </el-table>
+                <el-input type="textarea" :rows="4" :model-value="effectiveAiUserPrompt" readonly />
+              </el-tab-pane>
+
+              <el-tab-pane label="字段级正则">
+                <el-alert
+                  class="mb-12"
+                  title="正则表达式只在当前选中的字段上生效，一个字段对应一套正则取数规则；未启用正则的字段只走 AI 或其他策略。"
+                  type="success"
+                  :closable="false"
+                />
+                <div class="card-header mb-12">
+                  <strong>{{ selectedExtractField?.fieldName }} 正则规则</strong>
+                  <span class="muted">{{ selectedExtractField?.fieldCode }} -> {{ selectedExtractField?.targetColumn }}</span>
+                </div>
+                <el-form label-width="120px" class="form-grid">
+                  <el-form-item label="启用正则">
+                    <el-switch v-model="(selectedExtractField as any).extractByRegex" />
+                  </el-form-item>
+                  <el-form-item label="提取分组">
+                    <el-input-number v-model="(selectedExtractField as any).regexGroup" :min="0" />
+                  </el-form-item>
+                  <el-form-item label="正则表达式" class="wide">
+                    <el-input v-model="(selectedExtractField as any).regexPattern" type="textarea" :rows="4" placeholder="例如：(金额|付款金额)[:：]?\\s*([0-9,]+(?:\\.\\d{1,2})?)" />
+                  </el-form-item>
+                  <el-form-item label="正则标记">
+                    <el-input v-model="(selectedExtractField as any).regexFlags" placeholder="如 i、m，可为空" />
+                  </el-form-item>
+                </el-form>
+                <div class="regex-test-panel">
+                  <div>
+                    <strong>测试文本</strong>
+                    <el-input v-model="regexSampleText" type="textarea" :rows="7" />
+                  </div>
+                  <div>
+                    <strong>匹配结果</strong>
+                    <el-result icon="success" title="提取预览" :sub-title="regexPreview" />
+                  </div>
+                </div>
+              </el-tab-pane>
+
+              <el-tab-pane label="策略预览">
+                <el-table
+                  :data="fields.map((field) => ({
+                    fieldName: field.fieldName,
+                    fieldCode: field.fieldCode,
+                    ai: aiEnabled ? '统一提示词' : '停用',
+                    regex: (field as any).extractByRegex ? '启用' : '停用',
+                    strategy: form.defaultStrategy
+                  }))"
+                >
+                  <el-table-column prop="fieldName" label="字段" />
+                  <el-table-column prop="fieldCode" label="编码" />
+                  <el-table-column prop="ai" label="AI" />
+                  <el-table-column prop="regex" label="正则" />
+                  <el-table-column prop="strategy" label="执行策略" min-width="180" />
+                </el-table>
+              </el-tab-pane>
+            </el-tabs>
+          </el-card>
+        </div>
       </template>
 
       <template v-if="activeStep === 5">
