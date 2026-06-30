@@ -105,6 +105,10 @@ const aiSystemPrompt = ref('你是基金公司智能要素提取助手。请基�
 const aiUserPrompt = ref('')
 const regexSampleText = ref('付款方：示例基金管理有限公司\n收款账号：6222 **** 8910\n金额：100000.00\n划款日期：2026年6月28日')
 const regexPreview = ref('100000.00')
+const regexPreviewMap = ref<Record<string, string>>({
+  amount: '100000.00',
+  payee_account: '6222 **** 8910'
+})
 const previewInput = ref('100000-1000000')
 const previewOutput = ref('大额')
 const form = reactive({
@@ -273,18 +277,30 @@ const runTransformPreview = () => {
 }
 const runRegexPreview = () => {
   const field = selectedExtractField.value as any
-  if (!field.regexPattern) {
-    regexPreview.value = '请先配置正则表达式'
-  } else {
-    try {
-      const match = regexSampleText.value.match(new RegExp(field.regexPattern, field.regexFlags || undefined))
-      const group = Number(field.regexGroup ?? 1)
-      regexPreview.value = match?.[group] || match?.[0] || '未匹配到结果'
-    } catch (error) {
-      regexPreview.value = '正则表达式格式错误'
-    }
-  }
+  regexPreview.value = runFieldRegexPreview(field)
   ElMessage.success('已运行正则测试')
+}
+const runFieldRegexPreview = (field: any) => {
+  if (!field.regexPattern) {
+    regexPreviewMap.value[field.fieldCode] = '未配置'
+    return '未配置'
+  }
+  try {
+    const match = regexSampleText.value.match(new RegExp(field.regexPattern, field.regexFlags || undefined))
+    const group = Number(field.regexGroup ?? 1)
+    const result = match?.[group] || match?.[0] || '未匹配'
+    regexPreviewMap.value[field.fieldCode] = result
+    return result
+  } catch (error) {
+    regexPreviewMap.value[field.fieldCode] = '正则错误'
+    return '正则错误'
+  }
+}
+const runAllRegexPreview = () => {
+  fields.value.forEach((field) => {
+    if ((field as any).extractByRegex) runFieldRegexPreview(field)
+  })
+  ElMessage.success('已批量验证已启用的正则规则')
 }
 </script>
 
@@ -478,141 +494,135 @@ const runRegexPreview = () => {
         <div class="card-header">
           <div>
             <h2>提取策略</h2>
-            <p class="muted">AI 使用一套配置级提示词一次性提取全部字段；正则按字段一一配置取数规则，可按策略链自动兜底。</p>
+            <p class="muted">AI 通过一套提示词一次性提取全部字段；正则按字段逐个配置，适合金额、账号、日期等格式明确的取数。</p>
           </div>
-          <el-button type="primary" @click="runRegexPreview">测试当前正则</el-button>
+          <el-button type="primary" @click="runAllRegexPreview">批量验证正则</el-button>
         </div>
         <el-form :model="form" label-width="130px" class="form-grid">
           <el-form-item label="输出模式"><el-radio-group v-model="form.outputMode"><el-radio-button label="SINGLE">单对象</el-radio-button><el-radio-button label="ARRAY">数组对象</el-radio-button></el-radio-group></el-form-item>
-          <el-form-item label="默认策略"><el-select v-model="form.defaultStrategy"><el-option label="AI 优先，正则兜底" value="AI_FIRST_RULE_FALLBACK" /><el-option label="正则优先，AI 兜底" value="RULE_FIRST_AI_FALLBACK" /><el-option label="AI + 正则比对" value="MULTI_EXTRACTOR_VOTE" /></el-select></el-form-item>
+          <el-form-item label="默认策略"><el-select v-model="form.defaultStrategy"><el-option label="AI 优先，正则兜底" value="AI_FIRST_RULE_FALLBACK" /><el-option label="正则优先，AI 兜底" value="RULE_FIRST_AI_FALLBACK" /></el-select></el-form-item>
           <el-form-item label="置信度阈值"><el-input-number v-model="form.confidenceThreshold" :min="0" :max="1" :step="0.01" /></el-form-item>
         </el-form>
 
-        <div class="extract-strategy-layout">
-          <el-card shadow="never" class="rule-list-card">
-            <template #header>字段提取规则</template>
-            <div
-              v-for="field in fields"
-              :key="field.fieldCode"
-              class="rule-item"
-              :class="{ active: selectedExtractFieldCode === field.fieldCode }"
-              @click="selectedExtractFieldCode = field.fieldCode"
-            >
-              <div class="rule-index">{{ field.required ? '必' : '选' }}</div>
-              <div class="rule-main">
-                <strong>{{ field.fieldName }}</strong>
-                <span>{{ field.fieldCode }} -> {{ field.targetColumn }}</span>
-              </div>
-              <el-tag type="primary">AI统一</el-tag>
-              <el-tag v-if="(field as any).extractByRegex" type="success">正则</el-tag>
-            </div>
-          </el-card>
+        <div class="strategy-overview">
+          <el-alert
+            title="推荐配置顺序：先确认 AI 提示词是否能一次性覆盖所有字段，再为关键字段补充正则规则，最后选择默认执行策略。"
+            type="info"
+            :closable="false"
+          />
+          <div class="strategy-kpi">
+            <span>AI 覆盖字段：<strong>{{ fields.length }}</strong></span>
+            <span>已配置正则：<strong>{{ fields.filter((field) => (field as any).extractByRegex).length }}</strong></span>
+            <span>低于 <strong>{{ Math.round(form.confidenceThreshold * 100) }}%</strong> 进入复核</span>
+          </div>
+        </div>
 
-          <el-card shadow="never" class="rule-editor-card">
+        <div class="extract-strategy-grid">
+          <el-card shadow="never">
             <template #header>
               <div class="card-header">
-                <span>提取策略配置</span>
-                <span class="muted">AI 全局 + 正则字段级</span>
+                <span>AI 一次性提取全部字段</span>
+                <el-switch v-model="aiEnabled" active-text="启用" inactive-text="停用" />
               </div>
             </template>
-
-            <el-tabs type="border-card">
-              <el-tab-pane label="AI 统一提示词">
-                <el-alert
-                  class="mb-12"
-                  title="AI 提取按当前配置整体执行：一个系统提示词 + 一个用户提示词覆盖全部字段，不再为每个字段单独维护 AI 提示词。"
-                  type="info"
-                  :closable="false"
-                />
-                <el-form label-width="120px" class="form-grid">
-                  <el-form-item label="启用 AI">
-                    <el-switch v-model="aiEnabled" />
-                  </el-form-item>
-                  <el-form-item label="覆盖字段数">
-                    <el-tag type="primary">{{ fields.length }} 个字段</el-tag>
-                  </el-form-item>
-                  <el-form-item label="系统提示词" class="wide">
-                    <el-input v-model="aiSystemPrompt" type="textarea" :rows="3" />
-                  </el-form-item>
-                  <el-form-item label="用户提示词" class="wide">
-                    <el-input
-                      v-model="aiUserPrompt"
-                      type="textarea"
-                      :rows="5"
-                      :placeholder="generatedPrompt"
-                    />
-                  </el-form-item>
-                </el-form>
-                <el-table :data="fields" class="mb-12">
-                  <el-table-column prop="fieldName" label="字段" width="140" />
-                  <el-table-column prop="fieldCode" label="输出键" width="150" />
-                  <el-table-column prop="targetColumn" label="落库字段" width="170" />
-                  <el-table-column label="JSON 要求" min-width="260">
-                    <template #default="{ row }">
-                      <span class="muted">{{ row.fieldCode }}: { value, confidence, evidence, sourcePage }</span>
-                    </template>
-                  </el-table-column>
-                </el-table>
+            <el-form label-width="110px">
+              <el-form-item label="系统提示词">
+                <el-input v-model="aiSystemPrompt" type="textarea" :rows="3" />
+              </el-form-item>
+              <el-form-item label="用户提示词">
+                <el-input v-model="aiUserPrompt" type="textarea" :rows="6" :placeholder="generatedPrompt" />
+              </el-form-item>
+              <el-form-item label="生成预览">
                 <el-input type="textarea" :rows="4" :model-value="effectiveAiUserPrompt" readonly />
-              </el-tab-pane>
+              </el-form-item>
+            </el-form>
+            <el-table :data="fields" height="188">
+              <el-table-column prop="fieldName" label="字段" width="120" />
+              <el-table-column prop="fieldCode" label="JSON Key" width="140" />
+              <el-table-column prop="targetColumn" label="落库字段" min-width="150" />
+            </el-table>
+          </el-card>
 
-              <el-tab-pane label="字段级正则">
-                <el-alert
-                  class="mb-12"
-                  title="正则表达式只在当前选中的字段上生效，一个字段对应一套正则取数规则；未启用正则的字段只走 AI 或其他策略。"
-                  type="success"
-                  :closable="false"
-                />
-                <div class="card-header mb-12">
-                  <strong>{{ selectedExtractField?.fieldName }} 正则规则</strong>
-                  <span class="muted">{{ selectedExtractField?.fieldCode }} -> {{ selectedExtractField?.targetColumn }}</span>
-                </div>
-                <el-form label-width="120px" class="form-grid">
-                  <el-form-item label="启用正则">
-                    <el-switch v-model="(selectedExtractField as any).extractByRegex" />
-                  </el-form-item>
-                  <el-form-item label="提取分组">
-                    <el-input-number v-model="(selectedExtractField as any).regexGroup" :min="0" />
-                  </el-form-item>
-                  <el-form-item label="正则表达式" class="wide">
-                    <el-input v-model="(selectedExtractField as any).regexPattern" type="textarea" :rows="4" placeholder="例如：(金额|付款金额)[:：]?\\s*([0-9,]+(?:\\.\\d{1,2})?)" />
-                  </el-form-item>
-                  <el-form-item label="正则标记">
-                    <el-input v-model="(selectedExtractField as any).regexFlags" placeholder="如 i、m，可为空" />
-                  </el-form-item>
-                </el-form>
-                <div class="regex-test-panel">
-                  <div>
-                    <strong>测试文本</strong>
-                    <el-input v-model="regexSampleText" type="textarea" :rows="7" />
-                  </div>
-                  <div>
-                    <strong>匹配结果</strong>
-                    <el-result icon="success" title="提取预览" :sub-title="regexPreview" />
-                  </div>
-                </div>
-              </el-tab-pane>
-
-              <el-tab-pane label="策略预览">
-                <el-table
-                  :data="fields.map((field) => ({
-                    fieldName: field.fieldName,
-                    fieldCode: field.fieldCode,
-                    ai: aiEnabled ? '统一提示词' : '停用',
-                    regex: (field as any).extractByRegex ? '启用' : '停用',
-                    strategy: form.defaultStrategy
-                  }))"
-                >
-                  <el-table-column prop="fieldName" label="字段" />
-                  <el-table-column prop="fieldCode" label="编码" />
-                  <el-table-column prop="ai" label="AI" />
-                  <el-table-column prop="regex" label="正则" />
-                  <el-table-column prop="strategy" label="执行策略" min-width="180" />
-                </el-table>
-              </el-tab-pane>
-            </el-tabs>
+          <el-card shadow="never">
+            <template #header>
+              <div class="card-header">
+                <span>字段级正则取数规则</span>
+                <el-button size="small" type="primary" @click="runAllRegexPreview">批量验证</el-button>
+              </div>
+            </template>
+            <el-alert
+              class="mb-12"
+              title="所有字段一次性展示。只需打开需要规则兜底的字段，填写正则后即可单行验证或批量验证。"
+              type="success"
+              :closable="false"
+            />
+            <el-input v-model="regexSampleText" class="mb-12" type="textarea" :rows="4" placeholder="输入统一测试文本，用于验证下方所有字段正则" />
+            <el-table :data="fields" class="regex-rule-table" height="430">
+              <el-table-column label="字段" min-width="150" fixed>
+                <template #default="{ row }">
+                  <strong>{{ row.fieldName }}</strong>
+                  <span class="muted block">{{ row.fieldCode }}</span>
+                </template>
+              </el-table-column>
+              <el-table-column label="必填" width="60">
+                <template #default="{ row }">
+                  <el-tag :type="row.required ? 'danger' : 'info'">{{ row.required ? '是' : '否' }}</el-tag>
+                </template>
+              </el-table-column>
+              <el-table-column label="启用" width="70">
+                <template #default="{ row }">
+                  <el-switch v-model="row.extractByRegex" />
+                </template>
+              </el-table-column>
+              <el-table-column label="正则表达式" min-width="260">
+                <template #default="{ row }">
+                  <el-input v-model="row.regexPattern" type="textarea" :rows="2" placeholder="填写该字段的正则表达式" />
+                </template>
+              </el-table-column>
+              <el-table-column label="分组" width="86">
+                <template #default="{ row }">
+                  <el-input-number v-model="row.regexGroup" :min="0" />
+                </template>
+              </el-table-column>
+              <el-table-column label="flags" width="90">
+                <template #default="{ row }">
+                  <el-input v-model="row.regexFlags" placeholder="i/m" />
+                </template>
+              </el-table-column>
+              <el-table-column label="验证结果" min-width="140">
+                <template #default="{ row }">
+                  <el-tag
+                    :type="regexPreviewMap[row.fieldCode] === '未匹配' || regexPreviewMap[row.fieldCode] === '正则错误' ? 'warning' : regexPreviewMap[row.fieldCode] === '未配置' ? 'info' : 'success'"
+                  >
+                    {{ regexPreviewMap[row.fieldCode] || '待验证' }}
+                  </el-tag>
+                </template>
+              </el-table-column>
+              <el-table-column label="操作" width="86" fixed="right">
+                <template #default="{ row }">
+                  <el-button size="small" @click="runFieldRegexPreview(row)">验证</el-button>
+                </template>
+              </el-table-column>
+            </el-table>
           </el-card>
         </div>
+
+        <el-table
+          class="mt-16"
+          :data="fields.map((field) => ({
+            fieldName: field.fieldName,
+            fieldCode: field.fieldCode,
+            ai: aiEnabled ? '统一提示词覆盖' : '停用',
+            regex: (field as any).extractByRegex ? '字段正则已配置' : '未配置',
+            strategy: form.defaultStrategy === 'RULE_FIRST_AI_FALLBACK' ? '先执行字段正则，失败或低置信度时调用 AI' : '先调用 AI，失败或低置信度时执行字段正则'
+          }))"
+        >
+          <el-table-column prop="fieldName" label="字段" width="140" />
+          <el-table-column prop="fieldCode" label="编码" width="150" />
+          <el-table-column prop="ai" label="AI 取数" width="150" />
+          <el-table-column prop="regex" label="正则取数" width="160" />
+          <el-table-column prop="strategy" label="执行说明" min-width="260" />
+        </el-table>
       </template>
 
       <template v-if="activeStep === 5">
