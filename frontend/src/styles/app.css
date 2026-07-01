@@ -386,7 +386,7 @@ body {
 
 .transform-designer {
   display: grid;
-  grid-template-columns: 320px minmax(0, 1fr);
+  grid-template-columns: 360px minmax(0, 1fr);
   gap: 10px;
 }
 
@@ -404,8 +404,8 @@ body {
 
 .rule-item {
   display: grid;
-  grid-template-columns: 32px minmax(0, 1fr) auto auto;
-  gap: 8px;
+  grid-template-columns: 28px minmax(0, 1fr) auto auto;
+  gap: 6px;
   align-items: center;
   padding: 8px;
   margin-bottom: 8px;
@@ -413,6 +413,25 @@ body {
   background: #f8fafc;
   border: 1px solid #e5e7eb;
   border-radius: 6px;
+}
+
+.rule-actions {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+  justify-content: flex-end;
+}
+
+.rule-actions .el-button {
+  padding: 2px;
+}
+
+.process-tabs {
+  margin-top: 10px;
+}
+
+.process-tabs > .el-tabs__content {
+  padding: 10px;
 }
 
 .rule-item.active {
@@ -436,9 +455,22 @@ body {
   min-width: 0;
 }
 
+.rule-title-row {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  min-width: 0;
+}
+
 .rule-main strong,
 .rule-main span {
   display: block;
+}
+
+.rule-title-row strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .rule-main span {
@@ -449,7 +481,8 @@ body {
   white-space: nowrap;
 }
 
-.rule-section {
+.rule-section,
+.config-section {
   padding: 10px;
   margin-top: 10px;
   background: #f8fafc;
@@ -462,9 +495,16 @@ body {
   font-size: 14px;
 }
 
+.config-section-title {
+  margin-bottom: 8px;
+  color: #0f172a;
+  font-size: 13px;
+  font-weight: 650;
+}
+
 .rule-preview {
   display: grid;
-  grid-template-columns: minmax(180px, 1fr) 220px auto minmax(220px, 1fr);
+  grid-template-columns: minmax(180px, 1fr) 260px auto 220px;
   gap: 8px;
   align-items: center;
   padding: 10px;
@@ -476,6 +516,23 @@ body {
 
 .rule-preview .el-result {
   padding: 0;
+}
+
+.preview-result {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  min-height: 30px;
+  padding: 0 8px;
+  background: #f8fafc;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+}
+
+.preview-result strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .regex-test-panel {
@@ -841,6 +898,41 @@ body {
   border-radius: 6px;
   padding: 10px 12px;
   background: var(--el-fill-color-extra-light);
+}
+
+.inline-fields {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+}
+
+.inline-fields .el-input,
+.inline-fields .el-select {
+  flex: 1;
+}
+
+.inline-fields .el-input-number {
+  width: 96px;
+}
+
+.keyword-config {
+  display: grid;
+  gap: 6px;
+  width: 100%;
+}
+
+.keyword-row {
+  display: grid;
+  grid-template-columns: 76px minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+}
+
+.keyword-label {
+  color: var(--el-text-color-regular);
+  font-size: 12px;
+  white-space: nowrap;
 }
 
 .worker-item {

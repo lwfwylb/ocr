@@ -1,9 +1,14 @@
 <script setup lang="ts">
 import { computed, reactive, ref } from 'vue'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { configFields, downstreamServices } from '../mock/data'
 
 type TransformRuleType = 'DICT' | 'API' | 'SQL'
+type PreprocessStepType = 'PAGE_RANGE' | 'KEYWORD_FILTER' | 'PDF_TO_IMAGE' | 'SPLIT_MERGE'
+type ImageQuality = 'FAST_150' | 'STANDARD_300' | 'HIGH_450'
+type TransformOutputMode = 'OVERWRITE_INPUT' | 'WRITE_TARGET' | 'DERIVE_FIELD'
+type DictMatchMode = 'EQUALS' | 'CONTAINS' | 'REGEX' | 'RANGE'
+type ValidationRuleType = 'REQUIRED' | 'FORMAT' | 'RANGE' | 'CROSS_FIELD' | 'UNIQUE' | 'MASTER_DATA'
 
 interface DictItem {
   source: string
@@ -16,16 +21,52 @@ interface TransformRule {
   ruleType: TransformRuleType
   inputField: string
   outputField: string
+  outputMode?: TransformOutputMode
+  conditionEnabled?: boolean
+  conditionField?: string
+  conditionOperator?: 'NOT_EMPTY' | 'EQUALS' | 'CONTAINS'
+  conditionValue?: string
   enabled: boolean
   onFail: 'KEEP_ORIGINAL' | 'SET_NULL' | 'BLOCK' | 'REVIEW'
+  dictMatchMode?: DictMatchMode
   dictItems: DictItem[]
   apiEndpoint: string
   apiMethod: 'GET' | 'POST'
   apiParamName: string
   apiResponsePath: string
+  apiTimeout?: number
+  apiRetryCount?: number
+  apiAuthMode?: 'SYSTEM' | 'NONE'
+  apiSuccessRule?: string
   sqlDatasource: string
   sqlText: string
   sqlResultColumn: string
+  sqlMaxRows?: number
+  sqlReadonlyChecked?: boolean
+}
+
+interface ValidationRule {
+  id: string
+  ruleName: string
+  ruleType: ValidationRuleType
+  fieldCode: string
+  enabled: boolean
+  severity: 'WARN' | 'REVIEW' | 'BLOCK'
+  expression: string
+  failMessage: string
+}
+
+interface PreprocessStep {
+  id: string
+  stepType: PreprocessStepType
+  enabled: boolean
+  pageRanges: string
+  includeKeywords: string[]
+  excludeKeywords: string[]
+  imageQuality: ImageQuality
+  dpi: number
+  imageFormat: 'PNG' | 'JPEG'
+  splitPageCount: number
 }
 
 const activeStep = ref(0)
@@ -100,7 +141,54 @@ const transformRules = ref<TransformRule[]>([
     sqlResultColumn: 'product_name'
   }
 ])
+transformRules.value.forEach((rule) => {
+  rule.outputMode = rule.outputMode || 'DERIVE_FIELD'
+  rule.conditionEnabled = rule.conditionEnabled ?? Boolean(rule.inputField)
+  rule.conditionField = rule.conditionField || rule.inputField
+  rule.conditionOperator = rule.conditionOperator || 'NOT_EMPTY'
+  rule.conditionValue = rule.conditionValue || ''
+  rule.dictMatchMode = rule.dictMatchMode || (rule.ruleType === 'DICT' ? 'EQUALS' : 'EQUALS')
+  rule.apiTimeout = rule.apiTimeout ?? 5
+  rule.apiRetryCount = rule.apiRetryCount ?? 1
+  rule.apiAuthMode = rule.apiAuthMode || 'SYSTEM'
+  rule.apiSuccessRule = rule.apiSuccessRule || '$.code == 0'
+  rule.sqlMaxRows = rule.sqlMaxRows ?? 1
+  rule.sqlReadonlyChecked = rule.sqlReadonlyChecked ?? true
+})
 const selectedRuleId = ref(transformRules.value[0].id)
+const activeProcessTab = ref('transform')
+const validationRules = ref<ValidationRule[]>([
+  {
+    id: 'valid-required-amount',
+    ruleName: '金额不能为空',
+    ruleType: 'REQUIRED',
+    fieldCode: 'amount',
+    enabled: true,
+    severity: 'BLOCK',
+    expression: 'amount != null',
+    failMessage: '金额为空，阻断落库并进入失败任务'
+  },
+  {
+    id: 'valid-account-format',
+    ruleName: '收款账号格式校验',
+    ruleType: 'FORMAT',
+    fieldCode: 'payee_account',
+    enabled: true,
+    severity: 'REVIEW',
+    expression: '^\\\\d[\\\\d\\\\s*]{8,}$',
+    failMessage: '账号格式异常，转人工复核'
+  },
+  {
+    id: 'valid-product-master',
+    ruleName: '产品代码主数据校验',
+    ruleType: 'MASTER_DATA',
+    fieldCode: 'product_code',
+    enabled: false,
+    severity: 'WARN',
+    expression: 'md_product.product_code exists',
+    failMessage: '产品代码未命中主数据，仅提示业务关注'
+  }
+])
 const selectedExtractFieldCode = ref(fields.value[0]?.fieldCode || '')
 const mappingProfileDrawerVisible = ref(false)
 const ddlPreviewVisible = ref(false)
@@ -114,6 +202,73 @@ const regexPreviewMap = ref<Record<string, string>>({
   amount: '100000.00',
   payee_account: '6222 **** 8910'
 })
+const regexEnabledCount = computed(() => fields.value.filter((field) => (field as any).extractByRegex).length)
+const regexConfiguredCount = computed(() =>
+  fields.value.filter((field) => (field as any).extractByRegex && (field as any).regexPattern?.trim()).length
+)
+const regexValidatedCount = computed(() =>
+  fields.value.filter((field) => {
+    const result = regexPreviewMap.value[(field as any).fieldCode]
+    return (field as any).extractByRegex && Boolean(result)
+  }).length
+)
+const regexFailedCount = computed(() =>
+  fields.value.filter((field) => {
+    const result = regexPreviewMap.value[(field as any).fieldCode]
+    return result === '鏈尮閰?' || result === '姝ｅ垯閿欒'
+  }).length
+)
+const preprocessEnabled = ref(true)
+const preprocessSteps = ref<PreprocessStep[]>([
+  {
+    id: 'pre-page',
+    stepType: 'PAGE_RANGE',
+    enabled: true,
+    pageRanges: '1,3,5-8',
+    includeKeywords: [],
+    excludeKeywords: [],
+    imageQuality: 'STANDARD_300',
+    dpi: 300,
+    imageFormat: 'PNG',
+    splitPageCount: 10
+  },
+  {
+    id: 'pre-keyword',
+    stepType: 'KEYWORD_FILTER',
+    enabled: true,
+    pageRanges: '',
+    includeKeywords: ['划款指令', '付款申请'],
+    excludeKeywords: ['附件', '说明页'],
+    imageQuality: 'STANDARD_300',
+    dpi: 300,
+    imageFormat: 'PNG',
+    splitPageCount: 10
+  },
+  {
+    id: 'pre-image',
+    stepType: 'PDF_TO_IMAGE',
+    enabled: true,
+    pageRanges: '',
+    includeKeywords: [],
+    excludeKeywords: [],
+    imageQuality: 'STANDARD_300',
+    dpi: 300,
+    imageFormat: 'PNG',
+    splitPageCount: 10
+  },
+  {
+    id: 'pre-split',
+    stepType: 'SPLIT_MERGE',
+    enabled: false,
+    pageRanges: '',
+    includeKeywords: [],
+    excludeKeywords: [],
+    imageQuality: 'STANDARD_300',
+    dpi: 300,
+    imageFormat: 'PNG',
+    splitPageCount: 10
+  }
+])
 const previewInput = ref('100000-1000000')
 const previewOutput = ref('大额')
 const form = reactive({
@@ -125,7 +280,6 @@ const form = reactive({
   departmentId: '运营部',
   visibleRoles: ['模板配置员', '复核人员'],
   ownerRole: '模板配置员',
-  sourceTypes: ['MANUAL_UPLOAD', 'API'],
   defaultPriority: 'HIGH',
   engineCode: 'paddleocr_vl',
   outputFormat: 'Markdown',
@@ -199,6 +353,34 @@ const subCategoryOptions = computed(() => {
 })
 const templateTypeOptions = computed(() => {
   return subCategoryOptions.value.find((item) => item.value === form.subCategory)?.templates || []
+})
+const preprocessStepTypeLabel: Record<PreprocessStepType, string> = {
+  PAGE_RANGE: '指定页码/页范围',
+  KEYWORD_FILTER: '包含/排除关键字',
+  PDF_TO_IMAGE: 'PDF 转图片',
+  SPLIT_MERGE: '大文件拆分与拼接'
+}
+const imageQualityOptions: Array<{ label: string; value: ImageQuality; dpi: number }> = [
+  { label: '快速（150 DPI）', value: 'FAST_150', dpi: 150 },
+  { label: '标准（300 DPI，推荐）', value: 'STANDARD_300', dpi: 300 },
+  { label: '高清（450 DPI）', value: 'HIGH_450', dpi: 450 }
+]
+const updateImageQuality = (row: PreprocessStep) => {
+  row.dpi = imageQualityOptions.find((option) => option.value === row.imageQuality)?.dpi || 300
+}
+const preprocessPipelinePreview = computed(() => {
+  if (!preprocessEnabled.value) return '全文直接进入 OCR/文档解析引擎，不执行预处理。'
+  const enabledSteps = preprocessSteps.value.filter((step) => step.enabled)
+  if (!enabledSteps.length) return '已启用预处理，但尚未启用任何处理步骤。'
+  return enabledSteps
+    .map((step, index) => {
+      const stepName = preprocessStepTypeLabel[step.stepType]
+      if (step.stepType === 'PAGE_RANGE') return `${index + 1}. ${stepName}: 解析页 ${step.pageRanges || '全文'}`
+      if (step.stepType === 'KEYWORD_FILTER') return `${index + 1}. ${stepName}: 包含「${step.includeKeywords.join('、') || '未配置'}」，排除「${step.excludeKeywords.join('、') || '未配置'}」`
+      if (step.stepType === 'PDF_TO_IMAGE') return `${index + 1}. ${stepName}: ${imageQualityOptions.find((option) => option.value === step.imageQuality)?.label || `${step.dpi} DPI`}，${step.imageFormat}`
+      return `${index + 1}. ${stepName}: 每 ${step.splitPageCount} 页拆分，按原页码顺序拼接`
+    })
+    .join('\n')
 })
 const targetTableColumns = ref([
   { columnName: 'biz_no', columnCnName: '业务编号', dbType: 'varchar', length: 64, precision: undefined, scale: undefined, required: false, defaultValue: '', validationRule: '唯一性校验' },
@@ -316,7 +498,69 @@ const transformTypeLabel: Record<TransformRuleType, string> = {
   SQL: 'SQL 查询'
 }
 
+const hasDuplicate = (values: string[]) => {
+  const normalizedValues = values.map((value) => value?.trim()).filter(Boolean)
+  return new Set(normalizedValues).size !== normalizedValues.length
+}
+const validateFieldStorageStep = () => {
+  const errors: string[] = []
+  if (!form.storageMode) errors.push('落库模式不能为空')
+  if (!form.targetTable?.trim()) errors.push('目标表编码不能为空')
+  if (form.storageMode === 'CREATE' && form.targetTable && !/^[a-z][a-z0-9_]*$/.test(form.targetTable)) {
+    errors.push('目标表编码只能包含小写字母、数字、下划线，并以小写字母开头')
+  }
+  if (!form.targetTableName?.trim()) errors.push('目标表名称不能为空')
+  if (!form.mappingProfileName?.trim()) errors.push('映射方案名称不能为空')
+
+  if (!targetTableColumns.value.length) errors.push('至少维护 1 个目标表字段')
+  if (hasDuplicate(targetTableColumns.value.map((column) => column.columnName))) errors.push('目标表字段名不能重复')
+  targetTableColumns.value.forEach((column, index) => {
+    const rowLabel = `目标表字段第 ${index + 1} 行`
+    if (!column.columnName?.trim()) errors.push(`${rowLabel}：字段名不能为空`)
+    if (!column.columnCnName?.trim()) errors.push(`${rowLabel}：字段中文名不能为空`)
+    if (!column.dbType) errors.push(`${rowLabel}：数据库类型不能为空`)
+    if (['varchar', 'char'].includes(column.dbType) && (!column.length || column.length < 1)) errors.push(`${rowLabel}：字符型字段长度必须大于 0`)
+    if (['decimal', 'number'].includes(column.dbType)) {
+      if (!column.precision || column.precision < 1) errors.push(`${rowLabel}：数值型字段精度必须大于 0`)
+      if (column.scale === undefined || column.scale === null || column.scale < 0) errors.push(`${rowLabel}：数值型字段小数位不能小于 0`)
+    }
+  })
+
+  if (!fields.value.length) errors.push('至少维护 1 个提取字段')
+  if (hasDuplicate(fields.value.map((field) => field.fieldCode))) errors.push('提取字段编码不能重复')
+  fields.value.forEach((field, index) => {
+    const rowLabel = `提取字段第 ${index + 1} 行`
+    if (!field.fieldCode?.trim()) errors.push(`${rowLabel}：字段编码不能为空`)
+    if (!field.fieldName?.trim()) errors.push(`${rowLabel}：字段名称不能为空`)
+    if (!field.targetColumn?.trim()) errors.push(`${rowLabel}：目标字段不能为空`)
+    if (field.targetColumn && !targetColumnOptions.value.includes(field.targetColumn)) errors.push(`${rowLabel}：目标字段 ${field.targetColumn} 不存在于目标表字段定义中`)
+  })
+
+  const enabledConstraints = uniqueConstraints.value.filter((constraint) => constraint.enabled)
+  if (hasDuplicate(enabledConstraints.map((constraint) => constraint.constraintName))) errors.push('启用的唯一约束名称不能重复')
+  enabledConstraints.forEach((constraint, index) => {
+    const rowLabel = `唯一约束第 ${index + 1} 行`
+    if (!constraint.constraintName?.trim()) errors.push(`${rowLabel}：约束名称不能为空`)
+    if (!constraint.uniqueColumns.length) errors.push(`${rowLabel}：唯一字段组合至少选择 1 个字段`)
+    constraint.uniqueColumns.forEach((column) => {
+      if (!targetColumnOptions.value.includes(column)) errors.push(`${rowLabel}：唯一字段 ${column} 不存在于目标表字段定义中`)
+    })
+  })
+
+  return errors
+}
+
 const next = () => {
+  if (activeStep.value === 2) {
+    const errors = validateFieldStorageStep()
+    if (errors.length) {
+      ElMessageBox.alert(errors.map((error, index) => `${index + 1}. ${error}`).join('<br />'), '请完善字段与落库配置', {
+        dangerouslyUseHTMLString: true,
+        confirmButtonText: '我知道了'
+      })
+      return
+    }
+  }
   if (activeStep.value < steps.length - 1) activeStep.value += 1
 }
 const prev = () => {
@@ -404,6 +648,74 @@ const removeExtractField = (row: any) => {
   }
   ElMessage.success('已删除提取字段')
 }
+const removeTransformRule = async (rule: TransformRule) => {
+  if (transformRules.value.length <= 1) {
+    ElMessage.warning('至少保留一条加工规则；如暂不执行，可先关闭启用开关')
+    return
+  }
+  const currentIndex = transformRules.value.findIndex((item) => item.id === rule.id)
+  const referencedRules = transformRules.value
+    .slice(currentIndex + 1)
+    .filter((item) => rule.outputField && item.inputField === rule.outputField)
+  if (referencedRules.length) {
+    ElMessage.warning(`该规则输出字段 ${rule.outputField} 被后续规则「${referencedRules.map((item) => item.ruleName).join('、')}」引用，请先调整后续规则`)
+    return
+  }
+  try {
+    await ElMessageBox.confirm('确认删除该加工规则？删除后不会影响已完成任务结果，但新任务将不再执行该规则。', '删除加工规则', {
+      confirmButtonText: '确认删除',
+      cancelButtonText: '取消',
+      type: 'warning'
+    })
+    transformRules.value = transformRules.value.filter((item) => item.id !== rule.id)
+    if (selectedRuleId.value === rule.id) {
+      selectedRuleId.value = transformRules.value[Math.max(0, currentIndex - 1)]?.id || transformRules.value[0]?.id || ''
+    }
+    ElMessage.success('已删除加工规则')
+  } catch {
+    // User canceled.
+  }
+}
+const moveTransformRule = (rule: TransformRule, direction: -1 | 1) => {
+  const currentIndex = transformRules.value.findIndex((item) => item.id === rule.id)
+  const nextIndex = currentIndex + direction
+  if (nextIndex < 0 || nextIndex >= transformRules.value.length) return
+  const rows = [...transformRules.value]
+  const [current] = rows.splice(currentIndex, 1)
+  rows.splice(nextIndex, 0, current)
+  transformRules.value = rows
+}
+const copyTransformRule = (rule: TransformRule) => {
+  const copiedRule: TransformRule = {
+    ...rule,
+    id: `rule-${Date.now()}`,
+    ruleName: `${rule.ruleName}-副本`,
+    dictItems: rule.dictItems.map((item) => ({ ...item }))
+  }
+  const currentIndex = transformRules.value.findIndex((item) => item.id === rule.id)
+  transformRules.value.splice(currentIndex + 1, 0, copiedRule)
+  selectedRuleId.value = copiedRule.id
+  ElMessage.success('已复制加工规则')
+}
+const addValidationRule = () => {
+  validationRules.value.push({
+    id: `valid-${Date.now()}`,
+    ruleName: '新增校验规则',
+    ruleType: 'REQUIRED',
+    fieldCode: fields.value[0]?.fieldCode || '',
+    enabled: true,
+    severity: 'REVIEW',
+    expression: '',
+    failMessage: '校验不通过，请人工确认'
+  })
+}
+const removeValidationRule = (row: ValidationRule) => {
+  validationRules.value = validationRules.value.filter((rule) => rule.id !== row.id)
+  ElMessage.success('已删除校验规则')
+}
+const runValidationPreview = () => {
+  ElMessage.success('已基于当前样本模拟执行校验规则')
+}
 const addTransformRule = (ruleType: TransformRuleType) => {
   const id = `rule-${Date.now()}`
   transformRules.value.push({
@@ -421,7 +733,19 @@ const addTransformRule = (ruleType: TransformRuleType) => {
     apiResponsePath: '$.data.value',
     sqlDatasource: '只读数据源',
     sqlText: ruleType === 'SQL' ? 'select target_value from table_name where source_value = :source_value' : '',
-    sqlResultColumn: 'target_value'
+    sqlResultColumn: 'target_value',
+    outputMode: 'DERIVE_FIELD',
+    conditionEnabled: true,
+    conditionField: fields.value[0]?.fieldCode || '',
+    conditionOperator: 'NOT_EMPTY',
+    conditionValue: '',
+    dictMatchMode: 'EQUALS',
+    apiTimeout: 5,
+    apiRetryCount: 1,
+    apiAuthMode: 'SYSTEM',
+    apiSuccessRule: '$.code == 0',
+    sqlMaxRows: 1,
+    sqlReadonlyChecked: true
   })
   selectedRuleId.value = id
 }
@@ -461,6 +785,10 @@ const runFieldRegexPreview = (field: any) => {
   }
 }
 const runAllRegexPreview = () => {
+  if (!regexSampleText.value.trim()) {
+    ElMessage.warning('请先粘贴或上传用于验证的样本文本')
+    return
+  }
   fields.value.forEach((field) => {
     if ((field as any).extractByRegex) runFieldRegexPreview(field)
   })
@@ -529,14 +857,6 @@ const runAllRegexPreview = () => {
               <el-radio-button label="LOW">低</el-radio-button>
             </el-radio-group>
           </el-form-item>
-          <el-form-item label="来源范围" class="wide">
-            <el-checkbox-group v-model="form.sourceTypes">
-              <el-checkbox label="MANUAL_UPLOAD">手工上传</el-checkbox>
-              <el-checkbox label="API">API 推送</el-checkbox>
-              <el-checkbox label="EMAIL">邮件分拣</el-checkbox>
-              <el-checkbox label="FILE_DISPATCH">文件分拣</el-checkbox>
-            </el-checkbox-group>
-          </el-form-item>
         </el-form>
         <el-alert
           title="权限绑定说明：所属部门只定义配置归属；用户还必须在该部门下拥有可见角色，并命中数据权限策略，才能查看该配置和相关任务结果。"
@@ -546,7 +866,92 @@ const runAllRegexPreview = () => {
       </template>
 
       <template v-if="activeStep === 1">
-        <h2>解析配置</h2>
+        <div class="card-header">
+          <div>
+            <h2>解析配置</h2>
+            <p class="muted">先对原始文件做页码、关键字、转换和拆分处理，再交给 OCR/文档解析引擎。</p>
+          </div>
+        </div>
+
+        <el-card shadow="never" class="mb-12">
+          <template #header>
+            <div class="card-header">
+              <div>
+                <span>文档预处理</span>
+                <p class="muted">用于配置解析前的文件加工流水线，影响 OCR 输入对象、子任务拆分和结果拼接。</p>
+              </div>
+              <div class="header-actions">
+                <el-switch v-model="preprocessEnabled" active-text="启用预处理" inactive-text="全文解析" />
+              </div>
+            </div>
+          </template>
+          <el-table :data="preprocessSteps" height="280">
+            <el-table-column label="启用" width="70">
+              <template #default="{ row }"><el-switch v-model="row.enabled" :disabled="!preprocessEnabled" /></template>
+            </el-table-column>
+            <el-table-column label="处理方式" min-width="190">
+              <template #default="{ row }">
+                <strong>{{ preprocessStepTypeLabel[row.stepType as PreprocessStepType] }}</strong>
+              </template>
+            </el-table-column>
+            <el-table-column label="参数配置" min-width="380">
+              <template #default="{ row }">
+                <div v-if="row.stepType === 'PAGE_RANGE'" class="inline-fields">
+                  <span class="muted">页码</span>
+                  <el-input v-model="row.pageRanges" :disabled="!preprocessEnabled" placeholder="如 1,3,5-8 或 1-3;8-10" />
+                </div>
+                <div v-else-if="row.stepType === 'KEYWORD_FILTER'" class="inline-fields">
+                  <div class="keyword-config">
+                    <div class="keyword-row">
+                      <span class="keyword-label">包含关键字</span>
+                      <el-select
+                        v-model="row.includeKeywords"
+                        :disabled="!preprocessEnabled"
+                        multiple
+                        filterable
+                        allow-create
+                        default-first-option
+                        collapse-tags
+                        collapse-tags-tooltip
+                        placeholder="输入后回车添加"
+                      />
+                    </div>
+                    <div class="keyword-row">
+                      <span class="keyword-label">排除关键字</span>
+                      <el-select
+                        v-model="row.excludeKeywords"
+                        :disabled="!preprocessEnabled"
+                        multiple
+                        filterable
+                        allow-create
+                        default-first-option
+                        collapse-tags
+                        collapse-tags-tooltip
+                        placeholder="输入后回车添加"
+                      />
+                    </div>
+                  </div>
+                </div>
+                <div v-else-if="row.stepType === 'PDF_TO_IMAGE'" class="inline-fields">
+                  <el-select v-model="row.imageQuality" :disabled="!preprocessEnabled" placeholder="转换质量" @change="updateImageQuality(row)">
+                    <el-option v-for="option in imageQualityOptions" :key="option.value" :label="option.label" :value="option.value" />
+                  </el-select>
+                  <el-select v-model="row.imageFormat" :disabled="!preprocessEnabled">
+                    <el-option label="PNG（推荐，清晰度高）" value="PNG" />
+                    <el-option label="JPEG（文件更小）" value="JPEG" />
+                  </el-select>
+                </div>
+                <div v-else class="inline-fields">
+                  <span class="muted">每个子文件页数</span>
+                  <el-input-number v-model="row.splitPageCount" :disabled="!preprocessEnabled" :min="1" :controls="false" />
+                  <el-tag type="info">按原页码顺序拼接</el-tag>
+                </div>
+              </template>
+            </el-table-column>
+          </el-table>
+          <el-input class="mt-12" type="textarea" :rows="5" :model-value="preprocessPipelinePreview" readonly />
+        </el-card>
+
         <el-form :model="form" label-width="130px" class="form-grid">
           <el-form-item label="OCR 引擎">
             <el-select v-model="form.engineCode">
@@ -562,14 +967,13 @@ const runAllRegexPreview = () => {
             </el-radio-group>
           </el-form-item>
           <el-form-item label="解析选项" class="wide">
-            <el-checkbox checked>文档预处理</el-checkbox>
             <el-checkbox checked>解析表格</el-checkbox>
             <el-checkbox>解析页头</el-checkbox>
             <el-checkbox>解析页尾</el-checkbox>
             <el-checkbox checked>识别印章</el-checkbox>
           </el-form-item>
         </el-form>
-        <el-input type="textarea" :rows="6" model-value='{"enablePreprocess":true,"enableTable":true,"enableSeal":true,"outputFormat":"Markdown"}' />
+        <el-input type="textarea" :rows="6" model-value='{"enableTable":true,"enableSeal":true,"outputFormat":"Markdown"}' />
       </template>
 
       <template v-if="activeStep === 2">
@@ -577,11 +981,6 @@ const runAllRegexPreview = () => {
           <div>
             <h2>字段与落库配置</h2>
             <p class="muted">在同一个界面维护提取字段、目标表和字段映射，避免字段配置与落库配置来回切换。</p>
-          </div>
-          <div>
-            <el-button @click="autoMapFields">自动生成映射</el-button>
-            <el-button @click="addTargetColumn">添加目标字段</el-button>
-            <el-button type="primary" @click="addField">添加提取字段</el-button>
           </div>
         </div>
 
@@ -780,6 +1179,7 @@ const runAllRegexPreview = () => {
               <el-tag size="small" type="info">已复用 {{ mappingProfiles.length }} 个方案</el-tag>
               <el-button link type="primary" @click="mappingProfileDrawerVisible = true">查看已有映射</el-button>
             </span>
+            <el-button @click="autoMapFields">自动生成映射</el-button>
             <el-button type="primary" @click="addField">添加提取字段</el-button>
           </div>
         </div>
@@ -826,7 +1226,6 @@ const runAllRegexPreview = () => {
             <h2>提取策略</h2>
             <p class="muted">AI 通过一套提示词一次性提取全部字段；正则按字段逐个配置，适合金额、账号、日期等格式明确的取数。</p>
           </div>
-          <el-button type="primary" @click="runAllRegexPreview">批量验证正则</el-button>
         </div>
         <el-form :model="form" label-width="130px" class="form-grid">
           <el-form-item label="输出模式"><el-radio-group v-model="form.outputMode"><el-radio-button label="SINGLE">单对象</el-radio-button><el-radio-button label="ARRAY">数组对象</el-radio-button></el-radio-group></el-form-item>
@@ -879,8 +1278,13 @@ const runAllRegexPreview = () => {
           <el-card shadow="never">
             <template #header>
               <div class="card-header">
-                <span>字段级正则取数规则</span>
-                <el-button size="small" type="primary" @click="runAllRegexPreview">批量验证</el-button>
+                <div>
+                  <span>字段级正则取数规则</span>
+                  <p class="muted">
+                    已启用 {{ regexEnabledCount }}/{{ fields.length }} 个字段，已配置 {{ regexConfiguredCount }} 个，已验证 {{ regexValidatedCount }} 个，失败 {{ regexFailedCount }} 个
+                  </p>
+                </div>
+                <el-button size="small" type="primary" @click="runAllRegexPreview">验证全部正则</el-button>
               </div>
             </template>
             <el-alert
@@ -933,7 +1337,7 @@ const runAllRegexPreview = () => {
               </el-table-column>
               <el-table-column label="操作" width="86" fixed="right">
                 <template #default="{ row }">
-                  <el-button size="small" @click="runFieldRegexPreview(row)">验证</el-button>
+                  <el-button size="small" @click="runFieldRegexPreview(row)">验证此字段</el-button>
                 </template>
               </el-table-column>
             </el-table>
@@ -978,6 +1382,8 @@ const runAllRegexPreview = () => {
           :closable="false"
         />
 
+        <el-tabs v-model="activeProcessTab" type="border-card" class="process-tabs">
+          <el-tab-pane label="加工规则" name="transform">
         <div class="transform-designer">
           <el-card shadow="never" class="rule-list-card">
             <template #header>加工规则流水线</template>
@@ -990,13 +1396,26 @@ const runAllRegexPreview = () => {
             >
               <div class="rule-index">{{ index + 1 }}</div>
               <div class="rule-main">
-                <strong>{{ rule.ruleName }}</strong>
+                <div class="rule-title-row">
+                  <strong>{{ rule.ruleName }}</strong>
+                  <el-tag :type="rule.ruleType === 'DICT' ? 'success' : rule.ruleType === 'API' ? 'primary' : 'warning'">
+                    {{ transformTypeLabel[rule.ruleType] }}
+                  </el-tag>
+                </div>
                 <span>{{ rule.inputField }} -> {{ rule.outputField || '待配置输出字段' }}</span>
               </div>
-              <el-tag :type="rule.ruleType === 'DICT' ? 'success' : rule.ruleType === 'API' ? 'primary' : 'warning'">
-                {{ transformTypeLabel[rule.ruleType] }}
-              </el-tag>
               <el-switch v-model="rule.enabled" @click.stop />
+              <el-dropdown trigger="click" @click.stop>
+                <el-button link @click.stop>更多</el-button>
+                <template #dropdown>
+                  <el-dropdown-menu>
+                    <el-dropdown-item :disabled="index === 0" @click="moveTransformRule(rule, -1)">上移</el-dropdown-item>
+                    <el-dropdown-item :disabled="index === transformRules.length - 1" @click="moveTransformRule(rule, 1)">下移</el-dropdown-item>
+                    <el-dropdown-item @click="copyTransformRule(rule)">复制</el-dropdown-item>
+                    <el-dropdown-item divided @click="removeTransformRule(rule)">删除</el-dropdown-item>
+                  </el-dropdown-menu>
+                </template>
+              </el-dropdown>
             </div>
           </el-card>
 
@@ -1010,6 +1429,8 @@ const runAllRegexPreview = () => {
               </div>
             </template>
 
+            <section class="config-section">
+              <div class="config-section-title">基础信息</div>
             <el-form label-width="120px" class="form-grid">
               <el-form-item label="规则名称">
                 <el-input v-model="selectedTransformRule.ruleName" />
@@ -1021,6 +1442,12 @@ const runAllRegexPreview = () => {
                   <el-radio-button label="SQL">SQL 查询</el-radio-button>
                 </el-radio-group>
               </el-form-item>
+            </el-form>
+            </section>
+
+            <section class="config-section">
+              <div class="config-section-title">字段与输出</div>
+              <el-form label-width="120px" class="form-grid">
               <el-form-item label="输入字段">
                 <el-select v-model="selectedTransformRule.inputField" filterable allow-create>
                   <el-option v-for="field in fields" :key="field.fieldCode" :label="`${field.fieldName}（${field.fieldCode}）`" :value="field.fieldCode" />
@@ -1035,6 +1462,13 @@ const runAllRegexPreview = () => {
                   <el-option label="金额等级（amount_level）" value="amount_level" />
                 </el-select>
               </el-form-item>
+              <el-form-item label="输出方式">
+                <el-select v-model="selectedTransformRule.outputMode">
+                  <el-option label="覆盖输入字段" value="OVERWRITE_INPUT" />
+                  <el-option label="写入目标字段" value="WRITE_TARGET" />
+                  <el-option label="生成衍生字段" value="DERIVE_FIELD" />
+                </el-select>
+              </el-form-item>
               <el-form-item label="失败策略">
                 <el-select v-model="selectedTransformRule.onFail">
                   <el-option label="保留原值" value="KEEP_ORIGINAL" />
@@ -1043,13 +1477,50 @@ const runAllRegexPreview = () => {
                   <el-option label="阻断任务" value="BLOCK" />
                 </el-select>
               </el-form-item>
+              </el-form>
+            </section>
+
+            <section class="config-section">
+              <div class="config-section-title">执行条件</div>
+              <el-form label-width="120px" class="form-grid">
+              <el-form-item label="执行方式" class="wide">
+                <el-radio-group v-model="selectedTransformRule.conditionEnabled">
+                  <el-radio-button :label="false">总是执行</el-radio-button>
+                  <el-radio-button :label="true">满足条件时执行</el-radio-button>
+                </el-radio-group>
+              </el-form-item>
+              <el-form-item v-if="selectedTransformRule.conditionEnabled" label="条件配置" class="wide">
+                <div class="inline-fields">
+                  <el-select v-model="selectedTransformRule.conditionField" filterable allow-create placeholder="条件字段">
+                    <el-option v-for="field in fields" :key="field.fieldCode" :label="`${field.fieldName}（${field.fieldCode}）`" :value="field.fieldCode" />
+                    <el-option label="产品代码（product_code）" value="product_code" />
+                  </el-select>
+                  <el-select v-model="selectedTransformRule.conditionOperator" placeholder="条件">
+                    <el-option label="非空时" value="NOT_EMPTY" />
+                    <el-option label="等于" value="EQUALS" />
+                    <el-option label="包含" value="CONTAINS" />
+                  </el-select>
+                  <el-input v-model="selectedTransformRule.conditionValue" :disabled="selectedTransformRule.conditionOperator === 'NOT_EMPTY'" placeholder="条件值" />
+                </div>
+              </el-form-item>
             </el-form>
+            </section>
 
             <section v-if="selectedTransformRule.ruleType === 'DICT'" class="rule-section">
               <div class="card-header">
-                <h3>字典映射</h3>
+                <h3>类型配置：字典映射</h3>
                 <el-button size="small" @click="addDictItem">添加映射</el-button>
               </div>
+              <el-form label-width="90px" class="form-grid mb-12">
+                <el-form-item label="匹配方式">
+                  <el-select v-model="selectedTransformRule.dictMatchMode">
+                    <el-option label="等于" value="EQUALS" />
+                    <el-option label="包含" value="CONTAINS" />
+                    <el-option label="正则" value="REGEX" />
+                    <el-option label="区间" value="RANGE" />
+                  </el-select>
+                </el-form-item>
+              </el-form>
               <el-table :data="selectedTransformRule.dictItems">
                 <el-table-column label="原始值/区间">
                   <template #default="{ row }"><el-input v-model="row.source" placeholder="如：买入、0-100000" /></template>
@@ -1061,7 +1532,7 @@ const runAllRegexPreview = () => {
             </section>
 
             <section v-if="selectedTransformRule.ruleType === 'API'" class="rule-section">
-              <h3>API 取数配置</h3>
+              <h3>类型配置：API 取数</h3>
               <el-form label-width="130px" class="form-grid">
                 <el-form-item label="请求方式">
                   <el-radio-group v-model="selectedTransformRule.apiMethod">
@@ -1078,11 +1549,26 @@ const runAllRegexPreview = () => {
                 <el-form-item label="响应取值路径" class="wide">
                   <el-input v-model="selectedTransformRule.apiResponsePath" placeholder="$.data.accountName" />
                 </el-form-item>
+                <el-form-item label="超时秒数">
+                  <el-input-number v-model="selectedTransformRule.apiTimeout" :min="1" :max="60" />
+                </el-form-item>
+                <el-form-item label="重试次数">
+                  <el-input-number v-model="selectedTransformRule.apiRetryCount" :min="0" :max="5" />
+                </el-form-item>
+                <el-form-item label="认证方式">
+                  <el-select v-model="selectedTransformRule.apiAuthMode">
+                    <el-option label="系统统一认证" value="SYSTEM" />
+                    <el-option label="不认证" value="NONE" />
+                  </el-select>
+                </el-form-item>
+                <el-form-item label="成功判断" class="wide">
+                  <el-input v-model="selectedTransformRule.apiSuccessRule" placeholder="如 $.code == 0 && $.data != null" />
+                </el-form-item>
               </el-form>
             </section>
 
             <section v-if="selectedTransformRule.ruleType === 'SQL'" class="rule-section">
-              <h3>SQL 查询配置</h3>
+              <h3>类型配置：SQL 查询</h3>
               <el-alert class="mb-12" title="SQL 仅支持 SELECT，只允许使用参数占位符，禁止拼接用户输入。" type="warning" :closable="false" />
               <el-form label-width="130px" class="form-grid">
                 <el-form-item label="只读数据源">
@@ -1094,6 +1580,12 @@ const runAllRegexPreview = () => {
                 </el-form-item>
                 <el-form-item label="结果字段">
                   <el-input v-model="selectedTransformRule.sqlResultColumn" placeholder="product_name" />
+                </el-form-item>
+                <el-form-item label="最大返回行">
+                  <el-input-number v-model="selectedTransformRule.sqlMaxRows" :min="1" :max="10" />
+                </el-form-item>
+                <el-form-item label="只读校验">
+                  <el-switch v-model="selectedTransformRule.sqlReadonlyChecked" active-text="已校验" inactive-text="待校验" />
                 </el-form-item>
                 <el-form-item label="SQL 模板" class="wide">
                   <el-input v-model="selectedTransformRule.sqlText" type="textarea" :rows="5" />
@@ -1108,10 +1600,81 @@ const runAllRegexPreview = () => {
               </div>
               <el-input v-model="previewInput" placeholder="输入样例值" />
               <el-button type="primary" @click="runTransformPreview">运行预览</el-button>
-              <el-result icon="success" title="输出预览" :sub-title="previewOutput" />
+              <div class="preview-result">
+                <el-tag type="success">预览通过</el-tag>
+                <strong>{{ previewOutput }}</strong>
+              </div>
             </section>
           </el-card>
         </div>
+          </el-tab-pane>
+
+          <el-tab-pane label="校验规则" name="validation">
+            <div class="card-header mb-12">
+              <div>
+                <h3 class="section-title">校验规则</h3>
+                <p class="muted">校验只判断数据是否可继续落库、复核或推送，不直接改写字段值。</p>
+              </div>
+              <div class="header-actions">
+                <el-button @click="runValidationPreview">运行校验预览</el-button>
+                <el-button type="primary" @click="addValidationRule">新增校验规则</el-button>
+              </div>
+            </div>
+            <el-alert
+              class="mb-12"
+              title="建议把必填、格式、跨字段、唯一性、主数据命中等校验与加工规则分开维护；阻断类校验会影响落库和下游推送。"
+              type="info"
+              :closable="false"
+            />
+            <el-table :data="validationRules" height="520">
+              <el-table-column label="启用" width="70">
+                <template #default="{ row }"><el-switch v-model="row.enabled" /></template>
+              </el-table-column>
+              <el-table-column label="规则名称" min-width="170">
+                <template #default="{ row }"><el-input v-model="row.ruleName" /></template>
+              </el-table-column>
+              <el-table-column label="校验类型" width="150">
+                <template #default="{ row }">
+                  <el-select v-model="row.ruleType">
+                    <el-option label="必填" value="REQUIRED" />
+                    <el-option label="格式" value="FORMAT" />
+                    <el-option label="范围" value="RANGE" />
+                    <el-option label="跨字段" value="CROSS_FIELD" />
+                    <el-option label="唯一性" value="UNIQUE" />
+                    <el-option label="主数据" value="MASTER_DATA" />
+                  </el-select>
+                </template>
+              </el-table-column>
+              <el-table-column label="校验字段" min-width="150">
+                <template #default="{ row }">
+                  <el-select v-model="row.fieldCode" filterable allow-create>
+                    <el-option v-for="field in fields" :key="field.fieldCode" :label="`${field.fieldName}（${field.fieldCode}）`" :value="field.fieldCode" />
+                  </el-select>
+                </template>
+              </el-table-column>
+              <el-table-column label="失败级别" width="130">
+                <template #default="{ row }">
+                  <el-select v-model="row.severity">
+                    <el-option label="提示" value="WARN" />
+                    <el-option label="转复核" value="REVIEW" />
+                    <el-option label="阻断" value="BLOCK" />
+                  </el-select>
+                </template>
+              </el-table-column>
+              <el-table-column label="校验表达式" min-width="240">
+                <template #default="{ row }"><el-input v-model="row.expression" placeholder="如 amount > 0、md_product.product_code exists" /></template>
+              </el-table-column>
+              <el-table-column label="失败提示" min-width="240">
+                <template #default="{ row }"><el-input v-model="row.failMessage" /></template>
+              </el-table-column>
+              <el-table-column label="操作" width="80" fixed="right">
+                <template #default="{ row }">
+                  <el-button link type="danger" @click="removeValidationRule(row)">删除</el-button>
+                </template>
+              </el-table-column>
+            </el-table>
+          </el-tab-pane>
+        </el-tabs>
       </template>
 
       <template v-if="activeStep === 5">
