@@ -812,6 +812,37 @@ body {
   padding: 0 6px;
 }
 
+.field-with-tip {
+  width: 100%;
+}
+
+.field-with-tip .muted {
+  margin-top: 4px;
+  line-height: 1.35;
+}
+
+.inline-alert-content {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+}
+
+.header-actions,
+.mapping-profile-hint {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.ddl-preview-panel {
+  border: 1px solid var(--el-border-color-lighter);
+  border-radius: 6px;
+  padding: 10px 12px;
+  background: var(--el-fill-color-extra-light);
+}
+
 .worker-item {
   padding: 9px;
   margin-bottom: 8px;

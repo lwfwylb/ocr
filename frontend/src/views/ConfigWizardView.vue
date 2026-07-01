@@ -102,6 +102,8 @@ const transformRules = ref<TransformRule[]>([
 ])
 const selectedRuleId = ref(transformRules.value[0].id)
 const selectedExtractFieldCode = ref(fields.value[0]?.fieldCode || '')
+const mappingProfileDrawerVisible = ref(false)
+const ddlPreviewVisible = ref(false)
 const aiEnabled = ref(true)
 const activeExtractTab = ref('ai')
 const aiSystemPrompt = ref('你是基金公司智能要素提取助手。请基于解析后的文档文本、表格和页面位置信息，按字段定义一次性提取全部业务要素。')
@@ -130,6 +132,8 @@ const form = reactive({
   storageMode: 'REUSE',
   mappingProfileName: '划款指令-资金结果表映射',
   targetTable: 'ext_fund_business_result',
+  targetTableName: '基金业务要素结果表',
+  targetTableComment: '保存基金申购、赎回、划款、回单等业务场景的结构化要素结果',
   saveMode: 'SINGLE',
   outputMode: 'SINGLE',
   defaultStrategy: 'AI_FIRST_RULE_FALLBACK',
@@ -146,9 +150,24 @@ const form = reactive({
 
 const steps = ['基础信息', '解析配置', '字段与落库配置', '提取策略', '加工校验', '复核策略', '下游推送', '验证发布']
 const existingTables = [
-  { label: 'ext_fund_business_result - 基金业务要素结果表', value: 'ext_fund_business_result' },
-  { label: 'ext_payment_instruction - 划款指令结果表', value: 'ext_payment_instruction' },
-  { label: 'ext_bank_receipt - 银行回单结果表', value: 'ext_bank_receipt' }
+  {
+    label: 'ext_fund_business_result - 基金业务要素结果表',
+    value: 'ext_fund_business_result',
+    tableName: '基金业务要素结果表',
+    comment: '保存基金申购、赎回、划款、回单等业务场景的结构化要素结果'
+  },
+  {
+    label: 'ext_payment_instruction - 划款指令结果表',
+    value: 'ext_payment_instruction',
+    tableName: '划款指令结果表',
+    comment: '保存运营划款指令类文档的结构化识别结果'
+  },
+  {
+    label: 'ext_bank_receipt - 银行回单结果表',
+    value: 'ext_bank_receipt',
+    tableName: '银行回单结果表',
+    comment: '保存银行回单、流水回执等文档的结构化识别结果'
+  }
 ]
 const categoryOptions = [
   {
@@ -201,7 +220,8 @@ const uniqueConstraints = ref([
     constraintName: 'uk_ext_fund_result_biz',
     uniqueColumns: ['document_type', 'payee_account', 'amount'],
     duplicateScope: 'TARGET_TABLE',
-    duplicateStrategy: 'REVIEW'
+    duplicateStrategy: 'REVIEW',
+    generateDbIndex: false
   }
 ])
 const mappingProfiles = [
@@ -249,13 +269,27 @@ const formatDbColumnType = (column: any) => {
 }
 const storageDdlPreview = computed(() => {
   if (form.storageMode === 'REUSE') {
-    return `-- 复用已有表 ${form.targetTable}\n-- 仅保存映射方案：${form.mappingProfileName}\n-- 不执行 DDL，仅校验目标字段是否存在。`
+    return `-- 复用已有表: ${form.targetTable}\n-- 目标表名称: ${form.targetTableName}\n-- 仅保存映射方案: ${form.mappingProfileName}\n-- 不执行 DDL，仅校验目标字段是否存在。`
   }
   const columns = targetTableColumns.value
     .map((column) => `  ${column.columnName} ${formatDbColumnType(column)}${column.required ? ' NOT NULL' : ''}`)
     .join(',\n')
-  return `CREATE TABLE ${form.targetTable} (\n${columns}\n);`
+  const dbUniqueConstraints = uniqueConstraints.value
+    .filter((constraint) => constraint.enabled && constraint.generateDbIndex && constraint.uniqueColumns.length > 0)
+    .map((constraint) => `  UNIQUE KEY ${constraint.constraintName} (${constraint.uniqueColumns.join(', ')})`)
+  const tableLines = [...targetTableColumns.value.map((column) => `  ${column.columnName} ${formatDbColumnType(column)}${column.required ? ' NOT NULL' : ''}`), ...dbUniqueConstraints]
+  const businessRules = uniqueConstraints.value
+    .filter((constraint) => constraint.enabled && !constraint.generateDbIndex)
+    .map((constraint) => `-- 业务去重规则: ${constraint.constraintName}，字段组合 ${constraint.uniqueColumns.join(', ') || '未选择字段'}，命中后${constraint.duplicateStrategy === 'REVIEW' ? '转人工复核' : '按应用策略处理'}，不生成数据库唯一索引。`)
+    .join('\n')
+  return `-- 目标表名称: ${form.targetTableName}\n-- 表说明: ${form.targetTableComment || '无'}\nCREATE TABLE ${form.targetTable} (\n${tableLines.join(',\n')}\n);\n${businessRules ? `\n${businessRules}` : ''}`
 })
+const handleTargetTableChange = (tableCode: string) => {
+  const matchedTable = existingTables.find((table) => table.value === tableCode)
+  if (!matchedTable) return
+  form.targetTableName = matchedTable.tableName
+  form.targetTableComment = matchedTable.comment
+}
 const enabledDownstreamServices = computed(() => downstreamServices.filter((service) => service.enabled))
 const selectedPushServices = computed(() => downstreamServices.filter((service) => form.targetServices.includes(service.serviceCode)))
 const downstreamFieldMap = reactive<Record<string, string>>({})
@@ -338,7 +372,8 @@ const addUniqueConstraint = () => {
     constraintName: `uk_${form.targetTable}_${uniqueConstraints.value.length + 1}`,
     uniqueColumns: [],
     duplicateScope: 'TARGET_TABLE',
-    duplicateStrategy: 'REVIEW'
+    duplicateStrategy: 'REVIEW',
+    generateDbIndex: false
   })
 }
 const removeUniqueConstraint = (row: any) => {
@@ -551,19 +586,36 @@ const runAllRegexPreview = () => {
         </div>
 
         <el-form :model="form" label-width="120px" class="form-grid">
-          <el-form-item label="落库模式">
+          <el-form-item label="落库模式" class="wide">
             <el-radio-group v-model="form.storageMode">
               <el-radio-button label="REUSE">复用已有表</el-radio-button>
               <el-radio-button label="CREATE">新建结果表</el-radio-button>
             </el-radio-group>
           </el-form-item>
-          <el-form-item label="目标表">
-            <el-select v-if="form.storageMode === 'REUSE'" v-model="form.targetTable" filterable>
+          <el-form-item label="目标表编码">
+            <el-select v-if="form.storageMode === 'REUSE'" v-model="form.targetTable" filterable @change="handleTargetTableChange">
               <el-option v-for="table in existingTables" :key="table.value" :label="table.label" :value="table.value" />
             </el-select>
             <el-input v-else v-model="form.targetTable" placeholder="如 ext_new_extract_result" />
           </el-form-item>
-          <el-form-item label="映射方案名称"><el-input v-model="form.mappingProfileName" /></el-form-item>
+          <el-form-item label="目标表名称">
+            <el-input v-model="form.targetTableName" :readonly="form.storageMode === 'REUSE'" placeholder="如 基金业务要素结果表" />
+          </el-form-item>
+          <el-form-item label="目标表说明" class="wide">
+            <el-input
+              v-model="form.targetTableComment"
+              :readonly="form.storageMode === 'REUSE'"
+              type="textarea"
+              :rows="2"
+              placeholder="说明该结果表保存哪些业务场景和结构化结果"
+            />
+          </el-form-item>
+          <el-form-item label="映射方案名称" class="wide">
+            <div class="field-with-tip">
+              <el-input v-model="form.mappingProfileName" placeholder="如 大成基金申购单-基金业务要素结果表映射" />
+              <span class="muted block">用于标识当前任务的提取字段如何映射到目标结果表；多个任务复用同一张表时便于区分。</span>
+            </div>
+          </el-form-item>
           <el-form-item label="保存模式">
             <el-radio-group v-model="form.saveMode">
               <el-radio-button label="SINGLE">单对象</el-radio-button>
@@ -571,20 +623,6 @@ const runAllRegexPreview = () => {
             </el-radio-group>
           </el-form-item>
         </el-form>
-
-        <el-alert
-          class="mb-12"
-          title="同一结果表可被多个任务复用。这里保存的是“映射方案”，不同任务可写入同一张表，但字段映射关系可以不同。"
-          type="info"
-          :closable="false"
-        />
-
-        <el-table :data="mappingProfiles" class="mb-12">
-          <el-table-column prop="name" label="已有映射方案" min-width="190" />
-          <el-table-column prop="documentType" label="适用文档" width="110" />
-          <el-table-column prop="targetTable" label="复用表" min-width="190" />
-          <el-table-column prop="mapping" label="映射摘要" min-width="320" />
-        </el-table>
 
         <div class="card-header mt-16">
           <div>
@@ -646,7 +684,6 @@ const runAllRegexPreview = () => {
             </template>
           </el-table-column>
         </el-table>
-
         <el-card shadow="never" class="mb-12">
           <template #header>
             <div class="card-header">
@@ -701,6 +738,9 @@ const runAllRegexPreview = () => {
                 </el-select>
               </template>
             </el-table-column>
+            <el-table-column label="生成唯一索引" width="120">
+              <template #default="{ row }"><el-switch v-model="row.generateDbIndex" :disabled="!row.enabled" /></template>
+            </el-table-column>
             <el-table-column label="约束预览" min-width="220">
               <template #default="{ row }">
                 <el-tag v-if="row.enabled" type="primary">{{ row.constraintName }}({{ row.uniqueColumns.join(', ') || '未选择字段' }})</el-tag>
@@ -714,13 +754,34 @@ const runAllRegexPreview = () => {
             </el-table-column>
           </el-table>
         </el-card>
+        <div class="ddl-preview-panel mb-12">
+          <div class="card-header">
+            <div>
+              <h3 class="section-title">表结构 DDL 预览</h3>
+              <p class="muted">根据目标表字段定义和唯一约束生成；未开启“生成唯一索引”的约束仅作为业务去重规则展示。</p>
+            </div>
+            <el-button @click="ddlPreviewVisible = !ddlPreviewVisible">{{ ddlPreviewVisible ? '收起预览' : '查看建表语句预览' }}</el-button>
+          </div>
+          <el-input
+            v-if="ddlPreviewVisible"
+            type="textarea"
+            :rows="8"
+            :model-value="storageDdlPreview"
+          />
+        </div>
 
         <div class="card-header mt-16">
           <div>
             <h3 class="section-title">提取字段与目标字段映射</h3>
             <p class="muted">提取字段定义 AI/正则需要识别的业务要素；提取必填表示识别不到时是否进入复核或报错，和入库必填分开维护。</p>
           </div>
-          <el-button type="primary" @click="addField">添加提取字段</el-button>
+          <div class="header-actions">
+            <span class="mapping-profile-hint">
+              <el-tag size="small" type="info">已复用 {{ mappingProfiles.length }} 个方案</el-tag>
+              <el-button link type="primary" @click="mappingProfileDrawerVisible = true">查看已有映射</el-button>
+            </span>
+            <el-button type="primary" @click="addField">添加提取字段</el-button>
+          </div>
         </div>
         <el-table :data="fields">
           <el-table-column label="提取字段编码" min-width="150">
@@ -757,12 +818,6 @@ const runAllRegexPreview = () => {
             </template>
           </el-table-column>
         </el-table>
-        <el-input
-          class="mt-16"
-          type="textarea"
-          :rows="7"
-          :model-value="storageDdlPreview"
-        />
       </template>
 
       <template v-if="activeStep === 3">
@@ -1170,10 +1225,25 @@ const runAllRegexPreview = () => {
             <el-tab-pane label="提取结果">
               <el-table :data="fields"><el-table-column prop="fieldName" label="字段" /><el-table-column prop="targetColumn" label="落库字段" /><el-table-column label="置信度"><el-tag type="success">96%</el-tag></el-table-column></el-table>
             </el-tab-pane>
-            <el-tab-pane label="落库预览">目标表：{{ form.targetTable }}</el-tab-pane>
+            <el-tab-pane label="落库预览">目标表：{{ form.targetTableName }}（{{ form.targetTable }}）</el-tab-pane>
           </el-tabs>
         </div>
       </template>
+
+      <el-drawer v-model="mappingProfileDrawerVisible" title="已有映射方案" size="720px">
+        <el-alert
+          class="mb-12"
+          title="这里仅用于查看同一结果表的复用情况，不影响当前配置保存。"
+          type="info"
+          :closable="false"
+        />
+        <el-table :data="mappingProfiles">
+          <el-table-column prop="name" label="映射方案" min-width="190" />
+          <el-table-column prop="documentType" label="适用文档" width="110" />
+          <el-table-column prop="targetTable" label="复用表" min-width="190" />
+          <el-table-column prop="mapping" label="映射摘要" min-width="320" />
+        </el-table>
+      </el-drawer>
 
       <div class="wizard-actions">
         <el-button :disabled="activeStep === 0" @click="prev">上一步</el-button>
