@@ -49,6 +49,7 @@ const go = (path: string) => router.push(path)
             <span>任务中心</span>
           </template>
           <el-menu-item index="/tasks">全部任务</el-menu-item>
+          <el-menu-item index="/tasks/queue-dispatch">队列调度</el-menu-item>
           <el-menu-item index="/monitor/traces">全链路监控</el-menu-item>
           <el-menu-item index="/tasks/failed">失败任务</el-menu-item>
         </el-sub-menu>
@@ -71,6 +72,7 @@ const go = (path: string) => router.push(path)
           </template>
           <el-menu-item index="/results">提取结果</el-menu-item>
           <el-menu-item index="/storage-data">落库数据查询</el-menu-item>
+          <el-menu-item index="/push-records">推送记录</el-menu-item>
         </el-sub-menu>
         <el-sub-menu index="/models">
           <template #title>
@@ -89,6 +91,7 @@ const go = (path: string) => router.push(path)
           <el-menu-item index="/system/users">用户管理</el-menu-item>
           <el-menu-item index="/system/roles">角色权限</el-menu-item>
           <el-menu-item index="/system/data-permissions">数据权限</el-menu-item>
+          <el-menu-item index="/system/integrations">集成管理</el-menu-item>
         </el-sub-menu>
       </el-menu>
     </el-aside>

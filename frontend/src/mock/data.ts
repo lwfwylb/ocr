@@ -1,5 +1,6 @@
 export type TaskStatus = 'CREATED' | 'PARSING' | 'EXTRACTING' | 'VALIDATING' | 'WAIT_REVIEW' | 'COMPLETED' | 'FAILED'
 export type Priority = 'HIGH' | 'MEDIUM' | 'LOW'
+export type DepartmentName = '运营部' | '财务部' | '产品部'
 
 export interface TaskItem {
   traceId: string
@@ -13,8 +14,22 @@ export interface TaskItem {
   progress: number
   confidence: number
   createdAt: string
-  department: string
+  department: DepartmentName
+  queueName: string
+  queueLevel: Priority
+  queueCapacity: number
+  queuePosition: number
+  waitingMinutes: number
+  estimatedStartAt: string
+  manualAccelerated: boolean
+  dispatchReason?: string
 }
+
+export const departmentQueues = [
+  { department: '运营部' as DepartmentName, queueCode: 'ops', maxCapacity: 60, description: '运营类文档量最大，保留最多并发与队列容量' },
+  { department: '财务部' as DepartmentName, queueCode: 'finance', maxCapacity: 10, description: '财务类任务较少，独立小队列处理' },
+  { department: '产品部' as DepartmentName, queueCode: 'product', maxCapacity: 20, description: '产品相关合同、协议、公告材料' }
+]
 
 export interface FieldResult {
   fieldCode: string
@@ -41,7 +56,14 @@ export const tasks: TaskItem[] = [
     progress: 86,
     confidence: 0.88,
     createdAt: '2026-06-28 09:30:00',
-    department: '运营部'
+    department: '运营部',
+    queueName: '运营部-高优先级队列',
+    queueLevel: 'HIGH',
+    queueCapacity: 60,
+    queuePosition: 0,
+    waitingMinutes: 0,
+    estimatedStartAt: '-',
+    manualAccelerated: false
   },
   {
     traceId: 'TRACE-20260628-0002',
@@ -55,7 +77,14 @@ export const tasks: TaskItem[] = [
     progress: 100,
     confidence: 0.95,
     createdAt: '2026-06-28 10:15:00',
-    department: '财务部'
+    department: '财务部',
+    queueName: '财务部-中优先级队列',
+    queueLevel: 'MEDIUM',
+    queueCapacity: 10,
+    queuePosition: 0,
+    waitingMinutes: 0,
+    estimatedStartAt: '-',
+    manualAccelerated: false
   },
   {
     traceId: 'TRACE-20260628-0003',
@@ -69,7 +98,14 @@ export const tasks: TaskItem[] = [
     progress: 42,
     confidence: 0,
     createdAt: '2026-06-28 11:02:00',
-    department: '运营部'
+    department: '运营部',
+    queueName: '运营部-低优先级队列',
+    queueLevel: 'LOW',
+    queueCapacity: 60,
+    queuePosition: 18,
+    waitingMinutes: 26,
+    estimatedStartAt: '11:48:00',
+    manualAccelerated: false
   },
   {
     traceId: 'TRACE-20260628-0004',
@@ -83,7 +119,258 @@ export const tasks: TaskItem[] = [
     progress: 18,
     confidence: 0,
     createdAt: '2026-06-28 11:20:00',
-    department: '产品部'
+    department: '产品部',
+    queueName: '产品部-中优先级队列',
+    queueLevel: 'MEDIUM',
+    queueCapacity: 20,
+    queuePosition: 6,
+    waitingMinutes: 12,
+    estimatedStartAt: '11:35:00',
+    manualAccelerated: false
+  }
+]
+
+export const queueWorkers = [
+  { workerId: 'ops-worker-01', department: '运营部', queueName: '运营部-高优先级队列', queueLevel: 'HIGH', currentTask: 'TASK-20260628-0005', stage: 'EXTRACTING', load: 82, status: 'BUSY' },
+  { workerId: 'ops-worker-02', department: '运营部', queueName: '运营部-低优先级队列', queueLevel: 'LOW', currentTask: 'TASK-20260628-0003', stage: 'PARSING', load: 64, status: 'BUSY' },
+  { workerId: 'finance-worker-01', department: '财务部', queueName: '财务部-中优先级队列', queueLevel: 'MEDIUM', currentTask: 'TASK-20260628-0002', stage: 'COMPLETED', load: 28, status: 'IDLE' },
+  { workerId: 'product-worker-01', department: '产品部', queueName: '产品部-中优先级队列', queueLevel: 'MEDIUM', currentTask: 'TASK-20260628-0004', stage: 'CLASSIFYING', load: 51, status: 'BUSY' }
+]
+
+export type PushMethod = 'HTTP' | 'MICROSERVICE' | 'MQ'
+export type PushStatus = 'SUCCESS' | 'PENDING' | 'FAILED' | 'RETRYING'
+
+export interface DownstreamSystem {
+  systemCode: string
+  systemName: string
+  ownerDepartment: DepartmentName
+  pushMethod: PushMethod
+  endpoint: string
+  authType: 'NONE' | 'TOKEN' | 'SIGN'
+  timeoutSeconds: number
+  retryCount: number
+  enabled: boolean
+  successRate: number
+}
+
+export interface DownstreamService {
+  serviceCode: string
+  serviceName: string
+  systemCode: string
+  systemName: string
+  serviceType: PushMethod
+  purpose: string
+  endpoint: string
+  httpMethod: 'GET' | 'POST' | '-'
+  authType: 'INHERIT' | 'NONE' | 'TOKEN' | 'SIGN'
+  timeoutSeconds: number
+  retryCount: number
+  idempotentRule: string
+  responseSuccessRule: string
+  enabled: boolean
+  successRate: number
+  boundConfigCount: number
+  version: string
+}
+
+export interface PushRecord {
+  pushId: string
+  traceId: string
+  taskId: string
+  targetSystem: string
+  serviceCode?: string
+  serviceName?: string
+  pushMethod: PushMethod
+  triggerType: string
+  idempotentKey: string
+  status: PushStatus
+  retryCount: number
+  pushedAt: string
+  responseMessage: string
+}
+
+export const downstreamSystems: DownstreamSystem[] = [
+  {
+    systemCode: 'fund_ops',
+    systemName: '运营业务系统',
+    ownerDepartment: '运营部',
+    pushMethod: 'HTTP',
+    endpoint: 'https://ops.example.com/api/extract-results',
+    authType: 'TOKEN',
+    timeoutSeconds: 30,
+    retryCount: 3,
+    enabled: true,
+    successRate: 98
+  },
+  {
+    systemCode: 'finance_core',
+    systemName: '财务核算系统',
+    ownerDepartment: '财务部',
+    pushMethod: 'MICROSERVICE',
+    endpoint: 'finance-result-service.receiveExtractResult',
+    authType: 'SIGN',
+    timeoutSeconds: 20,
+    retryCount: 2,
+    enabled: true,
+    successRate: 96
+  },
+  {
+    systemCode: 'data_warehouse',
+    systemName: '数据仓库',
+    ownerDepartment: '产品部',
+    pushMethod: 'MQ',
+    endpoint: 'topic.extract.result',
+    authType: 'NONE',
+    timeoutSeconds: 10,
+    retryCount: 5,
+    enabled: true,
+    successRate: 99
+  }
+]
+
+export const downstreamServices: DownstreamService[] = [
+  {
+    serviceCode: 'fund_ops_result_receive',
+    serviceName: '接收提取结果服务',
+    systemCode: 'fund_ops',
+    systemName: '运营业务系统',
+    serviceType: 'HTTP',
+    purpose: '结果推送',
+    endpoint: 'https://ops.example.com/api/extract-results',
+    httpMethod: 'POST',
+    authType: 'INHERIT',
+    timeoutSeconds: 30,
+    retryCount: 3,
+    idempotentRule: 'traceId + taskId + resultVersion',
+    responseSuccessRule: 'httpStatus in [200,202] && body.code == 0',
+    enabled: true,
+    successRate: 98,
+    boundConfigCount: 6,
+    version: 'v1'
+  },
+  {
+    serviceCode: 'fund_ops_attachment_receive',
+    serviceName: '接收附件服务',
+    systemCode: 'fund_ops',
+    systemName: '运营业务系统',
+    serviceType: 'HTTP',
+    purpose: '附件推送',
+    endpoint: 'https://ops.example.com/api/document-attachments',
+    httpMethod: 'POST',
+    authType: 'INHERIT',
+    timeoutSeconds: 45,
+    retryCount: 2,
+    idempotentRule: 'traceId + documentId + fileHash',
+    responseSuccessRule: 'httpStatus == 200 && body.success == true',
+    enabled: true,
+    successRate: 97,
+    boundConfigCount: 3,
+    version: 'v1'
+  },
+  {
+    serviceCode: 'finance_result_receive',
+    serviceName: '核算结果接收服务',
+    systemCode: 'finance_core',
+    systemName: '财务核算系统',
+    serviceType: 'MICROSERVICE',
+    purpose: '结果推送',
+    endpoint: 'finance-result-service.receiveExtractResult',
+    httpMethod: '-',
+    authType: 'INHERIT',
+    timeoutSeconds: 20,
+    retryCount: 2,
+    idempotentRule: 'traceId + taskId + targetTable',
+    responseSuccessRule: 'response.accepted == true',
+    enabled: true,
+    successRate: 96,
+    boundConfigCount: 4,
+    version: 'v2'
+  },
+  {
+    serviceCode: 'finance_status_callback',
+    serviceName: '处理状态回调服务',
+    systemCode: 'finance_core',
+    systemName: '财务核算系统',
+    serviceType: 'MICROSERVICE',
+    purpose: '状态回调',
+    endpoint: 'finance-result-service.callbackTaskStatus',
+    httpMethod: '-',
+    authType: 'SIGN',
+    timeoutSeconds: 15,
+    retryCount: 1,
+    idempotentRule: 'traceId + status + callbackTime',
+    responseSuccessRule: 'response.code == SUCCESS',
+    enabled: false,
+    successRate: 92,
+    boundConfigCount: 1,
+    version: 'v1'
+  },
+  {
+    serviceCode: 'dw_extract_result_topic',
+    serviceName: '结果批量同步 Topic',
+    systemCode: 'data_warehouse',
+    systemName: '数据仓库',
+    serviceType: 'MQ',
+    purpose: '批量同步',
+    endpoint: 'topic.extract.result',
+    httpMethod: '-',
+    authType: 'INHERIT',
+    timeoutSeconds: 10,
+    retryCount: 5,
+    idempotentRule: 'traceId + taskId + resultVersion',
+    responseSuccessRule: 'broker ack',
+    enabled: true,
+    successRate: 99,
+    boundConfigCount: 8,
+    version: 'v1'
+  }
+]
+
+export const pushRecords: PushRecord[] = [
+  {
+    pushId: 'PUSH-20260628-0001',
+    traceId: 'TRACE-20260628-0001',
+    taskId: 'TASK-20260628-0001',
+    targetSystem: '运营业务系统',
+    serviceCode: 'fund_ops_result_receive',
+    serviceName: '接收提取结果服务',
+    pushMethod: 'HTTP',
+    triggerType: '复核通过后',
+    idempotentKey: 'TRACE-20260628-0001:TASK-20260628-0001:v1',
+    status: 'SUCCESS',
+    retryCount: 0,
+    pushedAt: '2026-06-28 09:45:00',
+    responseMessage: '200 OK'
+  },
+  {
+    pushId: 'PUSH-20260628-0002',
+    traceId: 'TRACE-20260628-0002',
+    taskId: 'TASK-20260628-0002',
+    targetSystem: '财务核算系统',
+    serviceCode: 'finance_result_receive',
+    serviceName: '核算结果接收服务',
+    pushMethod: 'MICROSERVICE',
+    triggerType: '落库成功后',
+    idempotentKey: 'TRACE-20260628-0002:TASK-20260628-0002:v1',
+    status: 'SUCCESS',
+    retryCount: 0,
+    pushedAt: '2026-06-28 10:19:00',
+    responseMessage: 'accepted'
+  },
+  {
+    pushId: 'PUSH-20260628-0003',
+    traceId: 'TRACE-20260628-0006',
+    taskId: 'TASK-20260628-0006',
+    targetSystem: '数据仓库',
+    serviceCode: 'dw_extract_result_topic',
+    serviceName: '结果批量同步 Topic',
+    pushMethod: 'MQ',
+    triggerType: '手工触发',
+    idempotentKey: 'TRACE-20260628-0006:TASK-20260628-0006:v1',
+    status: 'FAILED',
+    retryCount: 2,
+    pushedAt: '2026-06-28 15:30:00',
+    responseMessage: 'topic permission denied'
   }
 ]
 

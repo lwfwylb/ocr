@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
-import { configFields } from '../mock/data'
+import { configFields, downstreamServices } from '../mock/data'
 
 type TransformRuleType = 'DICT' | 'API' | 'SQL'
 
@@ -32,6 +32,8 @@ const activeStep = ref(0)
 const fields = ref(configFields.map((item) => ({ ...item })))
 fields.value.forEach((field) => {
   const mutable = field as any
+  mutable.fieldDescription = mutable.fieldDescription || `从文档中识别${field.fieldName}`
+  mutable.extractRequired = field.required
   mutable.extractByRegex = field.fieldCode === 'amount' || field.fieldCode === 'payee_account'
   mutable.regexPattern =
     field.fieldCode === 'amount'
@@ -101,6 +103,7 @@ const transformRules = ref<TransformRule[]>([
 const selectedRuleId = ref(transformRules.value[0].id)
 const selectedExtractFieldCode = ref(fields.value[0]?.fieldCode || '')
 const aiEnabled = ref(true)
+const activeExtractTab = ref('ai')
 const aiSystemPrompt = ref('你是基金公司智能要素提取助手。请基于解析后的文档文本、表格和页面位置信息，按字段定义一次性提取全部业务要素。')
 const aiUserPrompt = ref('')
 const regexSampleText = ref('付款方：示例基金管理有限公司\n收款账号：6222 **** 8910\n金额：100000.00\n划款日期：2026年6月28日')
@@ -131,10 +134,17 @@ const form = reactive({
   outputMode: 'SINGLE',
   defaultStrategy: 'AI_FIRST_RULE_FALLBACK',
   confidenceThreshold: 0.9,
-  reviewerRole: '运营复核岗'
+  reviewerRole: '运营复核岗',
+  pushEnabled: true,
+  pushTrigger: 'REVIEW_APPROVED',
+  targetServices: ['fund_ops_result_receive', 'dw_extract_result_topic'],
+  pushScope: 'MAPPED_FIELDS',
+  pushMode: 'ASYNC',
+  idempotentKey: 'traceId + taskId + resultVersion',
+  pushFailStrategy: 'RETRY_THEN_MANUAL'
 })
 
-const steps = ['基础信息', '解析配置', '字段配置', '落库配置', '提取策略', '加工校验', '复核策略', '验证发布']
+const steps = ['基础信息', '解析配置', '字段与落库配置', '提取策略', '加工校验', '复核策略', '下游推送', '验证发布']
 const existingTables = [
   { label: 'ext_fund_business_result - 基金业务要素结果表', value: 'ext_fund_business_result' },
   { label: 'ext_payment_instruction - 划款指令结果表', value: 'ext_payment_instruction' },
@@ -171,19 +181,29 @@ const subCategoryOptions = computed(() => {
 const templateTypeOptions = computed(() => {
   return subCategoryOptions.value.find((item) => item.value === form.subCategory)?.templates || []
 })
-const reusableColumns = [
-  'biz_no',
-  'source_system',
-  'document_type',
-  'payer_name',
-  'counterparty_name',
-  'counterparty_account',
-  'business_amount',
-  'business_date',
-  'product_code',
-  'product_name',
-  'review_status'
-]
+const targetTableColumns = ref([
+  { columnName: 'biz_no', columnCnName: '业务编号', dbType: 'varchar', length: 64, precision: undefined, scale: undefined, required: false, defaultValue: '', validationRule: '唯一性校验' },
+  { columnName: 'source_system', columnCnName: '来源系统', dbType: 'varchar', length: 32, precision: undefined, scale: undefined, required: true, defaultValue: 'OCR', validationRule: '非空' },
+  { columnName: 'document_type', columnCnName: '文档类型', dbType: 'varchar', length: 64, precision: undefined, scale: undefined, required: true, defaultValue: '', validationRule: '非空' },
+  { columnName: 'payer_name', columnCnName: '付款方名称', dbType: 'varchar', length: 200, precision: undefined, scale: undefined, required: true, defaultValue: '', validationRule: '非空' },
+  { columnName: 'payee_account', columnCnName: '收款账号', dbType: 'varchar', length: 64, precision: undefined, scale: undefined, required: true, defaultValue: '', validationRule: '账号格式' },
+  { columnName: 'amount', columnCnName: '业务金额', dbType: 'decimal', length: undefined, precision: 18, scale: 2, required: true, defaultValue: '', validationRule: '金额格式' },
+  { columnName: 'counterparty_account', columnCnName: '交易对手账号', dbType: 'varchar', length: 64, precision: undefined, scale: undefined, required: false, defaultValue: '', validationRule: '账号格式' },
+  { columnName: 'business_amount', columnCnName: '业务金额', dbType: 'decimal', length: undefined, precision: 18, scale: 2, required: true, defaultValue: '', validationRule: '金额格式' },
+  { columnName: 'business_date', columnCnName: '业务日期', dbType: 'date', length: undefined, precision: undefined, scale: undefined, required: false, defaultValue: '', validationRule: '日期格式' },
+  { columnName: 'product_code', columnCnName: '产品代码', dbType: 'varchar', length: 32, precision: undefined, scale: undefined, required: false, defaultValue: '', validationRule: '产品主数据校验' }
+])
+const targetColumnOptions = computed(() => targetTableColumns.value.map((column) => column.columnName))
+const uniqueConstraints = ref([
+  {
+    id: 'uk-1',
+    enabled: true,
+    constraintName: 'uk_ext_fund_result_biz',
+    uniqueColumns: ['document_type', 'payee_account', 'amount'],
+    duplicateScope: 'TARGET_TABLE',
+    duplicateStrategy: 'REVIEW'
+  }
+])
 const mappingProfiles = [
   {
     name: '划款指令-资金结果表映射',
@@ -199,11 +219,57 @@ const mappingProfiles = [
   }
 ]
 const generatedPrompt = computed(() => {
-  const names = fields.value.map((field) => `${field.fieldCode}(${field.fieldName})`).join('、')
+  const names = fields.value
+    .map((field: any) => `${field.fieldCode}(${field.fieldName}${field.fieldDescription ? `：${field.fieldDescription}` : ''})`)
+    .join('、')
   const mappings = fields.value.map((field) => `${field.fieldCode}->${field.targetColumn}`).join('；')
   return `请从${form.documentType}中提取以下字段：${names}。字段需按映射关系 ${mappings} 写入结果对象。严格输出 JSON，无法识别返回 null，并提供 confidence、evidence、sourcePage。`
 })
 const effectiveAiUserPrompt = computed(() => aiUserPrompt.value.trim() || generatedPrompt.value)
+const normalizeDbTypeParams = (column: any) => {
+  if (['varchar', 'char'].includes(column.dbType)) {
+    column.length = column.length || 100
+    column.precision = undefined
+    column.scale = undefined
+  } else if (['decimal', 'number'].includes(column.dbType)) {
+    column.length = undefined
+    column.precision = column.precision || 18
+    column.scale = column.scale ?? 2
+  } else {
+    column.length = undefined
+    column.precision = undefined
+    column.scale = undefined
+  }
+}
+const formatDbColumnType = (column: any) => {
+  if (['varchar', 'char'].includes(column.dbType)) return `${column.dbType}(${column.length || 100})`
+  if (['decimal', 'number'].includes(column.dbType)) return `${column.dbType}(${column.precision || 18},${column.scale ?? 2})`
+  if (column.dbType === 'int') return 'int'
+  return column.dbType
+}
+const storageDdlPreview = computed(() => {
+  if (form.storageMode === 'REUSE') {
+    return `-- 复用已有表 ${form.targetTable}\n-- 仅保存映射方案：${form.mappingProfileName}\n-- 不执行 DDL，仅校验目标字段是否存在。`
+  }
+  const columns = targetTableColumns.value
+    .map((column) => `  ${column.columnName} ${formatDbColumnType(column)}${column.required ? ' NOT NULL' : ''}`)
+    .join(',\n')
+  return `CREATE TABLE ${form.targetTable} (\n${columns}\n);`
+})
+const enabledDownstreamServices = computed(() => downstreamServices.filter((service) => service.enabled))
+const selectedPushServices = computed(() => downstreamServices.filter((service) => form.targetServices.includes(service.serviceCode)))
+const downstreamFieldMap = reactive<Record<string, string>>({})
+fields.value.forEach((field) => {
+  downstreamFieldMap[field.fieldCode] = field.targetColumn || field.fieldCode
+})
+const pushFieldMappings = computed(() => {
+  return fields.value.map((field) => ({
+    fieldCode: field.fieldCode,
+    sourceField: field.targetColumn || field.fieldCode,
+    downstreamField: downstreamFieldMap[field.fieldCode] || field.targetColumn || field.fieldCode,
+    fieldName: field.fieldName
+  }))
+})
 const selectedTransformRule = computed(() => {
   return transformRules.value.find((rule) => rule.id === selectedRuleId.value) || transformRules.value[0]
 })
@@ -226,19 +292,82 @@ const saveDraft = () => ElMessage.success('草稿已保存')
 const validate = () => ElMessage.success('验证完成，字段映射与 JSON Schema 均通过')
 const publish = () => ElMessage.success('配置已发布为 V1')
 const addField = () => {
+  const fieldCode = `field_${fields.value.length + 1}`
   fields.value.push({
-    fieldCode: `field_${fields.value.length + 1}`,
+    fieldCode,
     fieldName: '新增字段',
+    fieldDescription: '补充该字段的业务含义，用于生成 AI 提示词',
     dataType: 'string',
     fieldLength: 100,
     required: false,
+    extractRequired: false,
     multiple: false,
-    targetColumn: `field_${fields.value.length + 1}`,
+    targetColumn: fieldCode,
     extractByRegex: false,
     regexPattern: '',
     regexFlags: '',
     regexGroup: 1
   } as any)
+  downstreamFieldMap[fieldCode] = fieldCode
+}
+const autoMapFields = () => {
+  fields.value.forEach((field) => {
+    const matchedColumn = targetColumnOptions.value.find((column) => column === field.fieldCode || column === field.targetColumn)
+    field.targetColumn = matchedColumn || field.targetColumn || field.fieldCode
+  })
+  ElMessage.success('已按同名字段自动生成映射')
+}
+const addTargetColumn = () => {
+  const columnName = `column_${targetTableColumns.value.length + 1}`
+  targetTableColumns.value.push({
+    columnName,
+    columnCnName: '新增目标字段',
+    dbType: 'varchar',
+    length: 100,
+    precision: undefined,
+    scale: undefined,
+    required: false,
+    defaultValue: '',
+    validationRule: ''
+  })
+}
+const addUniqueConstraint = () => {
+  uniqueConstraints.value.push({
+    id: `uk-${Date.now()}`,
+    enabled: true,
+    constraintName: `uk_${form.targetTable}_${uniqueConstraints.value.length + 1}`,
+    uniqueColumns: [],
+    duplicateScope: 'TARGET_TABLE',
+    duplicateStrategy: 'REVIEW'
+  })
+}
+const removeUniqueConstraint = (row: any) => {
+  uniqueConstraints.value = uniqueConstraints.value.filter((constraint) => constraint.id !== row.id)
+  ElMessage.success('已删除唯一约束')
+}
+const removeTargetColumn = (row: any) => {
+  const usedCount = fields.value.filter((field) => field.targetColumn === row.columnName).length
+  targetTableColumns.value = targetTableColumns.value.filter((column) => column.columnName !== row.columnName)
+  uniqueConstraints.value.forEach((constraint) => {
+    constraint.uniqueColumns = constraint.uniqueColumns.filter((column) => column !== row.columnName)
+  })
+  if (usedCount > 0) {
+    fields.value.forEach((field) => {
+      if (field.targetColumn === row.columnName) field.targetColumn = ''
+    })
+    ElMessage.warning(`已删除目标字段，并清空 ${usedCount} 个提取字段映射`)
+  } else {
+    ElMessage.success('已删除目标字段')
+  }
+}
+const removeExtractField = (row: any) => {
+  fields.value = fields.value.filter((field) => field.fieldCode !== row.fieldCode)
+  delete downstreamFieldMap[row.fieldCode]
+  delete regexPreviewMap.value[row.fieldCode]
+  if (selectedExtractFieldCode.value === row.fieldCode) {
+    selectedExtractFieldCode.value = fields.value[0]?.fieldCode || ''
+  }
+  ElMessage.success('已删除提取字段')
 }
 const addTransformRule = (ruleType: TransformRuleType) => {
   const id = `rule-${Date.now()}`
@@ -411,29 +540,16 @@ const runAllRegexPreview = () => {
       <template v-if="activeStep === 2">
         <div class="card-header">
           <div>
-            <h2>字段配置</h2>
-            <p class="muted">这里只定义当前任务需要提取的逻辑字段，不直接决定写入哪张物理表。</p>
+            <h2>字段与落库配置</h2>
+            <p class="muted">在同一个界面维护提取字段、目标表和字段映射，避免字段配置与落库配置来回切换。</p>
           </div>
-          <el-button type="primary" @click="addField">添加字段</el-button>
+          <div>
+            <el-button @click="autoMapFields">自动生成映射</el-button>
+            <el-button @click="addTargetColumn">添加目标字段</el-button>
+            <el-button type="primary" @click="addField">添加提取字段</el-button>
+          </div>
         </div>
-        <el-alert
-          class="mb-12"
-          title="同一结果表可被多个任务复用，字段与表字段的对应关系在下一步“落库配置”中单独维护。"
-          type="info"
-          :closable="false"
-        />
-        <el-table :data="fields">
-          <el-table-column label="字段编码" min-width="150"><template #default="{ row }"><el-input v-model="row.fieldCode" /></template></el-table-column>
-          <el-table-column label="字段名称" min-width="150"><template #default="{ row }"><el-input v-model="row.fieldName" /></template></el-table-column>
-          <el-table-column label="类型" width="130"><template #default="{ row }"><el-select v-model="row.dataType"><el-option label="string" value="string" /><el-option label="amount" value="amount" /><el-option label="date" value="date" /></el-select></template></el-table-column>
-          <el-table-column label="长度" width="110"><template #default="{ row }"><el-input-number v-model="row.fieldLength" :min="1" /></template></el-table-column>
-          <el-table-column label="必填" width="90"><template #default="{ row }"><el-switch v-model="row.required" /></template></el-table-column>
-          <el-table-column label="多值" width="90"><template #default="{ row }"><el-switch v-model="row.multiple" /></template></el-table-column>
-        </el-table>
-      </template>
 
-      <template v-if="activeStep === 3">
-        <h2>落库配置</h2>
         <el-form :model="form" label-width="120px" class="form-grid">
           <el-form-item label="落库模式">
             <el-radio-group v-model="form.storageMode">
@@ -445,38 +561,199 @@ const runAllRegexPreview = () => {
             <el-select v-if="form.storageMode === 'REUSE'" v-model="form.targetTable" filterable>
               <el-option v-for="table in existingTables" :key="table.value" :label="table.label" :value="table.value" />
             </el-select>
-            <el-input v-else v-model="form.targetTable" />
+            <el-input v-else v-model="form.targetTable" placeholder="如 ext_new_extract_result" />
           </el-form-item>
           <el-form-item label="映射方案名称"><el-input v-model="form.mappingProfileName" /></el-form-item>
-          <el-form-item label="保存模式"><el-radio-group v-model="form.saveMode"><el-radio-button label="SINGLE">单对象</el-radio-button><el-radio-button label="BATCH">数组批量</el-radio-button></el-radio-group></el-form-item>
+          <el-form-item label="保存模式">
+            <el-radio-group v-model="form.saveMode">
+              <el-radio-button label="SINGLE">单对象</el-radio-button>
+              <el-radio-button label="BATCH">数组批量</el-radio-button>
+            </el-radio-group>
+          </el-form-item>
         </el-form>
+
         <el-alert
           class="mb-12"
-          title="推荐做法：物理表保存通用业务结果字段；不同任务只新建映射方案，不重复建表。"
-          type="success"
+          title="同一结果表可被多个任务复用。这里保存的是“映射方案”，不同任务可写入同一张表，但字段映射关系可以不同。"
+          type="info"
           :closable="false"
         />
+
         <el-table :data="mappingProfiles" class="mb-12">
           <el-table-column prop="name" label="已有映射方案" min-width="190" />
           <el-table-column prop="documentType" label="适用文档" width="110" />
           <el-table-column prop="targetTable" label="复用表" min-width="190" />
           <el-table-column prop="mapping" label="映射摘要" min-width="320" />
         </el-table>
+
+        <div class="card-header mt-16">
+          <div>
+            <h3 class="section-title">目标表字段定义</h3>
+            <p class="muted">类型、长度、入库必填、默认值和入库校验属于目标表字段定义；复用已有表时只做字段存在性和约束校验。</p>
+          </div>
+          <el-button type="primary" @click="addTargetColumn">添加目标字段</el-button>
+        </div>
+        <el-table :data="targetTableColumns" class="mb-12" height="300">
+          <el-table-column label="目标字段名" min-width="160" fixed>
+            <template #default="{ row }"><el-input v-model="row.columnName" /></template>
+          </el-table-column>
+          <el-table-column label="字段中文名" min-width="140">
+            <template #default="{ row }"><el-input v-model="row.columnCnName" /></template>
+          </el-table-column>
+          <el-table-column label="数据库类型" width="130">
+            <template #default="{ row }">
+              <el-select v-model="row.dbType" @change="normalizeDbTypeParams(row)">
+                <el-option label="varchar" value="varchar" />
+                <el-option label="char" value="char" />
+                <el-option label="decimal" value="decimal" />
+                <el-option label="number" value="number" />
+                <el-option label="int" value="int" />
+                <el-option label="date" value="date" />
+                <el-option label="datetime" value="datetime" />
+                <el-option label="text" value="text" />
+              </el-select>
+            </template>
+          </el-table-column>
+          <el-table-column label="类型参数" min-width="210">
+            <template #default="{ row }">
+              <div v-if="['varchar', 'char'].includes(row.dbType)" class="db-param-cell">
+                <span>{{ row.dbType }}(</span>
+                <el-input-number v-model="row.length" :min="1" :controls="false" placeholder="长度" />
+                <span>)</span>
+              </div>
+              <div v-else-if="['decimal', 'number'].includes(row.dbType)" class="db-param-cell">
+                <span>{{ row.dbType }}(</span>
+                <el-input-number v-model="row.precision" :min="1" :controls="false" placeholder="精度" />
+                <span>,</span>
+                <el-input-number v-model="row.scale" :min="0" :controls="false" placeholder="小数位" />
+                <span>)</span>
+              </div>
+              <span v-else class="muted">无需配置</span>
+            </template>
+          </el-table-column>
+          <el-table-column label="入库必填" width="90">
+            <template #default="{ row }"><el-switch v-model="row.required" /></template>
+          </el-table-column>
+          <el-table-column label="默认值" min-width="120">
+            <template #default="{ row }"><el-input v-model="row.defaultValue" placeholder="可为空" /></template>
+          </el-table-column>
+          <el-table-column label="入库校验规则" min-width="180">
+            <template #default="{ row }"><el-input v-model="row.validationRule" placeholder="如非空、金额格式" /></template>
+          </el-table-column>
+          <el-table-column label="操作" width="80" fixed="right">
+            <template #default="{ row }">
+              <el-button link type="danger" @click="removeTargetColumn(row)">删除</el-button>
+            </template>
+          </el-table-column>
+        </el-table>
+
+        <el-card shadow="never" class="mb-12">
+          <template #header>
+            <div class="card-header">
+              <div>
+                <span>唯一约束配置</span>
+                <p class="muted">用于落库前判断业务数据是否重复，避免重复上传、重复推送或任务重试导致重复入库。</p>
+              </div>
+              <el-button type="primary" @click="addUniqueConstraint">新增唯一约束</el-button>
+            </div>
+          </template>
+          <el-table :data="uniqueConstraints" empty-text="暂未配置唯一约束">
+            <el-table-column label="启用" width="70">
+              <template #default="{ row }"><el-switch v-model="row.enabled" /></template>
+            </el-table-column>
+            <el-table-column label="约束名称" min-width="190">
+              <template #default="{ row }">
+                <el-input v-model="row.constraintName" :disabled="!row.enabled" placeholder="如 uk_ext_fund_result_biz" />
+              </template>
+            </el-table-column>
+            <el-table-column label="唯一字段组合" min-width="280">
+              <template #default="{ row }">
+                <el-select
+                  v-model="row.uniqueColumns"
+                  :disabled="!row.enabled"
+                  multiple
+                  filterable
+                  clearable
+                  collapse-tags
+                  collapse-tags-tooltip
+                  placeholder="请选择目标字段"
+                >
+                  <el-option v-for="column in targetTableColumns" :key="column.columnName" :label="`${column.columnCnName}（${column.columnName}）`" :value="column.columnName" />
+                </el-select>
+              </template>
+            </el-table-column>
+            <el-table-column label="判断范围" min-width="150">
+              <template #default="{ row }">
+                <el-select v-model="row.duplicateScope" :disabled="!row.enabled">
+                  <el-option label="当前目标表" value="TARGET_TABLE" />
+                  <el-option label="当前配置版本" value="CONFIG_VERSION" />
+                  <el-option label="当前来源系统" value="SOURCE_SYSTEM" />
+                </el-select>
+              </template>
+            </el-table-column>
+            <el-table-column label="冲突策略" min-width="150">
+              <template #default="{ row }">
+                <el-select v-model="row.duplicateStrategy" :disabled="!row.enabled">
+                  <el-option label="阻断入库" value="BLOCK" />
+                  <el-option label="更新已有记录" value="UPDATE" />
+                  <el-option label="忽略重复记录" value="IGNORE" />
+                  <el-option label="转人工复核" value="REVIEW" />
+                </el-select>
+              </template>
+            </el-table-column>
+            <el-table-column label="约束预览" min-width="220">
+              <template #default="{ row }">
+                <el-tag v-if="row.enabled" type="primary">{{ row.constraintName }}({{ row.uniqueColumns.join(', ') || '未选择字段' }})</el-tag>
+                <el-tag v-else type="info">未启用</el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column label="操作" width="80" fixed="right">
+              <template #default="{ row }">
+                <el-button link type="danger" @click="removeUniqueConstraint(row)">删除</el-button>
+              </template>
+            </el-table-column>
+          </el-table>
+        </el-card>
+
+        <div class="card-header mt-16">
+          <div>
+            <h3 class="section-title">提取字段与目标字段映射</h3>
+            <p class="muted">提取字段定义 AI/正则需要识别的业务要素；提取必填表示识别不到时是否进入复核或报错，和入库必填分开维护。</p>
+          </div>
+          <el-button type="primary" @click="addField">添加提取字段</el-button>
+        </div>
         <el-table :data="fields">
-          <el-table-column prop="fieldCode" label="提取字段" />
-          <el-table-column label="目标字段">
+          <el-table-column label="提取字段编码" min-width="150">
+            <template #default="{ row }"><el-input v-model="row.fieldCode" /></template>
+          </el-table-column>
+          <el-table-column label="提取字段名称" min-width="150">
+            <template #default="{ row }"><el-input v-model="row.fieldName" /></template>
+          </el-table-column>
+          <el-table-column label="字段描述" min-width="220">
+            <template #default="{ row }"><el-input v-model="row.fieldDescription" placeholder="用于生成 AI 提示词" /></template>
+          </el-table-column>
+          <el-table-column label="提取必填" width="90">
+            <template #default="{ row }"><el-switch v-model="row.extractRequired" /></template>
+          </el-table-column>
+          <el-table-column label="多值" width="80">
+            <template #default="{ row }"><el-switch v-model="row.multiple" /></template>
+          </el-table-column>
+          <el-table-column label="目标字段" min-width="260">
             <template #default="{ row }">
               <el-select v-if="form.storageMode === 'REUSE'" v-model="row.targetColumn" filterable allow-create>
-                <el-option v-for="column in reusableColumns" :key="column" :label="column" :value="column" />
+                <el-option v-for="column in targetColumnOptions" :key="column" :label="column" :value="column" />
               </el-select>
               <el-input v-else v-model="row.targetColumn" />
             </template>
           </el-table-column>
-          <el-table-column prop="dataType" label="字段类型" />
-          <el-table-column prop="fieldLength" label="长度" />
           <el-table-column label="映射说明" min-width="160">
             <template #default="{ row }">
               <span class="muted">{{ row.fieldCode }} 写入 {{ row.targetColumn }}</span>
+            </template>
+          </el-table-column>
+          <el-table-column label="操作" width="80" fixed="right">
+            <template #default="{ row }">
+              <el-button link type="danger" @click="removeExtractField(row)">删除</el-button>
             </template>
           </el-table-column>
         </el-table>
@@ -484,13 +761,11 @@ const runAllRegexPreview = () => {
           class="mt-16"
           type="textarea"
           :rows="7"
-          :model-value="form.storageMode === 'REUSE'
-            ? `-- 复用已有表 ${form.targetTable}\\n-- 仅保存映射方案：${form.mappingProfileName}\\n-- 不执行 DDL，仅校验目标字段是否存在。`
-            : `CREATE TABLE ${form.targetTable} (...);`"
+          :model-value="storageDdlPreview"
         />
       </template>
 
-      <template v-if="activeStep === 4">
+      <template v-if="activeStep === 3">
         <div class="card-header">
           <div>
             <h2>提取策略</h2>
@@ -517,7 +792,8 @@ const runAllRegexPreview = () => {
           </div>
         </div>
 
-        <div class="extract-strategy-grid">
+        <el-tabs v-model="activeExtractTab" type="border-card" class="extract-strategy-tabs">
+          <el-tab-pane label="AI 一次性提取" name="ai">
           <el-card shadow="never">
             <template #header>
               <div class="card-header">
@@ -527,22 +803,24 @@ const runAllRegexPreview = () => {
             </template>
             <el-form label-width="110px">
               <el-form-item label="系统提示词">
-                <el-input v-model="aiSystemPrompt" type="textarea" :rows="3" />
+                <el-input v-model="aiSystemPrompt" type="textarea" :rows="4" />
               </el-form-item>
               <el-form-item label="用户提示词">
-                <el-input v-model="aiUserPrompt" type="textarea" :rows="6" :placeholder="generatedPrompt" />
+                <el-input v-model="aiUserPrompt" type="textarea" :rows="8" :placeholder="generatedPrompt" />
               </el-form-item>
-              <el-form-item label="生成预览">
-                <el-input type="textarea" :rows="4" :model-value="effectiveAiUserPrompt" readonly />
+              <el-form-item label="自动生成提示词预览">
+                <el-input type="textarea" :rows="5" :model-value="effectiveAiUserPrompt" readonly />
               </el-form-item>
             </el-form>
-            <el-table :data="fields" height="188">
+            <el-table :data="fields" height="260">
               <el-table-column prop="fieldName" label="字段" width="120" />
               <el-table-column prop="fieldCode" label="JSON Key" width="140" />
               <el-table-column prop="targetColumn" label="落库字段" min-width="150" />
             </el-table>
           </el-card>
+          </el-tab-pane>
 
+          <el-tab-pane label="字段级正则" name="regex">
           <el-card shadow="never">
             <template #header>
               <div class="card-header">
@@ -557,16 +835,16 @@ const runAllRegexPreview = () => {
               :closable="false"
             />
             <el-input v-model="regexSampleText" class="mb-12" type="textarea" :rows="4" placeholder="输入统一测试文本，用于验证下方所有字段正则" />
-            <el-table :data="fields" class="regex-rule-table" height="430">
+            <el-table :data="fields" class="regex-rule-table" height="520">
               <el-table-column label="字段" min-width="150" fixed>
                 <template #default="{ row }">
                   <strong>{{ row.fieldName }}</strong>
                   <span class="muted block">{{ row.fieldCode }}</span>
                 </template>
               </el-table-column>
-              <el-table-column label="必填" width="60">
+              <el-table-column label="提取必填" width="80">
                 <template #default="{ row }">
-                  <el-tag :type="row.required ? 'danger' : 'info'">{{ row.required ? '是' : '否' }}</el-tag>
+                  <el-tag :type="row.extractRequired ? 'danger' : 'info'">{{ row.extractRequired ? '是' : '否' }}</el-tag>
                 </template>
               </el-table-column>
               <el-table-column label="启用" width="70">
@@ -605,7 +883,8 @@ const runAllRegexPreview = () => {
               </el-table-column>
             </el-table>
           </el-card>
-        </div>
+          </el-tab-pane>
+        </el-tabs>
 
         <el-table
           class="mt-16"
@@ -625,7 +904,7 @@ const runAllRegexPreview = () => {
         </el-table>
       </template>
 
-      <template v-if="activeStep === 5">
+      <template v-if="activeStep === 4">
         <div class="card-header">
           <div>
             <h2>加工校验</h2>
@@ -780,7 +1059,7 @@ const runAllRegexPreview = () => {
         </div>
       </template>
 
-      <template v-if="activeStep === 6">
+      <template v-if="activeStep === 5">
         <h2>复核策略</h2>
         <el-form :model="form" label-width="140px" class="form-grid">
           <el-form-item label="复核阈值"><el-input-number v-model="form.confidenceThreshold" :min="0" :max="1" :step="0.01" /></el-form-item>
@@ -791,6 +1070,93 @@ const runAllRegexPreview = () => {
             <el-checkbox>付款方名称</el-checkbox>
           </el-form-item>
         </el-form>
+      </template>
+
+      <template v-if="activeStep === 6">
+        <div class="card-header">
+          <div>
+            <h2>下游推送</h2>
+            <p class="muted">这里只绑定当前配置的推送规则；下游系统和接口服务的地址、鉴权、重试等信息在“系统管理-集成管理”维护。</p>
+          </div>
+          <el-switch v-model="form.pushEnabled" active-text="启用推送" inactive-text="不推送" />
+        </div>
+        <el-alert
+          class="mb-12"
+          title="仅当提取、加工、校验、复核和落库均通过后，才允许自动推送下游；待复核或校验失败的数据不会自动推送。"
+          type="info"
+          :closable="false"
+        />
+        <el-form :model="form" label-width="130px" class="form-grid">
+          <el-form-item label="触发时机">
+            <el-select v-model="form.pushTrigger">
+              <el-option label="复核通过后" value="REVIEW_APPROVED" />
+              <el-option label="落库成功后" value="STORED" />
+              <el-option label="人工确认后" value="MANUAL_CONFIRMED" />
+              <el-option label="仅手工触发" value="MANUAL_ONLY" />
+            </el-select>
+          </el-form-item>
+          <el-form-item label="目标接口服务">
+            <el-select v-model="form.targetServices" multiple filterable clearable collapse-tags collapse-tags-tooltip>
+              <el-option
+                v-for="service in enabledDownstreamServices"
+                :key="service.serviceCode"
+                :label="`${service.systemName} / ${service.serviceName}（${service.serviceType}）`"
+                :value="service.serviceCode"
+              />
+            </el-select>
+          </el-form-item>
+          <el-form-item label="推送字段范围">
+            <el-select v-model="form.pushScope">
+              <el-option label="按落库映射字段推送" value="MAPPED_FIELDS" />
+              <el-option label="推送全部提取字段" value="ALL_EXTRACTED_FIELDS" />
+              <el-option label="自定义字段" value="CUSTOM_FIELDS" />
+            </el-select>
+          </el-form-item>
+          <el-form-item label="推送模式">
+            <el-radio-group v-model="form.pushMode">
+              <el-radio-button label="ASYNC">异步推送</el-radio-button>
+              <el-radio-button label="SYNC">同步等待响应</el-radio-button>
+            </el-radio-group>
+          </el-form-item>
+          <el-form-item label="幂等键" class="wide">
+            <el-input v-model="form.idempotentKey" />
+          </el-form-item>
+          <el-form-item label="失败策略">
+            <el-select v-model="form.pushFailStrategy">
+              <el-option label="自动重试后转人工处理" value="RETRY_THEN_MANUAL" />
+              <el-option label="直接进入失败推送列表" value="MANUAL_ONLY" />
+              <el-option label="阻断任务完成" value="BLOCK_TASK" />
+            </el-select>
+          </el-form-item>
+        </el-form>
+
+        <el-table :data="selectedPushServices" class="mb-12">
+          <el-table-column prop="systemName" label="目标系统" min-width="130" />
+          <el-table-column prop="serviceName" label="接口服务" min-width="160" />
+          <el-table-column prop="purpose" label="用途" width="90" />
+          <el-table-column prop="serviceType" label="方式" width="100" />
+          <el-table-column prop="endpoint" label="地址/Topic/方法" min-width="260" />
+          <el-table-column prop="responseSuccessRule" label="成功判断" min-width="220" />
+          <el-table-column prop="retryCount" label="重试" width="70" />
+          <el-table-column label="状态" width="80">
+            <template #default="{ row }">
+              <el-tag :type="row.enabled ? 'success' : 'info'">{{ row.enabled ? '启用' : '停用' }}</el-tag>
+            </template>
+          </el-table-column>
+        </el-table>
+
+        <el-table :data="pushFieldMappings">
+          <el-table-column prop="fieldName" label="字段名称" width="150" />
+          <el-table-column prop="sourceField" label="推送来源字段" min-width="180" />
+          <el-table-column label="下游字段">
+            <template #default="{ row }">
+              <el-input
+                :model-value="row.downstreamField"
+                @update:model-value="(value: string) => (downstreamFieldMap[row.fieldCode] = value)"
+              />
+            </template>
+          </el-table-column>
+        </el-table>
       </template>
 
       <template v-if="activeStep === 7">
