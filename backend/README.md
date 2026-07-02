@@ -84,7 +84,7 @@ GET  /api/config/options
 ```
 
 ```bash
-curl -X POST http://127.0.0.1:8080/api/config/extract-configs/draft \
+curl -X POST http://127.0.0.1:8889/api/config/extract-configs/draft \
   -H "Content-Type: application/json" \
   -d @payload.json
 ```
@@ -98,10 +98,13 @@ curl -X POST http://127.0.0.1:8080/api/config/extract-configs/draft \
 ## 启动
 
 ```bash
-mvn -Pmysql spring-boot:run
+mvn clean package
+mvn spring-boot:run
 ```
 
-可通过 Spring profile 和 Maven profile 切换数据库驱动：
+默认启用 Maven 的 `mysql` profile，并且 Spring 默认激活 `mysql` 运行配置，因此本地直接编译会携带 MySQL 驱动。
+
+如需切换 Oracle 或达梦，需要同时切换 Maven profile 和 Spring profile：
 
 ```bash
 SPRING_PROFILES_ACTIVE=oracle mvn -Poracle spring-boot:run
