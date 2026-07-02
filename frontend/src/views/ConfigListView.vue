@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import { computed, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import StatusTag from '../components/StatusTag.vue'
+import { copyExtractConfig, disableExtractConfig, listExtractConfigs, publishExtractConfig, type ConfigSummary } from '../api/config'
 
 type ConfigStatus = 'DRAFT' | 'TESTING' | 'PUBLISHED' | 'DISABLED'
 
@@ -27,6 +28,7 @@ interface ConfigItem {
 const router = useRouter()
 const drawerVisible = ref(false)
 const selectedConfig = ref<ConfigItem | null>(null)
+const loading = ref(false)
 const query = reactive({
   keyword: '',
   category: '',
@@ -148,31 +150,62 @@ const statusMap: Record<ConfigStatus, { label: string; type: 'success' | 'warnin
   DISABLED: { label: '已停用', type: 'danger' }
 }
 
+const toConfigItem = (item: ConfigSummary): ConfigItem => ({
+  configId: item.id,
+  configName: item.configName,
+  category: item.category || '',
+  subCategory: item.subCategory || '',
+  templateType: item.templateType || '',
+  documentType: item.documentType || '',
+  department: item.departmentId || '',
+  version: `V${item.version || 1}`,
+  status: item.status,
+  parseEngine: '-',
+  targetTable: '-',
+  mappingProfile: '-',
+  confidenceThreshold: 0.9,
+  updatedAt: item.updatedAt || '',
+  updatedBy: item.createdBy || 'system'
+})
+
+const loadConfigs = async () => {
+  loading.value = true
+  try {
+    const rows = await listExtractConfigs({
+      keyword: query.keyword,
+      status: query.status,
+      departmentId: query.department,
+      documentType: query.documentType
+    })
+    configs.value = rows.map(toConfigItem)
+  } catch (error) {
+    ElMessage.warning(error instanceof Error ? `后端配置列表暂不可用，继续展示 Mock 数据：${error.message}` : '后端配置列表暂不可用，继续展示 Mock 数据')
+  } finally {
+    loading.value = false
+  }
+}
+
 const openDetail = (config: ConfigItem) => {
   selectedConfig.value = config
   drawerVisible.value = true
 }
 
-const copyVersion = (config: ConfigItem) => {
-  const copy: ConfigItem = {
-    ...config,
-    configId: `CFG-20260629-${String(configs.value.length + 1).padStart(3, '0')}`,
-    configName: `${config.configName}-副本`,
-    version: 'DRAFT',
-    status: 'DRAFT',
-    updatedAt: '2026-06-29 09:00:00',
-    updatedBy: '当前用户'
+const copyVersion = async (config: ConfigItem) => {
+  try {
+    const result = await copyExtractConfig(config.configId)
+    configs.value.unshift(toConfigItem(result.summary))
+    ElMessage.success('已复制为草稿版本')
+  } catch (error) {
+    ElMessage.error(error instanceof Error ? error.message : '复制失败')
   }
-  configs.value.unshift(copy)
-  ElMessage.success('已复制为草稿版本')
 }
 
 const publishConfig = async (config: ConfigItem) => {
   await ElMessageBox.confirm('发布后新任务将使用该配置版本，历史任务不受影响。确认发布？', '发布配置', {
     type: 'warning'
   })
-  config.status = 'PUBLISHED'
-  config.version = config.version.startsWith('V') ? config.version : 'V1.0'
+  const result = await publishExtractConfig(config.configId)
+  Object.assign(config, toConfigItem(result.summary))
   ElMessage.success('配置已发布')
 }
 
@@ -180,7 +213,8 @@ const disableConfig = async (config: ConfigItem) => {
   await ElMessageBox.confirm('停用后该配置不会再被新任务匹配。确认停用？', '停用配置', {
     type: 'warning'
   })
-  config.status = 'DISABLED'
+  const result = await disableExtractConfig(config.configId)
+  Object.assign(config, toConfigItem(result.summary))
   ElMessage.success('配置已停用')
 }
 
@@ -191,7 +225,10 @@ const resetQuery = () => {
   query.documentType = ''
   query.department = ''
   query.status = ''
+  loadConfigs()
 }
+
+onMounted(loadConfigs)
 </script>
 
 <template>
@@ -270,7 +307,7 @@ const resetQuery = () => {
           </el-select>
         </el-form-item>
         <el-form-item>
-          <el-button type="primary">查询</el-button>
+          <el-button type="primary" :loading="loading" @click="loadConfigs">查询</el-button>
           <el-button @click="resetQuery">重置</el-button>
         </el-form-item>
       </el-form>
@@ -286,7 +323,7 @@ const resetQuery = () => {
           </div>
         </div>
       </template>
-      <el-table :data="filteredConfigs" stripe>
+      <el-table v-loading="loading" :data="filteredConfigs" stripe>
         <el-table-column prop="configName" label="配置名称" min-width="220" fixed />
         <el-table-column prop="category" label="业务分类" width="100" />
         <el-table-column prop="subCategory" label="业务子类" width="100" />

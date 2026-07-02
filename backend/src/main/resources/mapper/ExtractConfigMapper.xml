@@ -1,0 +1,103 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.example.extraction.mapper.ExtractConfigMapper">
+    <resultMap id="ExtractConfigRecordMap" type="com.example.extraction.configuration.domain.ExtractConfigRecord">
+        <id property="id" column="id"/>
+        <result property="configCode" column="config_code"/>
+        <result property="configName" column="config_name"/>
+        <result property="category" column="category"/>
+        <result property="subCategory" column="sub_category"/>
+        <result property="templateType" column="template_type"/>
+        <result property="documentType" column="document_type"/>
+        <result property="departmentId" column="department_id"/>
+        <result property="ownerRole" column="owner_role"/>
+        <result property="defaultPriority" column="default_priority"/>
+        <result property="status" column="status"/>
+        <result property="version" column="version"/>
+        <result property="configPayload" column="config_payload"/>
+        <result property="createdBy" column="created_by"/>
+        <result property="publishedAt" column="published_at"/>
+        <result property="createdAt" column="created_at"/>
+        <result property="updatedAt" column="updated_at"/>
+    </resultMap>
+
+    <sql id="BaseColumns">
+        id, config_code, config_name, category, sub_category, template_type, document_type,
+        department_id, owner_role, default_priority, status, version, config_payload,
+        created_by, published_at, created_at, updated_at
+    </sql>
+
+    <select id="selectList" resultMap="ExtractConfigRecordMap">
+        <bind name="keywordLike" value="query.keyword == null ? null : '%' + query.keyword + '%'"/>
+        select <include refid="BaseColumns"/>
+        from extract_config
+        <where>
+            <if test="query.keyword != null and query.keyword != ''">
+                and (config_name like #{keywordLike}
+                or config_code like #{keywordLike}
+                or document_type like #{keywordLike})
+            </if>
+            <if test="query.status != null and query.status != ''">
+                and status = #{query.status}
+            </if>
+            <if test="query.departmentId != null and query.departmentId != ''">
+                and department_id = #{query.departmentId}
+            </if>
+            <if test="query.documentType != null and query.documentType != ''">
+                and document_type = #{query.documentType}
+            </if>
+        </where>
+        order by updated_at desc
+    </select>
+
+    <select id="selectById" resultMap="ExtractConfigRecordMap">
+        select <include refid="BaseColumns"/>
+        from extract_config
+        where id = #{id}
+    </select>
+
+    <insert id="insert" parameterType="com.example.extraction.configuration.domain.ExtractConfigRecord">
+        insert into extract_config (
+            id, config_code, config_name, category, sub_category, template_type, document_type,
+            department_id, owner_role, default_priority, status, version, config_payload,
+            created_by, published_at, created_at, updated_at
+        ) values (
+            #{id}, #{configCode}, #{configName}, #{category}, #{subCategory}, #{templateType}, #{documentType},
+            #{departmentId}, #{ownerRole}, #{defaultPriority}, #{status}, #{version}, #{configPayload},
+            #{createdBy}, #{publishedAt}, #{createdAt}, #{updatedAt}
+        )
+    </insert>
+
+    <update id="updateDraft" parameterType="com.example.extraction.configuration.domain.ExtractConfigRecord">
+        update extract_config
+        set config_name = #{configName},
+            category = #{category},
+            sub_category = #{subCategory},
+            template_type = #{templateType},
+            document_type = #{documentType},
+            department_id = #{departmentId},
+            owner_role = #{ownerRole},
+            default_priority = #{defaultPriority},
+            config_payload = #{configPayload},
+            updated_at = #{updatedAt}
+        where id = #{id}
+          and status in ('DRAFT', 'TESTING')
+    </update>
+
+    <update id="updateStatus">
+        update extract_config
+        set status = #{status},
+            updated_at = current_timestamp
+        where id = #{id}
+    </update>
+
+    <update id="publish">
+        update extract_config
+        set status = 'PUBLISHED',
+            published_at = current_timestamp,
+            updated_at = current_timestamp
+        where id = #{id}
+          and status in ('DRAFT', 'TESTING')
+    </update>
+</mapper>

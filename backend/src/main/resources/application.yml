@@ -1,0 +1,22 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: intelligent-extraction-backend
+  profiles:
+    active: mysql
+  jackson:
+    default-property-inclusion: non_null
+    time-zone: Asia/Shanghai
+
+mybatis:
+  mapper-locations: classpath*:mapper/**/*.xml
+  configuration:
+    map-underscore-to-camel-case: true
+
+app:
+  cors:
+    allowed-origins:
+      - http://127.0.0.1:5173
+      - http://localhost:5173

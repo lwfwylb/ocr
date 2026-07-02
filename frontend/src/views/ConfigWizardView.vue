@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { createExtractConfigDraft, publishExtractConfig, updateExtractConfigDraft, validateExtractConfig } from '../api/config'
 import { configFields, downstreamServices } from '../mock/data'
 
 type TransformRuleType = 'DICT' | 'API' | 'SQL'
@@ -70,6 +71,8 @@ interface PreprocessStep {
 }
 
 const activeStep = ref(0)
+const currentConfigId = ref('')
+const saving = ref(false)
 const fields = ref(configFields.map((item) => ({ ...item })))
 fields.value.forEach((field) => {
   const mutable = field as any
@@ -566,9 +569,138 @@ const next = () => {
 const prev = () => {
   if (activeStep.value > 0) activeStep.value -= 1
 }
-const saveDraft = () => ElMessage.success('草稿已保存')
-const validate = () => ElMessage.success('验证完成，字段映射与 JSON Schema 均通过')
-const publish = () => ElMessage.success('配置已发布为 V1')
+const buildWizardPayload = () => ({
+  baseInfo: {
+    configName: form.configName,
+    category: form.category,
+    subCategory: form.subCategory,
+    templateType: form.templateType,
+    documentType: form.documentType,
+    departmentId: form.departmentId,
+    ownerRole: form.ownerRole,
+    defaultPriority: form.defaultPriority
+  },
+  parseConfig: {
+    engineCode: form.engineCode,
+    outputFormat: form.outputFormat,
+    preprocessEnabled: preprocessEnabled.value
+  },
+  preprocessSteps: preprocessSteps.value,
+  storageConfig: {
+    storageMode: form.storageMode,
+    mappingProfileName: form.mappingProfileName,
+    targetTable: form.targetTable,
+    targetTableName: form.targetTableName,
+    targetTableComment: form.targetTableComment,
+    saveMode: form.saveMode
+  },
+  resultTableColumns: targetTableColumns.value,
+  uniqueConstraints: uniqueConstraints.value,
+  extractFields: fields.value.map((field: any) => ({
+    fieldCode: field.fieldCode,
+    fieldName: field.fieldName,
+    fieldDescription: field.fieldDescription,
+    extractRequired: field.extractRequired,
+    multiple: field.multiple,
+    extractByRegex: field.extractByRegex,
+    targetColumn: field.targetColumn
+  })),
+  fieldMappings: fields.value.map((field: any) => ({
+    extractFieldCode: field.fieldCode,
+    targetColumn: field.targetColumn,
+    multiple: field.multiple,
+    requiredForStorage: field.extractRequired
+  })),
+  extractStrategy: {
+    aiEnabled: aiEnabled.value,
+    outputMode: form.outputMode,
+    defaultStrategy: form.defaultStrategy,
+    confidenceThreshold: form.confidenceThreshold,
+    systemPrompt: aiSystemPrompt.value,
+    userPrompt: aiUserPrompt.value,
+    generatedPromptPreview: generatedPrompt.value,
+    outputJsonSchema: ''
+  },
+  regexRules: fields.value
+    .filter((field: any) => field.extractByRegex || field.regexPattern)
+    .map((field: any) => ({
+      fieldCode: field.fieldCode,
+      ruleName: `${field.fieldName}正则取数`,
+      regexPattern: field.regexPattern,
+      regexGroup: field.regexGroup,
+      regexFlags: field.regexFlags,
+      sampleText: regexSampleText.value,
+      sampleResult: regexPreviewMap.value[field.fieldCode],
+      validationStatus: regexPreviewMap.value[field.fieldCode] ? 'PASSED' : 'NOT_TESTED',
+      enabled: field.extractByRegex
+    })),
+  transformRules: transformRules.value,
+  validationRules: validationRules.value,
+  reviewPolicy: {
+    confidenceThreshold: form.confidenceThreshold,
+    reviewerRole: form.reviewerRole,
+    forceReviewFields: ['amount', 'payee_account']
+  },
+  pushRules: form.targetServices.map((serviceCode) => ({
+    serviceCode,
+    pushEnabled: form.pushEnabled,
+    pushTrigger: form.pushTrigger,
+    pushScope: form.pushScope,
+    pushMode: form.pushMode,
+    idempotentKey: form.idempotentKey,
+    failStrategy: form.pushFailStrategy,
+    fieldMappings: pushFieldMappings.value
+  })),
+  visibleRoles: form.visibleRoles,
+  extension: {
+    storageDdlPreview: storageDdlPreview.value
+  }
+})
+const saveDraft = async () => {
+  saving.value = true
+  try {
+    const payload = buildWizardPayload()
+    const result = currentConfigId.value
+      ? await updateExtractConfigDraft(currentConfigId.value, payload)
+      : await createExtractConfigDraft(payload)
+    currentConfigId.value = result.summary.id
+    ElMessage.success(`草稿已保存：${result.summary.configCode}`)
+  } catch (error) {
+    ElMessage.error(error instanceof Error ? error.message : '草稿保存失败')
+  } finally {
+    saving.value = false
+  }
+}
+const validate = async () => {
+  try {
+    await saveDraft()
+    if (!currentConfigId.value) return
+    const result = await validateExtractConfig(currentConfigId.value)
+    if (result.passed) {
+      ElMessage.success(result.message)
+    } else {
+      ElMessageBox.alert(result.errors.map((error, index) => `${index + 1}. ${error}`).join('<br />'), result.message, {
+        dangerouslyUseHTMLString: true,
+        confirmButtonText: '我知道了'
+      })
+    }
+  } catch (error) {
+    ElMessage.error(error instanceof Error ? error.message : '验证失败')
+  }
+}
+const publish = async () => {
+  try {
+    await saveDraft()
+    if (!currentConfigId.value) return
+    await ElMessageBox.confirm('发布后新任务将使用该配置版本，历史任务不受影响。确认发布？', '发布配置', {
+      type: 'warning'
+    })
+    const result = await publishExtractConfig(currentConfigId.value)
+    ElMessage.success(`配置已发布为 V${result.summary.version}`)
+  } catch (error) {
+    if (error !== 'cancel') ElMessage.error(error instanceof Error ? error.message : '发布失败')
+  }
+}
 const addField = () => {
   const fieldCode = `field_${fields.value.length + 1}`
   fields.value.push({
@@ -803,9 +935,9 @@ const runAllRegexPreview = () => {
         <div class="card-header">
           <span>配置向导</span>
           <div>
-            <el-button @click="saveDraft">保存草稿</el-button>
-            <el-button type="primary" @click="validate">验证</el-button>
-            <el-button type="success" @click="publish">发布</el-button>
+            <el-button :loading="saving" @click="saveDraft">保存草稿</el-button>
+            <el-button type="primary" :loading="saving" @click="validate">验证</el-button>
+            <el-button type="success" :loading="saving" @click="publish">发布</el-button>
           </div>
         </div>
       </template>
