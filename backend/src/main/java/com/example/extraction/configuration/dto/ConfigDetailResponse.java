@@ -2,7 +2,7 @@ package com.example.extraction.configuration.dto;
 
 public class ConfigDetailResponse {
     private ConfigSummaryResponse summary;
-    private ConfigWizardPayload payload;
+    private Object payload;
 
     public ConfigSummaryResponse getSummary() {
         return summary;
@@ -12,11 +12,11 @@ public class ConfigDetailResponse {
         this.summary = summary;
     }
 
-    public ConfigWizardPayload getPayload() {
+    public Object getPayload() {
         return payload;
     }
 
-    public void setPayload(ConfigWizardPayload payload) {
+    public void setPayload(Object payload) {
         this.payload = payload;
     }
 }

@@ -47,6 +47,15 @@
             <if test="query.documentType != null and query.documentType != ''">
                 and document_type = #{query.documentType}
             </if>
+            <if test="query.category != null and query.category != ''">
+                and category = #{query.category}
+            </if>
+            <if test="query.subCategory != null and query.subCategory != ''">
+                and sub_category = #{query.subCategory}
+            </if>
+            <if test="query.templateType != null and query.templateType != ''">
+                and template_type = #{query.templateType}
+            </if>
         </where>
         order by updated_at desc
     </select>

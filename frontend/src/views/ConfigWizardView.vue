@@ -1,8 +1,16 @@
 <script setup lang="ts">
-import { computed, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
+import { useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { createExtractConfigDraft, publishExtractConfig, updateExtractConfigDraft, validateExtractConfig } from '../api/config'
-import { configFields, downstreamServices } from '../mock/data'
+import {
+  createExtractConfigDraft,
+  getConfigOptions,
+  getExtractConfigDetail,
+  publishExtractConfig,
+  updateExtractConfigDraft,
+  validateExtractConfig,
+  type ConfigOptions
+} from '../api/config'
 
 type TransformRuleType = 'DICT' | 'API' | 'SQL'
 type PreprocessStepType = 'PAGE_RANGE' | 'KEYWORD_FILTER' | 'PDF_TO_IMAGE' | 'SPLIT_MERGE'
@@ -70,10 +78,27 @@ interface PreprocessStep {
   splitPageCount: number
 }
 
+type OptionItem = Record<string, any>
+
+const initialConfigFields = [
+  { fieldCode: 'payer_name', fieldName: '付款方名称', dataType: 'string', fieldLength: 200, required: true, multiple: false, targetColumn: 'payer_name' },
+  { fieldCode: 'payee_account', fieldName: '收款账号', dataType: 'string', fieldLength: 64, required: true, multiple: false, targetColumn: 'payee_account' },
+  { fieldCode: 'amount', fieldName: '划款金额', dataType: 'amount', fieldLength: 18, required: true, multiple: false, targetColumn: 'amount' }
+]
+
 const activeStep = ref(0)
+const route = useRoute()
 const currentConfigId = ref('')
 const saving = ref(false)
-const fields = ref(configFields.map((item) => ({ ...item })))
+const options = ref<ConfigOptions>({
+  departments: [],
+  roles: [],
+  categories: [],
+  ocrEngines: [],
+  resultTables: [],
+  downstreamServices: []
+})
+const fields = ref(initialConfigFields.map((item) => ({ ...item })))
 fields.value.forEach((field) => {
   const mutable = field as any
   mutable.fieldDescription = mutable.fieldDescription || `从文档中识别${field.fieldName}`
@@ -218,7 +243,7 @@ const regexValidatedCount = computed(() =>
 const regexFailedCount = computed(() =>
   fields.value.filter((field) => {
     const result = regexPreviewMap.value[(field as any).fieldCode]
-    return result === '鏈尮閰?' || result === '姝ｅ垯閿欒'
+    return result === '未匹配' || result === '正则错误'
   }).length
 )
 const preprocessEnabled = ref(true)
@@ -306,56 +331,20 @@ const form = reactive({
 })
 
 const steps = ['基础信息', '解析配置', '字段与落库配置', '提取策略', '加工校验', '复核策略', '下游推送', '验证发布']
-const existingTables = [
-  {
-    label: 'ext_fund_business_result - 基金业务要素结果表',
-    value: 'ext_fund_business_result',
-    tableName: '基金业务要素结果表',
-    comment: '保存基金申购、赎回、划款、回单等业务场景的结构化要素结果'
-  },
-  {
-    label: 'ext_payment_instruction - 划款指令结果表',
-    value: 'ext_payment_instruction',
-    tableName: '划款指令结果表',
-    comment: '保存运营划款指令类文档的结构化识别结果'
-  },
-  {
-    label: 'ext_bank_receipt - 银行回单结果表',
-    value: 'ext_bank_receipt',
-    tableName: '银行回单结果表',
-    comment: '保存银行回单、流水回执等文档的结构化识别结果'
-  }
-]
-const categoryOptions = [
-  {
-    label: '资金业务',
-    value: '资金业务',
-    children: [
-      { label: '划款指令', value: '划款指令', templates: ['通用划款指令模板', '托管行划款指令模板'] },
-      { label: '银行回单', value: '银行回单', templates: ['通用银行回单模板'] }
-    ]
-  },
-  {
-    label: '基金交易',
-    value: '基金交易',
-    children: [
-      { label: '基金申购', value: '基金申购', templates: ['大成基金申购单', '南方基金申购单', '华夏基金申购单'] },
-      { label: '基金赎回', value: '基金赎回', templates: ['大成基金赎回单', '南方基金赎回单'] }
-    ]
-  },
-  {
-    label: '客户业务',
-    value: '客户业务',
-    children: [
-      { label: '开户资料', value: '开户资料', templates: ['机构客户开户资料', '产品户开户资料'] }
-    ]
-  }
-]
-const subCategoryOptions = computed(() => {
-  return categoryOptions.find((item) => item.value === form.category)?.children || []
+const existingTables = computed(() =>
+  options.value.resultTables.map((table: OptionItem) => ({
+    label: table.label || `${table.tableCode || table.value} - ${table.tableName || table.name || ''}`,
+    value: table.tableCode || table.value,
+    tableName: table.tableName || table.name || table.label || table.value,
+    comment: table.comment || ''
+  }))
+)
+const categoryOptions = computed<OptionItem[]>(() => options.value.categories || [])
+const subCategoryOptions = computed<OptionItem[]>(() => {
+  return (categoryOptions.value.find((item: OptionItem) => item.value === form.category)?.children || []) as OptionItem[]
 })
-const templateTypeOptions = computed(() => {
-  return subCategoryOptions.value.find((item) => item.value === form.subCategory)?.templates || []
+const templateTypeOptions = computed<string[]>(() => {
+  return (subCategoryOptions.value.find((item: OptionItem) => item.value === form.subCategory)?.templates || []) as string[]
 })
 const preprocessStepTypeLabel: Record<PreprocessStepType, string> = {
   PAGE_RANGE: '指定页码/页范围',
@@ -470,13 +459,13 @@ const storageDdlPreview = computed(() => {
   return `-- 目标表名称: ${form.targetTableName}\n-- 表说明: ${form.targetTableComment || '无'}\nCREATE TABLE ${form.targetTable} (\n${tableLines.join(',\n')}\n);\n${businessRules ? `\n${businessRules}` : ''}`
 })
 const handleTargetTableChange = (tableCode: string) => {
-  const matchedTable = existingTables.find((table) => table.value === tableCode)
+  const matchedTable = existingTables.value.find((table) => table.value === tableCode)
   if (!matchedTable) return
   form.targetTableName = matchedTable.tableName
   form.targetTableComment = matchedTable.comment
 }
-const enabledDownstreamServices = computed(() => downstreamServices.filter((service) => service.enabled))
-const selectedPushServices = computed(() => downstreamServices.filter((service) => form.targetServices.includes(service.serviceCode)))
+const enabledDownstreamServices = computed(() => options.value.downstreamServices.filter((service) => service.enabled !== false))
+const selectedPushServices = computed(() => options.value.downstreamServices.filter((service) => form.targetServices.includes(service.serviceCode)))
 const downstreamFieldMap = reactive<Record<string, string>>({})
 fields.value.forEach((field) => {
   downstreamFieldMap[field.fieldCode] = field.targetColumn || field.fieldCode
@@ -926,6 +915,104 @@ const runAllRegexPreview = () => {
   })
   ElMessage.success('已批量验证已启用的正则规则')
 }
+const applyWizardPayload = (payload: any) => {
+  if (!payload) return
+  const baseInfo = payload.baseInfo || {}
+  const parseConfig = payload.parseConfig || {}
+  const storageConfig = payload.storageConfig || {}
+  const extractStrategy = payload.extractStrategy || {}
+  const reviewPolicy = payload.reviewPolicy || {}
+  const firstPushRule = payload.pushRules?.[0] || {}
+
+  Object.assign(form, {
+    configName: baseInfo.configName || form.configName,
+    category: baseInfo.category || form.category,
+    subCategory: baseInfo.subCategory || form.subCategory,
+    templateType: baseInfo.templateType || form.templateType,
+    documentType: baseInfo.documentType || form.documentType,
+    departmentId: baseInfo.departmentId || form.departmentId,
+    visibleRoles: payload.visibleRoles || form.visibleRoles,
+    ownerRole: baseInfo.ownerRole || form.ownerRole,
+    defaultPriority: baseInfo.defaultPriority || form.defaultPriority,
+    engineCode: parseConfig.engineCode || form.engineCode,
+    outputFormat: parseConfig.outputFormat || form.outputFormat,
+    storageMode: storageConfig.storageMode || form.storageMode,
+    mappingProfileName: storageConfig.mappingProfileName || form.mappingProfileName,
+    targetTable: storageConfig.targetTable || form.targetTable,
+    targetTableName: storageConfig.targetTableName || form.targetTableName,
+    targetTableComment: storageConfig.targetTableComment || form.targetTableComment,
+    saveMode: storageConfig.saveMode || form.saveMode,
+    outputMode: extractStrategy.outputMode || form.outputMode,
+    defaultStrategy: extractStrategy.defaultStrategy || form.defaultStrategy,
+    confidenceThreshold: extractStrategy.confidenceThreshold ?? reviewPolicy.confidenceThreshold ?? form.confidenceThreshold,
+    reviewerRole: reviewPolicy.reviewerRole || form.reviewerRole,
+    pushEnabled: firstPushRule.pushEnabled ?? form.pushEnabled,
+    pushTrigger: firstPushRule.pushTrigger || form.pushTrigger,
+    targetServices: payload.pushRules?.map((rule: any) => rule.serviceCode).filter(Boolean) || form.targetServices,
+    pushScope: firstPushRule.pushScope || form.pushScope,
+    pushMode: firstPushRule.pushMode || form.pushMode,
+    idempotentKey: firstPushRule.idempotentKey || form.idempotentKey,
+    pushFailStrategy: firstPushRule.failStrategy || form.pushFailStrategy
+  })
+
+  preprocessEnabled.value = parseConfig.preprocessEnabled ?? preprocessEnabled.value
+  if (payload.preprocessSteps?.length) preprocessSteps.value = payload.preprocessSteps
+  if (payload.resultTableColumns?.length) targetTableColumns.value = payload.resultTableColumns
+  if (payload.uniqueConstraints?.length) uniqueConstraints.value = payload.uniqueConstraints
+  if (payload.extractFields?.length) {
+    fields.value = payload.extractFields.map((field: any) => ({
+      ...field,
+      fieldDescription: field.fieldDescription || `从文档中识别${field.fieldName}`,
+      required: field.extractRequired,
+      targetColumn: field.targetColumn || ''
+    }))
+  }
+  if (payload.regexRules?.length) {
+    payload.regexRules.forEach((rule: any) => {
+      const field = fields.value.find((item: any) => item.fieldCode === rule.fieldCode) as any
+      if (!field) return
+      field.extractByRegex = rule.enabled
+      field.regexPattern = rule.regexPattern
+      field.regexGroup = rule.regexGroup
+      field.regexFlags = rule.regexFlags
+      if (rule.sampleResult) regexPreviewMap.value[rule.fieldCode] = rule.sampleResult
+    })
+  }
+  if (payload.transformRules?.length) {
+    transformRules.value = payload.transformRules
+    selectedRuleId.value = transformRules.value[0]?.id || ''
+  }
+  if (payload.validationRules?.length) validationRules.value = payload.validationRules
+
+  Object.keys(downstreamFieldMap).forEach((key) => delete downstreamFieldMap[key])
+  fields.value.forEach((field: any) => {
+    downstreamFieldMap[field.fieldCode] = field.targetColumn || field.fieldCode
+  })
+}
+const loadConfigForEdit = async () => {
+  const id = String(route.query.id || '')
+  if (!id) return
+  try {
+    const detail = await getExtractConfigDetail(id)
+    currentConfigId.value = detail.summary.id
+    applyWizardPayload(detail.payload)
+    ElMessage.success('已加载配置草稿')
+  } catch (error) {
+    ElMessage.error(error instanceof Error ? error.message : '配置加载失败')
+  }
+}
+const loadWizardOptions = async () => {
+  try {
+    options.value = await getConfigOptions()
+  } catch (error) {
+    ElMessage.error(error instanceof Error ? error.message : '配置选项加载失败')
+  }
+}
+
+onMounted(async () => {
+  await loadWizardOptions()
+  await loadConfigForEdit()
+})
 </script>
 
 <template>
@@ -967,19 +1054,19 @@ const runAllRegexPreview = () => {
             </el-select>
           </el-form-item>
           <el-form-item label="文档类型"><el-input v-model="form.documentType" /></el-form-item>
-          <el-form-item label="所属部门"><el-select v-model="form.departmentId"><el-option label="运营部" value="运营部" /></el-select></el-form-item>
+          <el-form-item label="所属部门">
+            <el-select v-model="form.departmentId" filterable>
+              <el-option v-for="item in options.departments" :key="item.value" :label="item.label" :value="item.value" />
+            </el-select>
+          </el-form-item>
           <el-form-item label="配置负责人角色">
-            <el-select v-model="form.ownerRole">
-              <el-option label="模板配置员" value="模板配置员" />
-              <el-option label="部门管理员" value="部门管理员" />
+            <el-select v-model="form.ownerRole" filterable>
+              <el-option v-for="item in options.roles" :key="item.value" :label="item.label" :value="item.value" />
             </el-select>
           </el-form-item>
           <el-form-item label="可见角色">
             <el-select v-model="form.visibleRoles" multiple filterable clearable collapse-tags collapse-tags-tooltip>
-              <el-option label="普通业务用户" value="普通业务用户" />
-              <el-option label="复核人员" value="复核人员" />
-              <el-option label="模板配置员" value="模板配置员" />
-              <el-option label="部门管理员" value="部门管理员" />
+              <el-option v-for="item in options.roles" :key="item.value" :label="item.label" :value="item.value" />
             </el-select>
           </el-form-item>
           <el-form-item label="默认优先级">
@@ -1086,9 +1173,8 @@ const runAllRegexPreview = () => {
 
         <el-form :model="form" label-width="130px" class="form-grid">
           <el-form-item label="OCR 引擎">
-            <el-select v-model="form.engineCode">
-              <el-option label="PaddleOCR-VL-1.6" value="paddleocr_vl" />
-              <el-option label="MinerU" value="mineru" />
+            <el-select v-model="form.engineCode" filterable>
+              <el-option v-for="item in options.ocrEngines" :key="item.value" :label="item.label" :value="item.value" />
             </el-select>
           </el-form-item>
           <el-form-item label="输出格式">
@@ -1813,7 +1899,11 @@ const runAllRegexPreview = () => {
         <h2>复核策略</h2>
         <el-form :model="form" label-width="140px" class="form-grid">
           <el-form-item label="复核阈值"><el-input-number v-model="form.confidenceThreshold" :min="0" :max="1" :step="0.01" /></el-form-item>
-          <el-form-item label="复核角色"><el-select v-model="form.reviewerRole"><el-option label="运营复核岗" value="运营复核岗" /></el-select></el-form-item>
+          <el-form-item label="复核角色">
+            <el-select v-model="form.reviewerRole" filterable>
+              <el-option v-for="item in options.roles" :key="item.value" :label="item.label" :value="item.value" />
+            </el-select>
+          </el-form-item>
           <el-form-item label="强制复核字段" class="wide">
             <el-checkbox checked>划款金额</el-checkbox>
             <el-checkbox checked>收款账号</el-checkbox>

@@ -15,7 +15,12 @@ public class ConfigSummaryResponse {
     private String defaultPriority;
     private String status;
     private Integer version;
+    private String parseEngine;
+    private String targetTable;
+    private String mappingProfile;
+    private Double confidenceThreshold;
     private String createdBy;
+    private String updatedBy;
     private LocalDateTime publishedAt;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
@@ -116,12 +121,52 @@ public class ConfigSummaryResponse {
         this.version = version;
     }
 
+    public String getParseEngine() {
+        return parseEngine;
+    }
+
+    public void setParseEngine(String parseEngine) {
+        this.parseEngine = parseEngine;
+    }
+
+    public String getTargetTable() {
+        return targetTable;
+    }
+
+    public void setTargetTable(String targetTable) {
+        this.targetTable = targetTable;
+    }
+
+    public String getMappingProfile() {
+        return mappingProfile;
+    }
+
+    public void setMappingProfile(String mappingProfile) {
+        this.mappingProfile = mappingProfile;
+    }
+
+    public Double getConfidenceThreshold() {
+        return confidenceThreshold;
+    }
+
+    public void setConfidenceThreshold(Double confidenceThreshold) {
+        this.confidenceThreshold = confidenceThreshold;
+    }
+
     public String getCreatedBy() {
         return createdBy;
     }
 
     public void setCreatedBy(String createdBy) {
         this.createdBy = createdBy;
+    }
+
+    public String getUpdatedBy() {
+        return updatedBy;
+    }
+
+    public void setUpdatedBy(String updatedBy) {
+        this.updatedBy = updatedBy;
     }
 
     public LocalDateTime getPublishedAt() {

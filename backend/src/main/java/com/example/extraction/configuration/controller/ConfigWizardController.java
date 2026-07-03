@@ -5,9 +5,7 @@ import com.example.extraction.configuration.dto.ConfigDetailResponse;
 import com.example.extraction.configuration.dto.ConfigOptionsResponse;
 import com.example.extraction.configuration.dto.ConfigQueryRequest;
 import com.example.extraction.configuration.dto.ConfigSummaryResponse;
-import com.example.extraction.configuration.dto.ConfigWizardPayload;
 import com.example.extraction.configuration.service.ConfigWizardService;
-import jakarta.validation.Valid;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -39,12 +37,12 @@ public class ConfigWizardController {
     }
 
     @PostMapping("/extract-configs/draft")
-    public ApiResponse<ConfigDetailResponse> createDraft(@Valid @RequestBody ConfigWizardPayload payload) {
+    public ApiResponse<ConfigDetailResponse> createDraft(@RequestBody Map<String, Object> payload) {
         return ApiResponse.success(configWizardService.createDraft(payload));
     }
 
     @PutMapping("/extract-configs/{id}/draft")
-    public ApiResponse<ConfigDetailResponse> updateDraft(@PathVariable String id, @Valid @RequestBody ConfigWizardPayload payload) {
+    public ApiResponse<ConfigDetailResponse> updateDraft(@PathVariable String id, @RequestBody Map<String, Object> payload) {
         return ApiResponse.success(configWizardService.updateDraft(id, payload));
     }
 

@@ -9,6 +9,7 @@ import com.example.extraction.configuration.dto.ConfigQueryRequest;
 import com.example.extraction.configuration.dto.ConfigSummaryResponse;
 import com.example.extraction.configuration.dto.ConfigWizardPayload;
 import com.example.extraction.mapper.ExtractConfigMapper;
+import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.stereotype.Service;
@@ -39,17 +40,18 @@ public class ConfigWizardService {
         ExtractConfigRecord record = requireRecord(id);
         ConfigDetailResponse response = new ConfigDetailResponse();
         response.setSummary(toSummary(record));
-        response.setPayload(readPayload(record));
+        response.setPayload(readPayloadObject(record));
         return response;
     }
 
     @Transactional
-    public ConfigDetailResponse createDraft(ConfigWizardPayload payload) {
+    public ConfigDetailResponse createDraft(Map<String, Object> payloadBody) {
+        ConfigWizardPayload payload = toPayload(payloadBody);
         validateDraft(payload);
         ExtractConfigRecord record = new ExtractConfigRecord();
         record.setId(IdGenerator.nextId("CFG"));
         record.setConfigCode(resolveConfigCode(payload));
-        fillRecord(record, payload);
+        fillRecord(record, payload, payloadBody);
         record.setStatus("DRAFT");
         record.setVersion(1);
         record.setCreatedBy("system");
@@ -60,13 +62,14 @@ public class ConfigWizardService {
     }
 
     @Transactional
-    public ConfigDetailResponse updateDraft(String id, ConfigWizardPayload payload) {
+    public ConfigDetailResponse updateDraft(String id, Map<String, Object> payloadBody) {
+        ConfigWizardPayload payload = toPayload(payloadBody);
         validateDraft(payload);
         ExtractConfigRecord existing = requireRecord(id);
         if (!"DRAFT".equals(existing.getStatus()) && !"TESTING".equals(existing.getStatus())) {
             throw new BusinessException("CONFIG_409", "仅草稿或验证中的配置允许直接修改");
         }
-        fillRecord(existing, payload);
+        fillRecord(existing, payload, payloadBody);
         existing.setUpdatedAt(LocalDateTime.now());
         int updated = extractConfigMapper.updateDraft(existing);
         if (updated == 0) {
@@ -138,26 +141,39 @@ public class ConfigWizardService {
         response.setRoles(List.of(
                 option("模板配置员", "模板配置员"),
                 option("复核人员", "复核人员"),
-                option("运营复核岗", "运营复核岗")
+                option("运营复核岗", "运营复核岗"),
+                option("部门管理员", "部门管理员"),
+                option("普通业务用户", "普通业务用户")
         ));
         response.setCategories(List.of(
-                category("资金业务", List.of("划款指令", "银行回单")),
-                category("基金交易", List.of("基金申购", "基金赎回")),
-                category("客户业务", List.of("开户资料"))
+                category("资金业务", List.of(
+                        subCategory("划款指令", List.of("通用划款指令模板", "托管行划款指令模板")),
+                        subCategory("银行回单", List.of("通用银行回单模板"))
+                )),
+                category("基金交易", List.of(
+                        subCategory("基金申购", List.of("大成基金申购单", "南方基金申购单", "华夏基金申购单")),
+                        subCategory("基金赎回", List.of("大成基金赎回单", "南方基金赎回单"))
+                )),
+                category("客户业务", List.of(
+                        subCategory("开户资料", List.of("机构客户开户资料", "产品户开户资料"))
+                ))
         ));
         response.setOcrEngines(List.of(
                 option("paddleocr_vl", "PaddleOCR-VL-1.6"),
                 option("mineru", "MinerU")
         ));
         response.setResultTables(List.of(
-                table("ext_fund_business_result", "基金业务要素结果表"),
-                table("ext_payment_instruction", "划款指令结果表"),
-                table("ext_bank_receipt", "银行回单结果表")
+                table("ext_fund_business_result", "基金业务要素结果表", "保存基金申购、赎回、划款、回单等业务场景的结构化要素结果"),
+                table("ext_payment_instruction", "划款指令结果表", "保存运营划款指令类文档的结构化识别结果"),
+                table("ext_bank_receipt", "银行回单结果表", "保存银行回单、流水回执等文档的结构化识别结果")
         ));
         response.setDownstreamServices(List.of(
-                service("fund_ops_result_receive", "运营业务系统 / 接收提取结果服务"),
-                service("finance_result_receive", "财务核算系统 / 接收财务结果服务"),
-                service("dw_extract_result_topic", "数据仓库 / 提取结果 Topic")
+                service("fund_ops_result_receive", "接收提取结果服务", "fund_ops", "运营业务系统", "HTTP", "结果推送",
+                        "https://ops.example.com/api/extract-results", "POST", "httpStatus in [200,202] && body.code == 0", 3, true),
+                service("finance_result_receive", "核算结果接收服务", "finance_core", "财务核算系统", "MICROSERVICE", "结果推送",
+                        "finance-result-service.receiveExtractResult", "-", "response.accepted == true", 2, true),
+                service("dw_extract_result_topic", "结果批量同步 Topic", "data_warehouse", "数据仓库", "MQ", "批量同步",
+                        "topic.extract.result", "-", "broker ack", 5, true)
         ));
         return response;
     }
@@ -170,7 +186,7 @@ public class ConfigWizardService {
         return record;
     }
 
-    private void fillRecord(ExtractConfigRecord record, ConfigWizardPayload payload) {
+    private void fillRecord(ExtractConfigRecord record, ConfigWizardPayload payload, Map<String, Object> payloadBody) {
         ConfigWizardPayload.BaseInfo baseInfo = payload.getBaseInfo();
         record.setConfigName(baseInfo.getConfigName());
         record.setCategory(baseInfo.getCategory());
@@ -180,7 +196,7 @@ public class ConfigWizardService {
         record.setDepartmentId(baseInfo.getDepartmentId());
         record.setOwnerRole(baseInfo.getOwnerRole());
         record.setDefaultPriority(baseInfo.getDefaultPriority());
-        record.setConfigPayload(writePayload(payload));
+        record.setConfigPayload(writePayload(payloadBody));
     }
 
     private String resolveConfigCode(ConfigWizardPayload payload) {
@@ -240,11 +256,27 @@ public class ConfigWizardService {
         return errors;
     }
 
-    private String writePayload(ConfigWizardPayload payload) {
+    private ConfigWizardPayload toPayload(Map<String, Object> payloadBody) {
+        return objectMapper.convertValue(payloadBody, ConfigWizardPayload.class);
+    }
+
+    private String writePayload(Object payload) {
         try {
             return objectMapper.writeValueAsString(payload);
         } catch (JsonProcessingException e) {
             throw new BusinessException("JSON_400", "配置内容无法序列化");
+        }
+    }
+
+    private Map<String, Object> readPayloadObject(ExtractConfigRecord record) {
+        if (!StringUtils.hasText(record.getConfigPayload())) {
+            return new LinkedHashMap<>();
+        }
+        try {
+            return objectMapper.readValue(record.getConfigPayload(), new TypeReference<>() {
+            });
+        } catch (JsonProcessingException e) {
+            throw new BusinessException("JSON_400", "配置内容无法解析");
         }
     }
 
@@ -273,11 +305,41 @@ public class ConfigWizardService {
         response.setDefaultPriority(record.getDefaultPriority());
         response.setStatus(record.getStatus());
         response.setVersion(record.getVersion());
+        fillPayloadSummary(record, response);
         response.setCreatedBy(record.getCreatedBy());
+        response.setUpdatedBy(record.getCreatedBy());
         response.setPublishedAt(record.getPublishedAt());
         response.setCreatedAt(record.getCreatedAt());
         response.setUpdatedAt(record.getUpdatedAt());
         return response;
+    }
+
+    private void fillPayloadSummary(ExtractConfigRecord record, ConfigSummaryResponse response) {
+        if (!StringUtils.hasText(record.getConfigPayload())) {
+            response.setParseEngine("-");
+            response.setTargetTable("-");
+            response.setMappingProfile("-");
+            response.setConfidenceThreshold(0.9);
+            return;
+        }
+        try {
+            ConfigWizardPayload payload = objectMapper.readValue(record.getConfigPayload(), ConfigWizardPayload.class);
+            response.setParseEngine(payload.getParseConfig() == null ? "-" : payload.getParseConfig().getEngineCode());
+            response.setTargetTable(payload.getStorageConfig() == null ? "-" : payload.getStorageConfig().getTargetTable());
+            response.setMappingProfile(payload.getStorageConfig() == null ? "-" : payload.getStorageConfig().getMappingProfileName());
+            if (payload.getExtractStrategy() != null && payload.getExtractStrategy().getConfidenceThreshold() != null) {
+                response.setConfidenceThreshold(payload.getExtractStrategy().getConfidenceThreshold().doubleValue());
+            } else if (payload.getReviewPolicy() != null && payload.getReviewPolicy().getConfidenceThreshold() != null) {
+                response.setConfidenceThreshold(payload.getReviewPolicy().getConfidenceThreshold().doubleValue());
+            } else {
+                response.setConfidenceThreshold(0.9);
+            }
+        } catch (JsonProcessingException e) {
+            response.setParseEngine("-");
+            response.setTargetTable("-");
+            response.setMappingProfile("-");
+            response.setConfidenceThreshold(0.9);
+        }
     }
 
     private Map<String, Object> option(String value, String label) {
@@ -287,25 +349,43 @@ public class ConfigWizardService {
         return option;
     }
 
-    private Map<String, Object> category(String label, List<String> children) {
+    private Map<String, Object> category(String label, List<Map<String, Object>> children) {
         Map<String, Object> category = option(label, label);
-        category.put("children", children.stream().map(item -> option(item, item)).toList());
+        category.put("children", children);
         return category;
     }
 
-    private Map<String, Object> table(String tableCode, String tableName) {
+    private Map<String, Object> subCategory(String label, List<String> templates) {
+        Map<String, Object> subCategory = option(label, label);
+        subCategory.put("templates", templates);
+        return subCategory;
+    }
+
+    private Map<String, Object> table(String tableCode, String tableName, String comment) {
         Map<String, Object> table = new LinkedHashMap<>();
         table.put("tableCode", tableCode);
         table.put("tableName", tableName);
         table.put("label", tableCode + " - " + tableName);
+        table.put("comment", comment);
         return table;
     }
 
-    private Map<String, Object> service(String serviceCode, String serviceName) {
+    private Map<String, Object> service(String serviceCode, String serviceName, String systemCode, String systemName,
+                                        String serviceType, String purpose, String endpoint, String httpMethod,
+                                        String responseSuccessRule, Integer retryCount, Boolean enabled) {
         Map<String, Object> service = new LinkedHashMap<>();
         service.put("serviceCode", serviceCode);
         service.put("serviceName", serviceName);
-        service.put("label", serviceName);
+        service.put("systemCode", systemCode);
+        service.put("systemName", systemName);
+        service.put("serviceType", serviceType);
+        service.put("purpose", purpose);
+        service.put("endpoint", endpoint);
+        service.put("httpMethod", httpMethod);
+        service.put("responseSuccessRule", responseSuccessRule);
+        service.put("retryCount", retryCount);
+        service.put("enabled", enabled);
+        service.put("label", systemName + " / " + serviceName + "（" + serviceType + "）");
         return service;
     }
 }

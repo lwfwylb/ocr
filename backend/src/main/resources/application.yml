@@ -9,6 +9,8 @@ spring:
   jackson:
     default-property-inclusion: non_null
     time-zone: Asia/Shanghai
+    deserialization:
+      fail-on-unknown-properties: false
 
 mybatis:
   mapper-locations: classpath*:mapper/**/*.xml
