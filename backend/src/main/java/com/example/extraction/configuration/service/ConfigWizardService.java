@@ -301,6 +301,13 @@ public class ConfigWizardService {
         if (!StringUtils.hasText(payload.getParseConfig().getEngineCode())) {
             errors.add("解析引擎不能为空");
         }
+        if (!StringUtils.hasText(payload.getParseConfig().getParseMode())) {
+            errors.add("解析模式不能为空");
+        }
+        if ("PAGE_BATCH_MERGE".equals(payload.getParseConfig().getParseMode())
+                && (payload.getParseConfig().getPageBatchSize() == null || payload.getParseConfig().getPageBatchSize() <= 0)) {
+            errors.add("每批页数必须是大于 0 的整数");
+        }
         if (!StringUtils.hasText(payload.getStorageConfig().getTargetTable())) {
             errors.add("目标表编码不能为空");
         }

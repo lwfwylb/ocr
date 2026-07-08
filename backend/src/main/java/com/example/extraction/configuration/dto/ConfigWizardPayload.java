@@ -249,6 +249,8 @@ public class ConfigWizardPayload {
     public static class ParseConfig {
         private String engineCode;
         private String outputFormat;
+        private String parseMode;
+        private Integer pageBatchSize;
         private Boolean preprocessEnabled;
         private Map<String, Object> engineParams;
 
@@ -266,6 +268,22 @@ public class ConfigWizardPayload {
 
         public void setOutputFormat(String outputFormat) {
             this.outputFormat = outputFormat;
+        }
+
+        public String getParseMode() {
+            return parseMode;
+        }
+
+        public void setParseMode(String parseMode) {
+            this.parseMode = parseMode;
+        }
+
+        public Integer getPageBatchSize() {
+            return pageBatchSize;
+        }
+
+        public void setPageBatchSize(Integer pageBatchSize) {
+            this.pageBatchSize = pageBatchSize;
         }
 
         public Boolean getPreprocessEnabled() {

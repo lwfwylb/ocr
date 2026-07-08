@@ -316,6 +316,8 @@ const form = reactive({
   defaultPriority: 'HIGH',
   engineCode: 'paddleocr_vl',
   outputFormat: 'Markdown',
+  parseMode: 'FULL',
+  pageBatchSize: 10,
   storageMode: 'REUSE',
   mappingProfileName: '划款指令-资金结果表映射',
   targetTable: 'ext_fund_business_result',
@@ -589,7 +591,9 @@ const buildWizardPayload = () => ({
   },
   parseConfig: {
     engineCode: form.engineCode,
-    outputFormat: form.outputFormat,
+    outputFormat: 'Markdown',
+    parseMode: form.parseMode,
+    pageBatchSize: form.parseMode === 'PAGE_BATCH_MERGE' ? form.pageBatchSize : null,
     preprocessEnabled: preprocessEnabled.value
   },
   preprocessSteps: preprocessSteps.value,
@@ -972,7 +976,9 @@ const applyWizardPayload = (payload: any) => {
     ownerRole: baseInfo.ownerRole || form.ownerRole,
     defaultPriority: baseInfo.defaultPriority || form.defaultPriority,
     engineCode: parseConfig.engineCode || form.engineCode,
-    outputFormat: parseConfig.outputFormat || form.outputFormat,
+    outputFormat: 'Markdown',
+    parseMode: parseConfig.parseMode || form.parseMode,
+    pageBatchSize: parseConfig.pageBatchSize || form.pageBatchSize,
     storageMode: storageConfig.storageMode || form.storageMode,
     mappingProfileName: storageConfig.mappingProfileName || form.mappingProfileName,
     targetTable: storageConfig.targetTable || form.targetTable,
@@ -1249,21 +1255,29 @@ onMounted(async () => {
                 <el-option v-for="item in options.ocrEngines" :key="item.value" :label="item.label" :value="item.value" />
               </el-select>
             </el-form-item>
-            <el-form-item label="输出格式">
-              <el-radio-group v-model="form.outputFormat">
-                <el-radio-button label="Markdown">Markdown</el-radio-button>
-                <el-radio-button label="JSON">JSON</el-radio-button>
-                <el-radio-button label="PlainText">PlainText</el-radio-button>
+            <el-form-item label="解析模式" class="wide">
+              <el-radio-group v-model="form.parseMode">
+                <el-radio-button label="FULL">全文解析</el-radio-button>
+                <el-radio-button label="PAGE_BATCH_MERGE">每 N 页解析后拼接</el-radio-button>
               </el-radio-group>
             </el-form-item>
-            <el-form-item label="解析选项" class="wide">
-              <el-checkbox checked>解析表格</el-checkbox>
-              <el-checkbox>解析页头</el-checkbox>
-              <el-checkbox>解析页尾</el-checkbox>
-              <el-checkbox checked>识别印章</el-checkbox>
+            <el-form-item v-if="form.parseMode === 'PAGE_BATCH_MERGE'" label="每批页数">
+              <div class="inline-fields">
+                <el-input-number v-model="form.pageBatchSize" :min="1" :step="1" step-strictly :controls="false" />
+                <span class="muted">页，系统按原页码顺序分批解析并拼接 Markdown。</span>
+              </div>
+            </el-form-item>
+            <el-form-item label="输出格式">
+              <el-tag type="info">Markdown</el-tag>
+              <span class="muted ml-8">固定输出 Markdown，供后续 AI 提取和正则取数统一消费。</span>
             </el-form-item>
           </el-form>
-          <el-input type="textarea" :rows="5" model-value='{"enableTable":true,"enableSeal":true,"outputFormat":"Markdown"}' />
+          <el-input
+            type="textarea"
+            :rows="5"
+            :model-value="JSON.stringify({ outputFormat: 'Markdown', parseMode: form.parseMode, pageBatchSize: form.parseMode === 'PAGE_BATCH_MERGE' ? form.pageBatchSize : null }, null, 2)"
+            readonly
+          />
         </el-card>
       </template>
 
