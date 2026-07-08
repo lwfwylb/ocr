@@ -10,7 +10,8 @@ import {
   publishExtractConfig,
   updateExtractConfigDraft,
   validateExtractConfig,
-  type ConfigOptions
+  type ConfigOptions,
+  type ConfigValidateResult
 } from '../api/config'
 
 type TransformRuleType = 'DICT' | 'API' | 'SQL'
@@ -235,6 +236,7 @@ const regexPreviewMap = ref<Record<string, string>>({
   amount: '100000.00',
   payee_account: '6222 **** 8910'
 })
+const validationReport = ref<ConfigValidateResult | null>(null)
 const regexEnabledCount = computed(() => fields.value.filter((field) => (field as any).extractByRegex).length)
 const regexConfiguredCount = computed(() =>
   fields.value.filter((field) => (field as any).extractByRegex && (field as any).regexPattern?.trim()).length
@@ -501,6 +503,35 @@ const versionStatusLabel = computed(() => {
   const status = normalizeStatus(currentStatus.value)
   return labels[status] || status
 })
+const validationSummary = computed(() => {
+  const sections = validationReport.value?.sections || []
+  return {
+    total: sections.length,
+    passed: sections.filter((section) => section.status === 'PASSED').length,
+    warning: sections.filter((section) => section.status === 'WARNING').length,
+    failed: sections.filter((section) => section.status === 'FAILED').length
+  }
+})
+const validationSectionTagType = (status: string) => {
+  if (status === 'PASSED') return 'success'
+  if (status === 'WARNING') return 'warning'
+  return 'danger'
+}
+const validationSectionLabel = (status: string) => {
+  if (status === 'PASSED') return '通过'
+  if (status === 'WARNING') return '提醒'
+  return '阻断'
+}
+const validationIssueTagType = (level: string) => {
+  if (level === 'INFO') return 'success'
+  if (level === 'WARN') return 'warning'
+  return 'danger'
+}
+const validationIssueLabel = (level: string) => {
+  if (level === 'INFO') return '通过'
+  if (level === 'WARN') return '提醒'
+  return '错误'
+}
 const selectedExtractField = computed(() => {
   return fields.value.find((field) => field.fieldCode === selectedExtractFieldCode.value) || fields.value[0]
 })
@@ -698,6 +729,7 @@ const validate = async () => {
     await saveDraft()
     if (!currentConfigId.value) return
     const result = await validateExtractConfig(currentConfigId.value)
+    validationReport.value = result
     if (result.passed) {
       ElMessage.success(result.message)
     } else {
@@ -2088,18 +2120,87 @@ onMounted(async () => {
 
       <template v-if="activeStep === 7">
         <h2>验证发布</h2>
+        <el-alert
+          class="mb-12"
+          type="info"
+          :closable="false"
+          title="第一版验证只做配置完整性、DDL 预检查、正则语法、加工校验和推送配置检查；样本文档 OCR/AI 全链路验证后续再接入。"
+        />
         <div class="validation-grid">
-          <el-upload drag action="#" :auto-upload="false">
-            <div class="el-upload__text">上传样本文档执行验证</div>
-          </el-upload>
-          <el-tabs type="border-card">
-            <el-tab-pane label="解析结果">## 划款指令<br />付款方：示例基金管理有限公司</el-tab-pane>
-            <el-tab-pane label="提取结果">
-              <el-table :data="fields"><el-table-column prop="fieldName" label="字段" /><el-table-column prop="targetColumn" label="落库字段" /><el-table-column label="置信度"><el-tag type="success">96%</el-tag></el-table-column></el-table>
-            </el-tab-pane>
-            <el-tab-pane label="落库预览">目标表：{{ form.targetTableName }}（{{ form.targetTable }}）</el-tab-pane>
-          </el-tabs>
+          <el-card shadow="never">
+            <template #header>
+              <div class="card-header">
+                <span>验证概览</span>
+                <el-button type="primary" :loading="saving" :disabled="isReadonlyVersion" @click="validate">运行验证</el-button>
+              </div>
+            </template>
+            <template v-if="validationReport">
+              <div class="metric-grid compact-metrics">
+                <div class="metric-card mini">
+                  <span>检查项</span>
+                  <strong>{{ validationSummary.total }}</strong>
+                </div>
+                <div class="metric-card mini">
+                  <span>通过</span>
+                  <strong>{{ validationSummary.passed }}</strong>
+                </div>
+                <div class="metric-card mini">
+                  <span>提醒</span>
+                  <strong>{{ validationSummary.warning }}</strong>
+                </div>
+                <div class="metric-card mini">
+                  <span>阻断</span>
+                  <strong>{{ validationSummary.failed }}</strong>
+                </div>
+              </div>
+              <el-alert
+                class="mt-12"
+                :type="validationReport.passed ? 'success' : 'error'"
+                :title="validationReport.message"
+                :description="`检查时间：${validationReport.checkedAt}`"
+                :closable="false"
+              />
+            </template>
+            <el-empty v-else description="尚未运行验证。点击“运行验证”后生成发布前检查报告。" />
+          </el-card>
+
+          <el-card shadow="never">
+            <template #header>DDL 预检查</template>
+            <el-input
+              type="textarea"
+              :rows="12"
+              readonly
+              :model-value="validationReport?.ddlPreview || storageDdlPreview"
+            />
+          </el-card>
         </div>
+
+        <el-card shadow="never" class="mt-12">
+          <template #header>验证明细</template>
+          <el-collapse v-if="validationReport?.sections?.length" accordion>
+            <el-collapse-item v-for="section in validationReport.sections" :key="section.code" :name="section.code">
+              <template #title>
+                <div class="validation-section-title">
+                  <span>{{ section.title }}</span>
+                  <el-tag :type="validationSectionTagType(section.status)">
+                    {{ validationSectionLabel(section.status) }}
+                  </el-tag>
+                </div>
+              </template>
+              <el-table :data="section.items" stripe>
+                <el-table-column label="级别" width="90">
+                  <template #default="{ row }">
+                    <el-tag :type="validationIssueTagType(row.level)">
+                      {{ validationIssueLabel(row.level) }}
+                    </el-tag>
+                  </template>
+                </el-table-column>
+                <el-table-column prop="message" label="检查结果" min-width="320" />
+              </el-table>
+            </el-collapse-item>
+          </el-collapse>
+          <el-empty v-else description="暂无验证明细" />
+        </el-card>
       </template>
 
       <el-drawer v-model="mappingProfileDrawerVisible" title="已有映射方案" size="720px">

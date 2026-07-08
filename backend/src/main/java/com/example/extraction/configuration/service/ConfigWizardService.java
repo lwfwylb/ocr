@@ -18,9 +18,13 @@ import org.springframework.util.StringUtils;
 
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.regex.Pattern;
+import java.util.regex.PatternSyntaxException;
 
 @Service
 public class ConfigWizardService {
@@ -172,12 +176,17 @@ public class ConfigWizardService {
 
     public Map<String, Object> validate(String id) {
         ConfigWizardPayload payload = readPayload(requireRecord(id));
-        List<String> errors = collectValidationErrors(payload, true);
+        List<Map<String, Object>> sections = buildValidationSections(payload);
+        List<String> errors = flattenValidationMessages(sections, "ERROR");
+        List<String> warnings = flattenValidationMessages(sections, "WARN");
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("passed", errors.isEmpty());
         result.put("errors", errors);
+        result.put("warnings", warnings);
+        result.put("sections", sections);
+        result.put("ddlPreview", buildDdlPreview(payload));
         result.put("checkedAt", LocalDateTime.now());
-        result.put("message", errors.isEmpty() ? "配置验证通过，可发布或进入样本文档验证" : "配置存在缺失项，请补充后再发布");
+        result.put("message", errors.isEmpty() ? "配置验证通过，可发布配置" : "配置存在阻断项，请补充后再发布");
         return result;
     }
 
@@ -296,40 +305,375 @@ public class ConfigWizardService {
     }
 
     private List<String> collectValidationErrors(ConfigWizardPayload payload, boolean strict) {
-        List<String> errors = new ArrayList<>();
-        validateDraft(payload);
+        return flattenValidationMessages(buildValidationSections(payload), "ERROR");
+    }
+
+    private List<Map<String, Object>> buildValidationSections(ConfigWizardPayload payload) {
+        List<Map<String, Object>> sections = new ArrayList<>();
+        sections.add(section("BASIC", "配置完整性验证", validateBasicConfig(payload)));
+        sections.add(section("DDL", "DDL 预检查", validateStorageConfig(payload)));
+        sections.add(section("REGEX", "正则规则验证", validateRegexRules(payload)));
+        sections.add(section("RULE", "加工校验规则验证", validateTransformAndValidationRules(payload)));
+        sections.add(section("PUSH", "下游推送配置验证", validatePushRules(payload)));
+        return sections;
+    }
+
+    private List<Map<String, Object>> validateBasicConfig(ConfigWizardPayload payload) {
+        List<Map<String, Object>> issues = new ArrayList<>();
+        try {
+            validateDraft(payload);
+        } catch (BusinessException e) {
+            issues.add(issue("ERROR", e.getMessage()));
+        }
         if (!StringUtils.hasText(payload.getParseConfig().getEngineCode())) {
-            errors.add("解析引擎不能为空");
+            issues.add(issue("ERROR", "解析引擎不能为空"));
         }
         if (!StringUtils.hasText(payload.getParseConfig().getParseMode())) {
-            errors.add("解析模式不能为空");
+            issues.add(issue("ERROR", "解析模式不能为空"));
         }
         if ("PAGE_BATCH_MERGE".equals(payload.getParseConfig().getParseMode())
                 && (payload.getParseConfig().getPageBatchSize() == null || payload.getParseConfig().getPageBatchSize() <= 0)) {
-            errors.add("每批页数必须是大于 0 的整数");
+            issues.add(issue("ERROR", "每批页数必须是大于 0 的整数"));
         }
-        if (!StringUtils.hasText(payload.getStorageConfig().getTargetTable())) {
-            errors.add("目标表编码不能为空");
+        if (payload.getExtractStrategy() == null || !StringUtils.hasText(payload.getExtractStrategy().getDefaultStrategy())) {
+            issues.add(issue("ERROR", "默认提取策略不能为空"));
         }
-        if (!StringUtils.hasText(payload.getStorageConfig().getTargetTableName())) {
-            errors.add("目标表名称不能为空");
+        if (payload.getExtractStrategy() != null && payload.getExtractStrategy().getConfidenceThreshold() != null
+                && (payload.getExtractStrategy().getConfidenceThreshold().doubleValue() < 0
+                || payload.getExtractStrategy().getConfidenceThreshold().doubleValue() > 1)) {
+            issues.add(issue("ERROR", "置信度阈值必须在 0 到 1 之间"));
         }
-        if (!StringUtils.hasText(payload.getStorageConfig().getMappingProfileName())) {
-            errors.add("映射方案名称不能为空");
+        if (issues.isEmpty()) {
+            issues.add(issue("INFO", "基础信息、解析配置和提取策略完整"));
         }
-        if (payload.getResultTableColumns() == null || payload.getResultTableColumns().isEmpty()) {
-            errors.add("至少需要维护一个目标表字段");
+        return issues;
+    }
+
+    private List<Map<String, Object>> validateStorageConfig(ConfigWizardPayload payload) {
+        List<Map<String, Object>> issues = new ArrayList<>();
+        ConfigWizardPayload.StorageConfig storageConfig = payload.getStorageConfig();
+        if (!StringUtils.hasText(storageConfig.getStorageMode())) {
+            issues.add(issue("ERROR", "落库模式不能为空"));
+        }
+        if (!StringUtils.hasText(storageConfig.getTargetTable())) {
+            issues.add(issue("ERROR", "目标表编码不能为空"));
+        } else if (!storageConfig.getTargetTable().matches("^[a-z][a-z0-9_]*$")) {
+            issues.add(issue("ERROR", "目标表编码只能包含小写字母、数字、下划线，并以小写字母开头"));
+        }
+        if (!StringUtils.hasText(storageConfig.getTargetTableName())) {
+            issues.add(issue("ERROR", "目标表名称不能为空"));
+        }
+        if (!StringUtils.hasText(storageConfig.getMappingProfileName())) {
+            issues.add(issue("ERROR", "映射方案名称不能为空"));
+        }
+        List<ConfigWizardPayload.ResultTableColumn> columns = payload.getResultTableColumns();
+        if (columns == null || columns.isEmpty()) {
+            issues.add(issue("ERROR", "至少需要维护一个目标表字段"));
+        }
+        Set<String> columnNames = new HashSet<>();
+        if (columns != null) {
+            for (ConfigWizardPayload.ResultTableColumn column : columns) {
+                if (!StringUtils.hasText(column.getColumnName())) {
+                    issues.add(issue("ERROR", "目标表字段名不能为空"));
+                    continue;
+                }
+                if (!columnNames.add(column.getColumnName())) {
+                    issues.add(issue("ERROR", "目标表字段重复：" + column.getColumnName()));
+                }
+                validateColumnType(column, issues);
+            }
         }
         if (payload.getExtractFields() == null || payload.getExtractFields().isEmpty()) {
-            errors.add("至少需要维护一个提取字段");
+            issues.add(issue("ERROR", "至少需要维护一个提取字段"));
         }
         if (payload.getFieldMappings() == null || payload.getFieldMappings().isEmpty()) {
-            errors.add("至少需要维护一条字段映射关系");
+            issues.add(issue("ERROR", "至少需要维护一条字段映射关系"));
+        } else {
+            for (ConfigWizardPayload.FieldMapping mapping : payload.getFieldMappings()) {
+                if (!StringUtils.hasText(mapping.getExtractFieldCode())) {
+                    issues.add(issue("ERROR", "字段映射中的提取字段不能为空"));
+                }
+                if (!StringUtils.hasText(mapping.getTargetColumn())) {
+                    issues.add(issue("ERROR", "字段映射中的目标字段不能为空"));
+                } else if (!columnNames.contains(mapping.getTargetColumn())) {
+                    issues.add(issue("ERROR", "字段映射目标字段不存在：" + mapping.getTargetColumn()));
+                }
+            }
         }
-        if (strict && (payload.getExtractStrategy() == null || !StringUtils.hasText(payload.getExtractStrategy().getDefaultStrategy()))) {
-            errors.add("默认提取策略不能为空");
+        if (payload.getUniqueConstraints() != null) {
+            Set<String> constraintNames = new HashSet<>();
+            for (ConfigWizardPayload.UniqueConstraint constraint : payload.getUniqueConstraints()) {
+                if (!Boolean.TRUE.equals(constraint.getEnabled())) {
+                    continue;
+                }
+                if (!StringUtils.hasText(constraint.getConstraintName())) {
+                    issues.add(issue("ERROR", "启用的唯一约束名称不能为空"));
+                } else if (!constraintNames.add(constraint.getConstraintName())) {
+                    issues.add(issue("ERROR", "唯一约束名称重复：" + constraint.getConstraintName()));
+                }
+                if (constraint.getUniqueColumns() == null || constraint.getUniqueColumns().isEmpty()) {
+                    issues.add(issue("ERROR", "唯一约束至少需要选择一个字段：" + constraint.getConstraintName()));
+                } else {
+                    for (String column : constraint.getUniqueColumns()) {
+                        if (!columnNames.contains(column)) {
+                            issues.add(issue("ERROR", "唯一约束字段不存在：" + column));
+                        }
+                    }
+                }
+            }
         }
-        return errors;
+        if ("CREATE".equals(storageConfig.getStorageMode())) {
+            issues.add(issue("WARN", "验证阶段只做 DDL 预检查，不会真正创建结果表；发布时才执行建表"));
+        }
+        if (issues.isEmpty()) {
+            issues.add(issue("INFO", "落库配置、字段映射和唯一约束检查通过"));
+        }
+        return issues;
+    }
+
+    private void validateColumnType(ConfigWizardPayload.ResultTableColumn column, List<Map<String, Object>> issues) {
+        if (!StringUtils.hasText(column.getDbType())) {
+            issues.add(issue("ERROR", "目标字段 " + column.getColumnName() + " 数据库类型不能为空"));
+            return;
+        }
+        if (List.of("varchar", "char").contains(column.getDbType())
+                && (column.getLength() == null || column.getLength() <= 0)) {
+            issues.add(issue("ERROR", "字符型字段长度必须大于 0：" + column.getColumnName()));
+        }
+        if (List.of("decimal", "number").contains(column.getDbType())) {
+            if (column.getPrecision() == null || column.getPrecision() <= 0) {
+                issues.add(issue("ERROR", "数值型字段精度必须大于 0：" + column.getColumnName()));
+            }
+            if (column.getScale() == null || column.getScale() < 0) {
+                issues.add(issue("ERROR", "数值型字段小数位不能小于 0：" + column.getColumnName()));
+            }
+            if (column.getPrecision() != null && column.getScale() != null && column.getScale() > column.getPrecision()) {
+                issues.add(issue("ERROR", "数值型字段小数位不能大于精度：" + column.getColumnName()));
+            }
+        }
+    }
+
+    private List<Map<String, Object>> validateRegexRules(ConfigWizardPayload payload) {
+        List<Map<String, Object>> issues = new ArrayList<>();
+        if (payload.getRegexRules() == null || payload.getRegexRules().isEmpty()) {
+            issues.add(issue("WARN", "未配置字段级正则规则，仅依赖 AI 或其他策略提取"));
+            return issues;
+        }
+        for (ConfigWizardPayload.RegexRule rule : payload.getRegexRules()) {
+            if (!Boolean.TRUE.equals(rule.getEnabled())) {
+                continue;
+            }
+            if (!StringUtils.hasText(rule.getFieldCode())) {
+                issues.add(issue("ERROR", "正则规则字段编码不能为空"));
+            }
+            if (!StringUtils.hasText(rule.getRegexPattern())) {
+                issues.add(issue("ERROR", "正则表达式不能为空：" + rule.getFieldCode()));
+                continue;
+            }
+            try {
+                Pattern.compile(rule.getRegexPattern(), regexFlags(rule.getRegexFlags()));
+            } catch (PatternSyntaxException e) {
+                issues.add(issue("ERROR", "正则表达式语法错误：" + rule.getFieldCode() + "，" + e.getDescription()));
+            }
+            if (rule.getRegexGroup() != null && rule.getRegexGroup() < 0) {
+                issues.add(issue("ERROR", "正则分组不能小于 0：" + rule.getFieldCode()));
+            }
+        }
+        if (issues.isEmpty()) {
+            issues.add(issue("INFO", "已启用正则规则语法检查通过"));
+        }
+        return issues;
+    }
+
+    private int regexFlags(String flags) {
+        int value = 0;
+        if (!StringUtils.hasText(flags)) {
+            return value;
+        }
+        if (flags.contains("i")) {
+            value |= Pattern.CASE_INSENSITIVE;
+        }
+        if (flags.contains("m")) {
+            value |= Pattern.MULTILINE;
+        }
+        if (flags.contains("s")) {
+            value |= Pattern.DOTALL;
+        }
+        return value;
+    }
+
+    private List<Map<String, Object>> validateTransformAndValidationRules(ConfigWizardPayload payload) {
+        List<Map<String, Object>> issues = new ArrayList<>();
+        Set<String> fieldCodes = collectFieldCodes(payload);
+        if (payload.getTransformRules() != null) {
+            for (ConfigWizardPayload.TransformRule rule : payload.getTransformRules()) {
+                if (!Boolean.TRUE.equals(rule.getEnabled())) {
+                    continue;
+                }
+                if (!StringUtils.hasText(rule.getRuleName())) {
+                    issues.add(issue("ERROR", "启用的加工规则名称不能为空"));
+                }
+                if (!StringUtils.hasText(rule.getRuleType())) {
+                    issues.add(issue("ERROR", "加工规则类型不能为空：" + rule.getRuleName()));
+                }
+                if (StringUtils.hasText(rule.getInputField()) && !fieldCodes.contains(rule.getInputField())) {
+                    issues.add(issue("WARN", "加工规则输入字段未在提取字段或目标字段中找到：" + rule.getInputField()));
+                }
+                if (!StringUtils.hasText(rule.getOutputField())) {
+                    issues.add(issue("WARN", "加工规则未维护输出字段：" + rule.getRuleName()));
+                }
+            }
+        }
+        if (payload.getValidationRules() != null) {
+            for (ConfigWizardPayload.ValidationRule rule : payload.getValidationRules()) {
+                if (!Boolean.TRUE.equals(rule.getEnabled())) {
+                    continue;
+                }
+                if (!StringUtils.hasText(rule.getRuleName())) {
+                    issues.add(issue("ERROR", "启用的校验规则名称不能为空"));
+                }
+                if (!StringUtils.hasText(rule.getRuleType())) {
+                    issues.add(issue("ERROR", "校验规则类型不能为空：" + rule.getRuleName()));
+                }
+                if (StringUtils.hasText(rule.getFieldCode()) && !fieldCodes.contains(rule.getFieldCode())) {
+                    issues.add(issue("ERROR", "校验规则字段不存在：" + rule.getFieldCode()));
+                }
+                if (!StringUtils.hasText(rule.getExpression())) {
+                    issues.add(issue("WARN", "校验规则表达式为空：" + rule.getRuleName()));
+                }
+            }
+        }
+        if (issues.isEmpty()) {
+            issues.add(issue("INFO", "加工规则和校验规则基础检查通过"));
+        }
+        return issues;
+    }
+
+    private Set<String> collectFieldCodes(ConfigWizardPayload payload) {
+        Set<String> fieldCodes = new HashSet<>();
+        if (payload.getExtractFields() != null) {
+            payload.getExtractFields().forEach(field -> {
+                if (StringUtils.hasText(field.getFieldCode())) {
+                    fieldCodes.add(field.getFieldCode());
+                }
+                if (StringUtils.hasText(field.getTargetColumn())) {
+                    fieldCodes.add(field.getTargetColumn());
+                }
+            });
+        }
+        if (payload.getResultTableColumns() != null) {
+            payload.getResultTableColumns().forEach(column -> {
+                if (StringUtils.hasText(column.getColumnName())) {
+                    fieldCodes.add(column.getColumnName());
+                }
+            });
+        }
+        return fieldCodes;
+    }
+
+    private List<Map<String, Object>> validatePushRules(ConfigWizardPayload payload) {
+        List<Map<String, Object>> issues = new ArrayList<>();
+        if (payload.getPushRules() == null || payload.getPushRules().isEmpty()) {
+            issues.add(issue("INFO", "未启用下游推送规则"));
+            return issues;
+        }
+        for (ConfigWizardPayload.PushRule rule : payload.getPushRules()) {
+            if (!Boolean.TRUE.equals(rule.getPushEnabled())) {
+                continue;
+            }
+            if (!StringUtils.hasText(rule.getServiceCode())) {
+                issues.add(issue("ERROR", "启用的推送规则必须选择目标接口服务"));
+            }
+            if (!StringUtils.hasText(rule.getPushTrigger())) {
+                issues.add(issue("ERROR", "启用的推送规则必须维护触发时机：" + rule.getServiceCode()));
+            }
+            if (!StringUtils.hasText(rule.getPushMode())) {
+                issues.add(issue("ERROR", "启用的推送规则必须维护推送模式：" + rule.getServiceCode()));
+            }
+        }
+        if (issues.isEmpty()) {
+            issues.add(issue("INFO", "下游推送配置基础检查通过"));
+        }
+        return issues;
+    }
+
+    private Map<String, Object> section(String code, String title, List<Map<String, Object>> items) {
+        Map<String, Object> section = new LinkedHashMap<>();
+        boolean failed = items.stream().anyMatch(item -> "ERROR".equals(item.get("level")));
+        boolean warning = items.stream().anyMatch(item -> "WARN".equals(item.get("level")));
+        section.put("code", code);
+        section.put("title", title);
+        section.put("status", failed ? "FAILED" : warning ? "WARNING" : "PASSED");
+        section.put("items", items);
+        return section;
+    }
+
+    private Map<String, Object> issue(String level, String message) {
+        Map<String, Object> issue = new LinkedHashMap<>();
+        issue.put("level", level);
+        issue.put("message", message);
+        return issue;
+    }
+
+    @SuppressWarnings("unchecked")
+    private List<String> flattenValidationMessages(List<Map<String, Object>> sections, String level) {
+        List<String> messages = new ArrayList<>();
+        for (Map<String, Object> section : sections) {
+            Object itemsValue = section.get("items");
+            if (!(itemsValue instanceof List<?> items)) {
+                continue;
+            }
+            for (Object itemValue : items) {
+                if (!(itemValue instanceof Map<?, ?> item)) {
+                    continue;
+                }
+                if (level.equals(item.get("level"))) {
+                    messages.add(String.valueOf(item.get("message")));
+                }
+            }
+        }
+        return messages;
+    }
+
+    private String buildDdlPreview(ConfigWizardPayload payload) {
+        ConfigWizardPayload.StorageConfig storageConfig = payload.getStorageConfig();
+        if (!"CREATE".equals(storageConfig.getStorageMode())) {
+            return "-- 复用已有表: " + nullToDash(storageConfig.getTargetTable()) + "\n-- 验证阶段不执行 DDL，仅校验目标字段映射。";
+        }
+        StringBuilder ddl = new StringBuilder();
+        ddl.append("-- 验证阶段仅预览 DDL，不会真正建表\n");
+        ddl.append("CREATE TABLE ").append(nullToDash(storageConfig.getTargetTable())).append(" (\n");
+        List<String> lines = new ArrayList<>();
+        if (payload.getResultTableColumns() != null) {
+            for (ConfigWizardPayload.ResultTableColumn column : payload.getResultTableColumns()) {
+                lines.add("  " + column.getColumnName() + " " + formatDbColumnType(column) + (Boolean.TRUE.equals(column.getRequired()) ? " NOT NULL" : ""));
+            }
+        }
+        if (payload.getUniqueConstraints() != null) {
+            for (ConfigWizardPayload.UniqueConstraint constraint : payload.getUniqueConstraints()) {
+                if (Boolean.TRUE.equals(constraint.getEnabled()) && Boolean.TRUE.equals(constraint.getGenerateDbIndex())
+                        && constraint.getUniqueColumns() != null && !constraint.getUniqueColumns().isEmpty()) {
+                    lines.add("  UNIQUE KEY " + constraint.getConstraintName() + " (" + String.join(", ", constraint.getUniqueColumns()) + ")");
+                }
+            }
+        }
+        ddl.append(String.join(",\n", lines));
+        ddl.append("\n);");
+        return ddl.toString();
+    }
+
+    private String formatDbColumnType(ConfigWizardPayload.ResultTableColumn column) {
+        if (List.of("varchar", "char").contains(column.getDbType())) {
+            return column.getDbType() + "(" + (column.getLength() == null ? 100 : column.getLength()) + ")";
+        }
+        if (List.of("decimal", "number").contains(column.getDbType())) {
+            return column.getDbType() + "(" + (column.getPrecision() == null ? 18 : column.getPrecision()) + "," + (column.getScale() == null ? 2 : column.getScale()) + ")";
+        }
+        return StringUtils.hasText(column.getDbType()) ? column.getDbType() : "varchar(100)";
+    }
+
+    private String nullToDash(String value) {
+        return StringUtils.hasText(value) ? value : "-";
     }
 
     private ConfigWizardPayload toPayload(Map<String, Object> payloadBody) {

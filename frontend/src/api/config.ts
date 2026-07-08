@@ -32,6 +32,17 @@ export interface ConfigDetail {
 export interface ConfigValidateResult {
   passed: boolean
   errors: string[]
+  warnings?: string[]
+  sections?: Array<{
+    code: string
+    title: string
+    status: 'PASSED' | 'WARNING' | 'FAILED'
+    items: Array<{
+      level: 'INFO' | 'WARN' | 'ERROR'
+      message: string
+    }>
+  }>
+  ddlPreview?: string
   checkedAt: string
   message: string
 }

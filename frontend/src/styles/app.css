@@ -384,6 +384,32 @@ body {
   gap: 10px;
 }
 
+.compact-metrics {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.metric-card.mini {
+  padding: 8px;
+  background: #f8fafc;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+}
+
+.metric-card.mini strong {
+  margin: 2px 0 0;
+  font-size: 18px;
+}
+
+.validation-section-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  padding-right: 10px;
+}
+
 .transform-designer {
   display: grid;
   grid-template-columns: 360px minmax(0, 1fr);
