@@ -33,12 +33,12 @@ public class ConfigWizardController {
     }
 
     @GetMapping("/extract-configs/{id}")
-    public ApiResponse<ConfigDetailResponse> detail(@PathVariable String id) {
+    public ApiResponse<ConfigDetailResponse> detail(@PathVariable("id") String id) {
         return ApiResponse.success(configWizardService.getDetail(id));
     }
 
     @GetMapping("/extract-configs/{id}/versions")
-    public ApiResponse<List<ConfigSummaryResponse>> versions(@PathVariable String id) {
+    public ApiResponse<List<ConfigSummaryResponse>> versions(@PathVariable("id") String id) {
         return ApiResponse.success(configWizardService.listVersions(id));
     }
 
@@ -48,33 +48,33 @@ public class ConfigWizardController {
     }
 
     @PutMapping("/extract-configs/{id}/draft")
-    public ApiResponse<ConfigDetailResponse> updateDraft(@PathVariable String id, @RequestBody Map<String, Object> payload) {
+    public ApiResponse<ConfigDetailResponse> updateDraft(@PathVariable("id") String id, @RequestBody Map<String, Object> payload) {
         return ApiResponse.success(configWizardService.updateDraft(id, payload));
     }
 
     @PostMapping("/extract-configs/{id}/copy")
-    public ApiResponse<ConfigDetailResponse> copy(@PathVariable String id) {
+    public ApiResponse<ConfigDetailResponse> copy(@PathVariable("id") String id) {
         return ApiResponse.success(configWizardService.copy(id));
     }
 
     @PostMapping("/extract-configs/{id}/publish")
-    public ApiResponse<ConfigDetailResponse> publish(@PathVariable String id) {
+    public ApiResponse<ConfigDetailResponse> publish(@PathVariable("id") String id) {
         return ApiResponse.success(configWizardService.publish(id));
     }
 
     @PostMapping("/extract-configs/{id}/disable")
-    public ApiResponse<ConfigDetailResponse> disable(@PathVariable String id) {
+    public ApiResponse<ConfigDetailResponse> disable(@PathVariable("id") String id) {
         return ApiResponse.success(configWizardService.disable(id));
     }
 
     @DeleteMapping("/extract-configs/{id}")
-    public ApiResponse<Void> deleteDraft(@PathVariable String id) {
+    public ApiResponse<Void> deleteDraft(@PathVariable("id") String id) {
         configWizardService.deleteDraft(id);
         return ApiResponse.success(null);
     }
 
     @PostMapping("/extract-configs/{id}/validate")
-    public ApiResponse<Map<String, Object>> validate(@PathVariable String id) {
+    public ApiResponse<Map<String, Object>> validate(@PathVariable("id") String id) {
         return ApiResponse.success(configWizardService.validate(id));
     }
 
