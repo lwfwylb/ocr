@@ -1234,27 +1234,37 @@ onMounted(async () => {
           <el-input class="mt-12" type="textarea" :rows="5" :model-value="preprocessPipelinePreview" readonly />
         </el-card>
 
-        <el-form :model="form" label-width="130px" class="form-grid">
-          <el-form-item label="OCR 引擎">
-            <el-select v-model="form.engineCode" filterable>
-              <el-option v-for="item in options.ocrEngines" :key="item.value" :label="item.label" :value="item.value" />
-            </el-select>
-          </el-form-item>
-          <el-form-item label="输出格式">
-            <el-radio-group v-model="form.outputFormat">
-              <el-radio-button label="Markdown">Markdown</el-radio-button>
-              <el-radio-button label="JSON">JSON</el-radio-button>
-              <el-radio-button label="PlainText">PlainText</el-radio-button>
-            </el-radio-group>
-          </el-form-item>
-          <el-form-item label="解析选项" class="wide">
-            <el-checkbox checked>解析表格</el-checkbox>
-            <el-checkbox>解析页头</el-checkbox>
-            <el-checkbox>解析页尾</el-checkbox>
-            <el-checkbox checked>识别印章</el-checkbox>
-          </el-form-item>
-        </el-form>
-        <el-input type="textarea" :rows="6" model-value='{"enableTable":true,"enableSeal":true,"outputFormat":"Markdown"}' />
+        <el-card shadow="never">
+          <template #header>
+            <div class="card-header">
+              <div>
+                <span>OCR 引擎设置</span>
+                <p class="muted">配置解析引擎、输出格式和引擎能力开关，文档预处理结果会作为 OCR/解析引擎输入。</p>
+              </div>
+            </div>
+          </template>
+          <el-form :model="form" label-width="130px" class="form-grid">
+            <el-form-item label="OCR 引擎">
+              <el-select v-model="form.engineCode" filterable>
+                <el-option v-for="item in options.ocrEngines" :key="item.value" :label="item.label" :value="item.value" />
+              </el-select>
+            </el-form-item>
+            <el-form-item label="输出格式">
+              <el-radio-group v-model="form.outputFormat">
+                <el-radio-button label="Markdown">Markdown</el-radio-button>
+                <el-radio-button label="JSON">JSON</el-radio-button>
+                <el-radio-button label="PlainText">PlainText</el-radio-button>
+              </el-radio-group>
+            </el-form-item>
+            <el-form-item label="解析选项" class="wide">
+              <el-checkbox checked>解析表格</el-checkbox>
+              <el-checkbox>解析页头</el-checkbox>
+              <el-checkbox>解析页尾</el-checkbox>
+              <el-checkbox checked>识别印章</el-checkbox>
+            </el-form-item>
+          </el-form>
+          <el-input type="textarea" :rows="5" model-value='{"enableTable":true,"enableSeal":true,"outputFormat":"Markdown"}' />
+        </el-card>
       </template>
 
       <template v-if="activeStep === 2">
