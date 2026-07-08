@@ -75,6 +75,30 @@
         order by version desc
     </select>
 
+    <select id="selectByConfigName" resultMap="ExtractConfigRecordMap">
+        select <include refid="BaseColumns"/>
+        from extract_config
+        where config_name = #{configName}
+          and status != 'DELETED'
+        order by version desc
+    </select>
+
+    <select id="selectPublishedByConfigName" resultMap="ExtractConfigRecordMap">
+        select <include refid="BaseColumns"/>
+        from extract_config
+        where config_name = #{configName}
+          and status = 'PUBLISHED'
+        order by version desc
+    </select>
+
+    <select id="selectEditableVersions" resultMap="ExtractConfigRecordMap">
+        select <include refid="BaseColumns"/>
+        from extract_config
+        where config_code = #{configCode}
+          and status in ('DRAFT', 'TESTING')
+        order by version desc
+    </select>
+
     <select id="selectMaxVersion" resultType="java.lang.Integer">
         select max(version)
         from extract_config

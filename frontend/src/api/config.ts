@@ -58,6 +58,11 @@ export function getExtractConfigDetail(id: string) {
   return request<ConfigDetail>(`/api/config/extract-configs/${id}`)
 }
 
+export function getEffectiveExtractConfig(configName: string) {
+  const searchParams = new URLSearchParams({ configName })
+  return request<ConfigDetail>(`/api/config/extract-configs/effective?${searchParams.toString()}`)
+}
+
 export function listExtractConfigVersions(id: string) {
   return request<ConfigSummary[]>(`/api/config/extract-configs/${id}/versions`)
 }

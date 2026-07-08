@@ -44,6 +44,25 @@ public class ConfigWizardService {
         return response;
     }
 
+    public ConfigDetailResponse getEffectiveByConfigName(String configName) {
+        if (!StringUtils.hasText(configName)) {
+            throw new BusinessException("PARAM_400", "配置名称不能为空");
+        }
+        List<ExtractConfigRecord> records = extractConfigMapper.selectPublishedByConfigName(configName);
+        if (records.isEmpty()) {
+            throw new BusinessException("CONFIG_404", "未找到已发布的生效配置");
+        }
+        long configCodeCount = records.stream().map(ExtractConfigRecord::getConfigCode).distinct().count();
+        if (configCodeCount > 1) {
+            throw new BusinessException("CONFIG_409", "存在多个同名已发布配置，请先处理配置名称唯一性");
+        }
+        ExtractConfigRecord record = records.get(0);
+        ConfigDetailResponse response = new ConfigDetailResponse();
+        response.setSummary(toSummary(record));
+        response.setPayload(readPayloadObject(record));
+        return response;
+    }
+
     public List<ConfigSummaryResponse> listVersions(String id) {
         ExtractConfigRecord record = requireRecord(id);
         return extractConfigMapper.selectByConfigCode(record.getConfigCode()).stream().map(this::toSummary).toList();
@@ -56,6 +75,7 @@ public class ConfigWizardService {
         ExtractConfigRecord record = new ExtractConfigRecord();
         record.setId(IdGenerator.nextId("CFG"));
         record.setConfigCode(resolveConfigCode(payload));
+        validateConfigNameUnique(payload.getBaseInfo().getConfigName(), record.getConfigCode());
         fillRecord(record, payload, payloadBody);
         record.setStatus("DRAFT");
         record.setVersion(1);
@@ -74,6 +94,7 @@ public class ConfigWizardService {
         if (!"DRAFT".equals(existing.getStatus()) && !"TESTING".equals(existing.getStatus())) {
             throw new BusinessException("CONFIG_409", "仅草稿或验证中的配置允许直接修改");
         }
+        validateConfigNameUnique(payload.getBaseInfo().getConfigName(), existing.getConfigCode());
         fillRecord(existing, payload, payloadBody);
         existing.setUpdatedAt(LocalDateTime.now());
         int updated = extractConfigMapper.updateDraft(existing);
@@ -86,6 +107,14 @@ public class ConfigWizardService {
     @Transactional
     public ConfigDetailResponse copy(String id) {
         ExtractConfigRecord source = requireRecord(id);
+        List<ExtractConfigRecord> editableVersions = extractConfigMapper.selectEditableVersions(source.getConfigCode());
+        if (!editableVersions.isEmpty()) {
+            ExtractConfigRecord editable = editableVersions.get(0);
+            throw new BusinessException(
+                    "CONFIG_409",
+                    "当前配置已存在 V" + editable.getVersion() + " " + statusLabel(editable.getStatus()) + "版本，请继续编辑该版本，或删除草稿后再复制新版本"
+            );
+        }
         ExtractConfigRecord copied = new ExtractConfigRecord();
         Integer maxVersion = extractConfigMapper.selectMaxVersion(source.getConfigCode());
         int nextVersion = maxVersion == null ? 1 : maxVersion + 1;
@@ -207,6 +236,16 @@ public class ConfigWizardService {
         return record;
     }
 
+    private String statusLabel(String status) {
+        return switch (status) {
+            case "DRAFT" -> "草稿";
+            case "TESTING" -> "验证中";
+            case "PUBLISHED" -> "已发布";
+            case "DISABLED" -> "已停用";
+            default -> status;
+        };
+    }
+
     private void fillRecord(ExtractConfigRecord record, ConfigWizardPayload payload, Map<String, Object> payloadBody) {
         ConfigWizardPayload.BaseInfo baseInfo = payload.getBaseInfo();
         record.setConfigName(baseInfo.getConfigName());
@@ -237,6 +276,15 @@ public class ConfigWizardService {
         }
         if (!StringUtils.hasText(payload.getBaseInfo().getDepartmentId())) {
             throw new BusinessException("PARAM_400", "所属部门不能为空");
+        }
+    }
+
+    private void validateConfigNameUnique(String configName, String currentConfigCode) {
+        List<ExtractConfigRecord> records = extractConfigMapper.selectByConfigName(configName);
+        boolean occupiedByOtherConfig = records.stream()
+                .anyMatch(record -> !currentConfigCode.equals(record.getConfigCode()));
+        if (occupiedByOtherConfig) {
+            throw new BusinessException("CONFIG_409", "配置名称已存在，请使用唯一的配置名称");
         }
     }
 

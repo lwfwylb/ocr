@@ -13,6 +13,12 @@ public interface ExtractConfigMapper {
 
     List<ExtractConfigRecord> selectByConfigCode(@Param("configCode") String configCode);
 
+    List<ExtractConfigRecord> selectByConfigName(@Param("configName") String configName);
+
+    List<ExtractConfigRecord> selectPublishedByConfigName(@Param("configName") String configName);
+
+    List<ExtractConfigRecord> selectEditableVersions(@Param("configCode") String configCode);
+
     Integer selectMaxVersion(@Param("configCode") String configCode);
 
     void insert(ExtractConfigRecord record);

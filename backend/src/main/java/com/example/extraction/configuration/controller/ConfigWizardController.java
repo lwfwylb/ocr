@@ -13,6 +13,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
@@ -30,6 +31,11 @@ public class ConfigWizardController {
     @GetMapping("/extract-configs")
     public ApiResponse<List<ConfigSummaryResponse>> list(ConfigQueryRequest query) {
         return ApiResponse.success(configWizardService.list(query));
+    }
+
+    @GetMapping("/extract-configs/effective")
+    public ApiResponse<ConfigDetailResponse> effective(@RequestParam("configName") String configName) {
+        return ApiResponse.success(configWizardService.getEffectiveByConfigName(configName));
     }
 
     @GetMapping("/extract-configs/{id}")

@@ -418,7 +418,7 @@ onMounted(() => {
             <el-button link type="primary" @click="openVersions(row)">版本</el-button>
             <el-button link type="primary" @click="editConfig(row)">编辑</el-button>
             <el-button link type="primary" @click="validateConfig(row)">验证</el-button>
-            <el-button link @click="copyVersion(row)">复制新版本</el-button>
+            <el-button v-if="row.status !== 'DRAFT' && row.status !== 'TESTING'" link @click="copyVersion(row)">复制新版本</el-button>
             <el-button v-if="row.status === 'DRAFT' || row.status === 'TESTING'" link type="success" @click="publishConfig(row)">发布</el-button>
             <el-button v-if="row.status === 'DRAFT'" link type="danger" @click="deleteDraftConfig(row)">删除</el-button>
             <el-button v-if="row.status === 'PUBLISHED'" link type="danger" @click="disableConfig(row)">停用</el-button>
@@ -495,7 +495,7 @@ onMounted(() => {
               <el-button link type="primary" @click="openDetail(row)">详情</el-button>
               <el-button v-if="row.status === 'DRAFT' || row.status === 'TESTING'" link type="primary" @click="editConfig(row)">编辑</el-button>
               <el-button v-else link type="primary" @click="editConfig(row)">查看</el-button>
-              <el-button link @click="copyVersion(row)">复制新版本</el-button>
+              <el-button v-if="row.status !== 'DRAFT' && row.status !== 'TESTING'" link @click="copyVersion(row)">复制新版本</el-button>
               <el-button v-if="row.status === 'DRAFT' || row.status === 'TESTING'" link type="success" @click="publishConfig(row)">发布</el-button>
               <el-button v-if="row.status === 'DRAFT'" link type="danger" @click="deleteDraftConfig(row)">删除</el-button>
             </template>
