@@ -7,6 +7,7 @@ import {
   disableExtractConfig,
   getConfigOptions,
   getExtractConfigDetail,
+  listExtractConfigVersions,
   listExtractConfigs,
   publishExtractConfig,
   validateExtractConfig,
@@ -19,6 +20,7 @@ type ConfigStatus = 'DRAFT' | 'TESTING' | 'PUBLISHED' | 'DISABLED'
 
 interface ConfigItem {
   configId: string
+  configCode: string
   configName: string
   category: string
   subCategory: string
@@ -31,16 +33,21 @@ interface ConfigItem {
   targetTable: string
   mappingProfile: string
   confidenceThreshold: number
+  publishedAt: string
   updatedAt: string
   updatedBy: string
 }
 
 const router = useRouter()
 const drawerVisible = ref(false)
+const versionDrawerVisible = ref(false)
 const selectedConfig = ref<ConfigItem | null>(null)
 const selectedDetail = ref<ConfigDetail | null>(null)
+const selectedVersionConfig = ref<ConfigItem | null>(null)
+const versionRows = ref<ConfigItem[]>([])
 const loading = ref(false)
 const detailLoading = ref(false)
+const versionLoading = ref(false)
 const options = ref<ConfigOptions>({
   departments: [],
   roles: [],
@@ -81,6 +88,7 @@ const statusMap: Record<ConfigStatus, { label: string; type: 'success' | 'warnin
 
 const toConfigItem = (item: ConfigSummary): ConfigItem => ({
   configId: item.id,
+  configCode: item.configCode,
   configName: item.configName,
   category: item.category || '',
   subCategory: item.subCategory || '',
@@ -93,6 +101,7 @@ const toConfigItem = (item: ConfigSummary): ConfigItem => ({
   targetTable: item.targetTable || '-',
   mappingProfile: item.mappingProfile || '-',
   confidenceThreshold: item.confidenceThreshold ?? 0.9,
+  publishedAt: item.publishedAt || '',
   updatedAt: item.updatedAt || '',
   updatedBy: item.updatedBy || item.createdBy || 'system'
 })
@@ -127,6 +136,12 @@ const detailTimeline = computed(() => {
     { timestamp: summary.createdAt, content: '创建配置草稿' }
   ].filter((item) => item.timestamp)
 })
+const versionTimeline = computed(() =>
+  versionRows.value.map((item) => ({
+    timestamp: item.publishedAt || item.updatedAt,
+    content: `${item.version} ${statusMap[item.status]?.label || item.status}：${item.mappingProfile}`
+  }))
+)
 
 const loadConfigs = async () => {
   loading.value = true
@@ -175,8 +190,12 @@ const openDetail = async (config: ConfigItem) => {
 const copyVersion = async (config: ConfigItem) => {
   try {
     const result = await copyExtractConfig(config.configId)
-    configs.value.unshift(toConfigItem(result.summary))
-    ElMessage.success('已复制为草稿版本')
+    const copied = toConfigItem(result.summary)
+    configs.value.unshift(copied)
+    if (versionDrawerVisible.value && selectedVersionConfig.value?.configCode === copied.configCode) {
+      await openVersions(copied, false)
+    }
+    ElMessage.success(`已复制为 ${copied.version} 草稿`)
   } catch (error) {
     ElMessage.error(error instanceof Error ? error.message : '复制失败')
   }
@@ -189,9 +208,30 @@ const publishConfig = async (config: ConfigItem) => {
     })
     const result = await publishExtractConfig(config.configId)
     Object.assign(config, toConfigItem(result.summary))
+    await loadConfigs()
+    if (versionDrawerVisible.value && selectedVersionConfig.value?.configCode === config.configCode) {
+      await openVersions(config, false)
+    }
     ElMessage.success('配置已发布')
   } catch (error) {
     if (error !== 'cancel') ElMessage.error(error instanceof Error ? error.message : '发布失败')
+  }
+}
+
+const openVersions = async (config: ConfigItem, showDrawer = true) => {
+  if (showDrawer) {
+    versionDrawerVisible.value = true
+    selectedVersionConfig.value = config
+  }
+  versionLoading.value = true
+  try {
+    const rows = await listExtractConfigVersions(config.configId)
+    versionRows.value = rows.map(toConfigItem)
+  } catch (error) {
+    versionRows.value = []
+    ElMessage.error(error instanceof Error ? error.message : '版本列表加载失败')
+  } finally {
+    versionLoading.value = false
   }
 }
 
@@ -326,6 +366,7 @@ onMounted(() => {
         </div>
       </template>
       <el-table v-loading="loading" :data="filteredConfigs" stripe>
+        <el-table-column prop="configCode" label="配置编码" min-width="170" fixed />
         <el-table-column prop="configName" label="配置名称" min-width="220" fixed />
         <el-table-column prop="category" label="业务分类" width="100" />
         <el-table-column prop="subCategory" label="业务子类" width="100" />
@@ -350,9 +391,10 @@ onMounted(() => {
         <el-table-column label="操作" width="260" fixed="right">
           <template #default="{ row }">
             <el-button link type="primary" @click="openDetail(row)">详情</el-button>
+            <el-button link type="primary" @click="openVersions(row)">版本</el-button>
             <el-button link type="primary" @click="editConfig(row)">编辑</el-button>
             <el-button link type="primary" @click="validateConfig(row)">验证</el-button>
-            <el-button link @click="copyVersion(row)">复制</el-button>
+            <el-button link @click="copyVersion(row)">复制新版本</el-button>
             <el-button v-if="row.status !== 'PUBLISHED'" link type="success" @click="publishConfig(row)">发布</el-button>
             <el-button v-if="row.status === 'PUBLISHED'" link type="danger" @click="disableConfig(row)">停用</el-button>
           </template>
@@ -393,6 +435,52 @@ onMounted(() => {
           <el-table-column prop="targetColumn" label="目标字段" />
           <el-table-column prop="transform" label="加工逻辑" />
         </el-table>
+      </template>
+    </el-drawer>
+
+    <el-drawer v-model="versionDrawerVisible" title="配置版本管理" size="860px">
+      <template v-if="selectedVersionConfig">
+        <el-alert
+          class="mb-12"
+          type="info"
+          :closable="false"
+          title="同一配置编码下的多个版本共享一个配置族。已发布版本用于历史任务回溯，修改已发布配置时请先复制为新草稿版本。"
+        />
+        <el-descriptions :column="2" border class="mb-12">
+          <el-descriptions-item label="配置编码">{{ selectedVersionConfig.configCode }}</el-descriptions-item>
+          <el-descriptions-item label="配置名称">{{ selectedVersionConfig.configName }}</el-descriptions-item>
+          <el-descriptions-item label="业务分类">{{ selectedVersionConfig.category }}</el-descriptions-item>
+          <el-descriptions-item label="目标表">{{ selectedVersionConfig.targetTable }}</el-descriptions-item>
+        </el-descriptions>
+        <el-table v-loading="versionLoading" :data="versionRows" stripe>
+          <el-table-column prop="version" label="版本" width="80" />
+          <el-table-column label="状态" width="100">
+            <template #default="{ row }">
+              <el-tag :type="statusMap[row.status as ConfigStatus].type">
+                {{ statusMap[row.status as ConfigStatus].label }}
+              </el-tag>
+            </template>
+          </el-table-column>
+          <el-table-column prop="mappingProfile" label="映射方案" min-width="180" />
+          <el-table-column prop="parseEngine" label="解析引擎" min-width="140" />
+          <el-table-column prop="updatedAt" label="更新时间" min-width="150" />
+          <el-table-column prop="updatedBy" label="更新人" width="110" />
+          <el-table-column label="操作" width="240" fixed="right">
+            <template #default="{ row }">
+              <el-button link type="primary" @click="openDetail(row)">详情</el-button>
+              <el-button v-if="row.status === 'DRAFT' || row.status === 'TESTING'" link type="primary" @click="editConfig(row)">编辑</el-button>
+              <el-button v-else link type="primary" @click="editConfig(row)">查看</el-button>
+              <el-button link @click="copyVersion(row)">复制新版本</el-button>
+              <el-button v-if="row.status !== 'PUBLISHED'" link type="success" @click="publishConfig(row)">发布</el-button>
+            </template>
+          </el-table-column>
+        </el-table>
+        <h3 class="section-title">版本流转</h3>
+        <el-timeline v-if="versionTimeline.length">
+          <el-timeline-item v-for="item in versionTimeline" :key="`${item.timestamp}-${item.content}`" :timestamp="item.timestamp">
+            {{ item.content }}
+          </el-timeline-item>
+        </el-timeline>
       </template>
     </el-drawer>
   </div>

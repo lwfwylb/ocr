@@ -66,6 +66,19 @@
         where id = #{id}
     </select>
 
+    <select id="selectByConfigCode" resultMap="ExtractConfigRecordMap">
+        select <include refid="BaseColumns"/>
+        from extract_config
+        where config_code = #{configCode}
+        order by version desc
+    </select>
+
+    <select id="selectMaxVersion" resultType="java.lang.Integer">
+        select max(version)
+        from extract_config
+        where config_code = #{configCode}
+    </select>
+
     <insert id="insert" parameterType="com.example.extraction.configuration.domain.ExtractConfigRecord">
         insert into extract_config (
             id, config_code, config_name, category, sub_category, template_type, document_type,
@@ -99,6 +112,15 @@
         set status = #{status},
             updated_at = current_timestamp
         where id = #{id}
+    </update>
+
+    <update id="disablePublishedByConfigCode">
+        update extract_config
+        set status = 'DISABLED',
+            updated_at = current_timestamp
+        where config_code = #{configCode}
+          and id != #{excludeId}
+          and status = 'PUBLISHED'
     </update>
 
     <update id="publish">

@@ -58,6 +58,10 @@ export function getExtractConfigDetail(id: string) {
   return request<ConfigDetail>(`/api/config/extract-configs/${id}`)
 }
 
+export function listExtractConfigVersions(id: string) {
+  return request<ConfigSummary[]>(`/api/config/extract-configs/${id}/versions`)
+}
+
 export function createExtractConfigDraft(payload: unknown) {
   return request<ConfigDetail>('/api/config/extract-configs/draft', {
     method: 'POST',

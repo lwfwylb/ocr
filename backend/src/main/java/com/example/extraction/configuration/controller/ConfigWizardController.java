@@ -36,6 +36,11 @@ public class ConfigWizardController {
         return ApiResponse.success(configWizardService.getDetail(id));
     }
 
+    @GetMapping("/extract-configs/{id}/versions")
+    public ApiResponse<List<ConfigSummaryResponse>> versions(@PathVariable String id) {
+        return ApiResponse.success(configWizardService.listVersions(id));
+    }
+
     @PostMapping("/extract-configs/draft")
     public ApiResponse<ConfigDetailResponse> createDraft(@RequestBody Map<String, Object> payload) {
         return ApiResponse.success(configWizardService.createDraft(payload));

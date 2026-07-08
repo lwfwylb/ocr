@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
+  copyExtractConfig,
   createExtractConfigDraft,
   getConfigOptions,
   getExtractConfigDetail,
@@ -88,7 +89,11 @@ const initialConfigFields = [
 
 const activeStep = ref(0)
 const route = useRoute()
+const router = useRouter()
 const currentConfigId = ref('')
+const currentConfigCode = ref('')
+const currentVersion = ref(1)
+const currentStatus = ref<'DRAFT' | 'TESTING' | 'PUBLISHED' | 'DISABLED'>('DRAFT')
 const saving = ref(false)
 const options = ref<ConfigOptions>({
   departments: [],
@@ -481,6 +486,16 @@ const pushFieldMappings = computed(() => {
 const selectedTransformRule = computed(() => {
   return transformRules.value.find((rule) => rule.id === selectedRuleId.value) || transformRules.value[0]
 })
+const isReadonlyVersion = computed(() => currentConfigId.value && !['DRAFT', 'TESTING'].includes(currentStatus.value))
+const versionStatusLabel = computed(() => {
+  const labels: Record<string, string> = {
+    DRAFT: '草稿',
+    TESTING: '验证中',
+    PUBLISHED: '已发布',
+    DISABLED: '已停用'
+  }
+  return labels[currentStatus.value] || currentStatus.value
+})
 const selectedExtractField = computed(() => {
   return fields.value.find((field) => field.fieldCode === selectedExtractFieldCode.value) || fields.value[0]
 })
@@ -646,6 +661,10 @@ const buildWizardPayload = () => ({
   }
 })
 const saveDraft = async () => {
+  if (isReadonlyVersion.value) {
+    ElMessage.warning('当前版本已发布或停用，请先复制为新版本草稿后再修改')
+    return
+  }
   saving.value = true
   try {
     const payload = buildWizardPayload()
@@ -661,6 +680,10 @@ const saveDraft = async () => {
   }
 }
 const validate = async () => {
+  if (isReadonlyVersion.value) {
+    ElMessage.warning('当前版本不可直接验证，请复制为新版本草稿后再调整')
+    return
+  }
   try {
     await saveDraft()
     if (!currentConfigId.value) return
@@ -678,6 +701,10 @@ const validate = async () => {
   }
 }
 const publish = async () => {
+  if (isReadonlyVersion.value) {
+    ElMessage.warning('当前版本已发布或停用，无需重复发布')
+    return
+  }
   try {
     await saveDraft()
     if (!currentConfigId.value) return
@@ -995,10 +1022,28 @@ const loadConfigForEdit = async () => {
   try {
     const detail = await getExtractConfigDetail(id)
     currentConfigId.value = detail.summary.id
+    currentConfigCode.value = detail.summary.configCode
+    currentVersion.value = detail.summary.version || 1
+    currentStatus.value = detail.summary.status
     applyWizardPayload(detail.payload)
-    ElMessage.success('已加载配置草稿')
+    ElMessage.success(isReadonlyVersion.value ? '已加载历史版本，只读查看' : '已加载配置草稿')
   } catch (error) {
     ElMessage.error(error instanceof Error ? error.message : '配置加载失败')
+  }
+}
+const copyCurrentVersion = async () => {
+  if (!currentConfigId.value) return
+  try {
+    const detail = await copyExtractConfig(currentConfigId.value)
+    currentConfigId.value = detail.summary.id
+    currentConfigCode.value = detail.summary.configCode
+    currentVersion.value = detail.summary.version || 1
+    currentStatus.value = detail.summary.status
+    applyWizardPayload(detail.payload)
+    router.replace({ path: '/configs/wizard', query: { id: detail.summary.id } })
+    ElMessage.success(`已复制为 V${detail.summary.version} 草稿，可继续编辑`)
+  } catch (error) {
+    ElMessage.error(error instanceof Error ? error.message : '复制新版本失败')
   }
 }
 const loadWizardOptions = async () => {
@@ -1022,18 +1067,26 @@ onMounted(async () => {
         <div class="card-header">
           <span>配置向导</span>
           <div>
-            <el-button :loading="saving" @click="saveDraft">保存草稿</el-button>
-            <el-button type="primary" :loading="saving" @click="validate">验证</el-button>
-            <el-button type="success" :loading="saving" @click="publish">发布</el-button>
+            <el-button v-if="isReadonlyVersion" type="primary" @click="copyCurrentVersion">复制为新版本</el-button>
+            <el-button :disabled="isReadonlyVersion" :loading="saving" @click="saveDraft">保存草稿</el-button>
+            <el-button type="primary" :disabled="isReadonlyVersion" :loading="saving" @click="validate">验证</el-button>
+            <el-button type="success" :disabled="isReadonlyVersion" :loading="saving" @click="publish">发布</el-button>
           </div>
         </div>
       </template>
       <el-steps :active="activeStep" finish-status="success" align-center>
         <el-step v-for="step in steps" :key="step" :title="step" />
       </el-steps>
+      <el-alert
+        v-if="currentConfigId"
+        class="mt-12"
+        :type="isReadonlyVersion ? 'warning' : 'info'"
+        :closable="false"
+        :title="`当前配置编码：${currentConfigCode || '-'}，版本：V${currentVersion}，状态：${versionStatusLabel}${isReadonlyVersion ? '。该版本只读，请复制为新版本后修改。' : '。草稿和验证中版本允许直接保存。'}`"
+      />
     </el-card>
 
-    <el-card shadow="never" class="wizard-card">
+    <el-card shadow="never" class="wizard-card" :class="{ 'readonly-version': isReadonlyVersion }">
       <template v-if="activeStep === 0">
         <h2>基础信息</h2>
         <el-form :model="form" label-width="120px" class="form-grid">
@@ -2033,7 +2086,7 @@ onMounted(async () => {
       <div class="wizard-actions">
         <el-button :disabled="activeStep === 0" @click="prev">上一步</el-button>
         <el-button v-if="activeStep < steps.length - 1" type="primary" @click="next">下一步</el-button>
-        <el-button v-else type="success" @click="publish">发布配置</el-button>
+        <el-button v-else type="success" :disabled="isReadonlyVersion" @click="publish">发布配置</el-button>
       </div>
     </el-card>
   </div>

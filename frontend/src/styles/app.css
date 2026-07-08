@@ -935,6 +935,19 @@ body {
   white-space: nowrap;
 }
 
+.readonly-version .el-form,
+.readonly-version .el-table,
+.readonly-version .el-upload,
+.readonly-version .ddl-preview-panel,
+.readonly-version .rule-preview {
+  pointer-events: none;
+}
+
+.readonly-version .el-form,
+.readonly-version .el-table {
+  opacity: 0.82;
+}
+
 .worker-item {
   padding: 9px;
   margin-bottom: 8px;

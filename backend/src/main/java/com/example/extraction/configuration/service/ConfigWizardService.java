@@ -44,6 +44,11 @@ public class ConfigWizardService {
         return response;
     }
 
+    public List<ConfigSummaryResponse> listVersions(String id) {
+        ExtractConfigRecord record = requireRecord(id);
+        return extractConfigMapper.selectByConfigCode(record.getConfigCode()).stream().map(this::toSummary).toList();
+    }
+
     @Transactional
     public ConfigDetailResponse createDraft(Map<String, Object> payloadBody) {
         ConfigWizardPayload payload = toPayload(payloadBody);
@@ -82,9 +87,11 @@ public class ConfigWizardService {
     public ConfigDetailResponse copy(String id) {
         ExtractConfigRecord source = requireRecord(id);
         ExtractConfigRecord copied = new ExtractConfigRecord();
+        Integer maxVersion = extractConfigMapper.selectMaxVersion(source.getConfigCode());
+        int nextVersion = maxVersion == null ? 1 : maxVersion + 1;
         copied.setId(IdGenerator.nextId("CFG"));
-        copied.setConfigCode(source.getConfigCode() + "_COPY_" + System.currentTimeMillis());
-        copied.setConfigName(source.getConfigName() + "-副本");
+        copied.setConfigCode(source.getConfigCode());
+        copied.setConfigName(source.getConfigName());
         copied.setCategory(source.getCategory());
         copied.setSubCategory(source.getSubCategory());
         copied.setTemplateType(source.getTemplateType());
@@ -93,7 +100,7 @@ public class ConfigWizardService {
         copied.setOwnerRole(source.getOwnerRole());
         copied.setDefaultPriority(source.getDefaultPriority());
         copied.setStatus("DRAFT");
-        copied.setVersion(source.getVersion() == null ? 1 : source.getVersion() + 1);
+        copied.setVersion(nextVersion);
         copied.setConfigPayload(source.getConfigPayload());
         copied.setCreatedBy("system");
         copied.setCreatedAt(LocalDateTime.now());
@@ -104,8 +111,10 @@ public class ConfigWizardService {
 
     @Transactional
     public ConfigDetailResponse publish(String id) {
-        ConfigWizardPayload payload = readPayload(requireRecord(id));
+        ExtractConfigRecord record = requireRecord(id);
+        ConfigWizardPayload payload = readPayload(record);
         validatePublish(payload);
+        extractConfigMapper.disablePublishedByConfigCode(record.getConfigCode(), id);
         int updated = extractConfigMapper.publish(id);
         if (updated == 0) {
             throw new BusinessException("CONFIG_409", "仅草稿或验证中的配置允许发布");
