@@ -129,6 +129,18 @@ public class ConfigWizardService {
         return getDetail(id);
     }
 
+    @Transactional
+    public void deleteDraft(String id) {
+        ExtractConfigRecord record = requireRecord(id);
+        if (!"DRAFT".equals(record.getStatus())) {
+            throw new BusinessException("CONFIG_409", "仅草稿版本允许删除");
+        }
+        int updated = extractConfigMapper.updateStatus(id, "DELETED");
+        if (updated == 0) {
+            throw new BusinessException("CONFIG_409", "草稿状态已变化，请刷新后重试");
+        }
+    }
+
     public Map<String, Object> validate(String id) {
         ConfigWizardPayload payload = readPayload(requireRecord(id));
         List<String> errors = collectValidationErrors(payload, true);

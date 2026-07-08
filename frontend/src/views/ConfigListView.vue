@@ -4,6 +4,7 @@ import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   copyExtractConfig,
+  deleteExtractConfigDraft,
   disableExtractConfig,
   getConfigOptions,
   getExtractConfigDetail,
@@ -248,6 +249,29 @@ const disableConfig = async (config: ConfigItem) => {
   }
 }
 
+const deleteDraftConfig = async (config: ConfigItem) => {
+  try {
+    await ElMessageBox.confirm(
+      `确认删除该草稿版本？<br />配置编码：${config.configCode}<br />版本：${config.version}<br />删除后不会影响已发布版本和历史任务。`,
+      '删除草稿版本',
+      {
+        type: 'warning',
+        dangerouslyUseHTMLString: true,
+        confirmButtonText: '确认删除',
+        cancelButtonText: '取消'
+      }
+    )
+    await deleteExtractConfigDraft(config.configId)
+    configs.value = configs.value.filter((item) => item.configId !== config.configId)
+    if (versionDrawerVisible.value && selectedVersionConfig.value?.configCode === config.configCode) {
+      await openVersions(config, false)
+    }
+    ElMessage.success('草稿版本已删除')
+  } catch (error) {
+    if (error !== 'cancel') ElMessage.error(error instanceof Error ? error.message : '删除失败')
+  }
+}
+
 const validateConfig = async (config: ConfigItem) => {
   try {
     const result = await validateExtractConfig(config.configId)
@@ -388,14 +412,15 @@ onMounted(() => {
           <template #default="{ row }">{{ Math.round(row.confidenceThreshold * 100) }}%</template>
         </el-table-column>
         <el-table-column prop="updatedAt" label="更新时间" min-width="150" />
-        <el-table-column label="操作" width="260" fixed="right">
+        <el-table-column label="操作" width="310" fixed="right">
           <template #default="{ row }">
             <el-button link type="primary" @click="openDetail(row)">详情</el-button>
             <el-button link type="primary" @click="openVersions(row)">版本</el-button>
             <el-button link type="primary" @click="editConfig(row)">编辑</el-button>
             <el-button link type="primary" @click="validateConfig(row)">验证</el-button>
             <el-button link @click="copyVersion(row)">复制新版本</el-button>
-            <el-button v-if="row.status !== 'PUBLISHED'" link type="success" @click="publishConfig(row)">发布</el-button>
+            <el-button v-if="row.status === 'DRAFT' || row.status === 'TESTING'" link type="success" @click="publishConfig(row)">发布</el-button>
+            <el-button v-if="row.status === 'DRAFT'" link type="danger" @click="deleteDraftConfig(row)">删除</el-button>
             <el-button v-if="row.status === 'PUBLISHED'" link type="danger" @click="disableConfig(row)">停用</el-button>
           </template>
         </el-table-column>
@@ -465,13 +490,14 @@ onMounted(() => {
           <el-table-column prop="parseEngine" label="解析引擎" min-width="140" />
           <el-table-column prop="updatedAt" label="更新时间" min-width="150" />
           <el-table-column prop="updatedBy" label="更新人" width="110" />
-          <el-table-column label="操作" width="240" fixed="right">
+          <el-table-column label="操作" width="290" fixed="right">
             <template #default="{ row }">
               <el-button link type="primary" @click="openDetail(row)">详情</el-button>
               <el-button v-if="row.status === 'DRAFT' || row.status === 'TESTING'" link type="primary" @click="editConfig(row)">编辑</el-button>
               <el-button v-else link type="primary" @click="editConfig(row)">查看</el-button>
               <el-button link @click="copyVersion(row)">复制新版本</el-button>
-              <el-button v-if="row.status !== 'PUBLISHED'" link type="success" @click="publishConfig(row)">发布</el-button>
+              <el-button v-if="row.status === 'DRAFT' || row.status === 'TESTING'" link type="success" @click="publishConfig(row)">发布</el-button>
+              <el-button v-if="row.status === 'DRAFT'" link type="danger" @click="deleteDraftConfig(row)">删除</el-button>
             </template>
           </el-table-column>
         </el-table>

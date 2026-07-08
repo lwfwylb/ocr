@@ -33,6 +33,7 @@
         select <include refid="BaseColumns"/>
         from extract_config
         <where>
+            and status != 'DELETED'
             <if test="query.keyword != null and query.keyword != ''">
                 and (config_name like #{keywordLike}
                 or config_code like #{keywordLike}
@@ -70,6 +71,7 @@
         select <include refid="BaseColumns"/>
         from extract_config
         where config_code = #{configCode}
+          and status != 'DELETED'
         order by version desc
     </select>
 

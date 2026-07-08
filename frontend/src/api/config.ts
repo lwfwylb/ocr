@@ -88,6 +88,10 @@ export function disableExtractConfig(id: string) {
   return request<ConfigDetail>(`/api/config/extract-configs/${id}/disable`, { method: 'POST' })
 }
 
+export function deleteExtractConfigDraft(id: string) {
+  return request<void>(`/api/config/extract-configs/${id}`, { method: 'DELETE' })
+}
+
 export function validateExtractConfig(id: string) {
   return request<ConfigValidateResult>(`/api/config/extract-configs/${id}/validate`, { method: 'POST' })
 }

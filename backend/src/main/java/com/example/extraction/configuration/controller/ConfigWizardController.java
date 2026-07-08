@@ -6,6 +6,7 @@ import com.example.extraction.configuration.dto.ConfigOptionsResponse;
 import com.example.extraction.configuration.dto.ConfigQueryRequest;
 import com.example.extraction.configuration.dto.ConfigSummaryResponse;
 import com.example.extraction.configuration.service.ConfigWizardService;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -64,6 +65,12 @@ public class ConfigWizardController {
     @PostMapping("/extract-configs/{id}/disable")
     public ApiResponse<ConfigDetailResponse> disable(@PathVariable String id) {
         return ApiResponse.success(configWizardService.disable(id));
+    }
+
+    @DeleteMapping("/extract-configs/{id}")
+    public ApiResponse<Void> deleteDraft(@PathVariable String id) {
+        configWizardService.deleteDraft(id);
+        return ApiResponse.success(null);
     }
 
     @PostMapping("/extract-configs/{id}/validate")
