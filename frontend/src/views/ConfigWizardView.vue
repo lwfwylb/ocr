@@ -93,7 +93,7 @@ const router = useRouter()
 const currentConfigId = ref('')
 const currentConfigCode = ref('')
 const currentVersion = ref(1)
-const currentStatus = ref<'DRAFT' | 'TESTING' | 'PUBLISHED' | 'DISABLED'>('DRAFT')
+const currentStatus = ref('DRAFT')
 const saving = ref(false)
 const options = ref<ConfigOptions>({
   departments: [],
@@ -486,7 +486,9 @@ const pushFieldMappings = computed(() => {
 const selectedTransformRule = computed(() => {
   return transformRules.value.find((rule) => rule.id === selectedRuleId.value) || transformRules.value[0]
 })
-const isReadonlyVersion = computed(() => currentConfigId.value && !['DRAFT', 'TESTING'].includes(currentStatus.value))
+const normalizeStatus = (status?: string) => (status || 'DRAFT').toUpperCase()
+const canEditVersion = computed(() => !currentConfigId.value || ['DRAFT', 'TESTING'].includes(normalizeStatus(currentStatus.value)))
+const isReadonlyVersion = computed(() => !canEditVersion.value)
 const versionStatusLabel = computed(() => {
   const labels: Record<string, string> = {
     DRAFT: '草稿',
@@ -494,7 +496,8 @@ const versionStatusLabel = computed(() => {
     PUBLISHED: '已发布',
     DISABLED: '已停用'
   }
-  return labels[currentStatus.value] || currentStatus.value
+  const status = normalizeStatus(currentStatus.value)
+  return labels[status] || status
 })
 const selectedExtractField = computed(() => {
   return fields.value.find((field) => field.fieldCode === selectedExtractFieldCode.value) || fields.value[0]
@@ -672,6 +675,9 @@ const saveDraft = async () => {
       ? await updateExtractConfigDraft(currentConfigId.value, payload)
       : await createExtractConfigDraft(payload)
     currentConfigId.value = result.summary.id
+    currentConfigCode.value = result.summary.configCode
+    currentVersion.value = result.summary.version || currentVersion.value
+    currentStatus.value = normalizeStatus(result.summary.status)
     ElMessage.success(`草稿已保存：${result.summary.configCode}`)
   } catch (error) {
     ElMessage.error(error instanceof Error ? error.message : '草稿保存失败')
@@ -712,6 +718,10 @@ const publish = async () => {
       type: 'warning'
     })
     const result = await publishExtractConfig(currentConfigId.value)
+    currentConfigId.value = result.summary.id
+    currentConfigCode.value = result.summary.configCode
+    currentVersion.value = result.summary.version || currentVersion.value
+    currentStatus.value = normalizeStatus(result.summary.status)
     ElMessage.success(`配置已发布为 V${result.summary.version}`)
   } catch (error) {
     if (error !== 'cancel') ElMessage.error(error instanceof Error ? error.message : '发布失败')
@@ -1024,7 +1034,7 @@ const loadConfigForEdit = async () => {
     currentConfigId.value = detail.summary.id
     currentConfigCode.value = detail.summary.configCode
     currentVersion.value = detail.summary.version || 1
-    currentStatus.value = detail.summary.status
+    currentStatus.value = normalizeStatus(detail.summary.status)
     applyWizardPayload(detail.payload)
     ElMessage.success(isReadonlyVersion.value ? '已加载历史版本，只读查看' : '已加载配置草稿')
   } catch (error) {
@@ -1038,7 +1048,7 @@ const copyCurrentVersion = async () => {
     currentConfigId.value = detail.summary.id
     currentConfigCode.value = detail.summary.configCode
     currentVersion.value = detail.summary.version || 1
-    currentStatus.value = detail.summary.status
+    currentStatus.value = normalizeStatus(detail.summary.status)
     applyWizardPayload(detail.payload)
     router.replace({ path: '/configs/wizard', query: { id: detail.summary.id } })
     ElMessage.success(`已复制为 V${detail.summary.version} 草稿，可继续编辑`)
@@ -2086,7 +2096,12 @@ onMounted(async () => {
       <div class="wizard-actions">
         <el-button :disabled="activeStep === 0" @click="prev">上一步</el-button>
         <el-button v-if="activeStep < steps.length - 1" type="primary" @click="next">下一步</el-button>
-        <el-button v-else type="success" :disabled="isReadonlyVersion" @click="publish">发布配置</el-button>
+        <template v-else>
+          <el-button v-if="isReadonlyVersion" type="primary" @click="copyCurrentVersion">复制为新版本</el-button>
+          <el-button :disabled="isReadonlyVersion" :loading="saving" @click="saveDraft">保存草稿</el-button>
+          <el-button type="primary" :disabled="isReadonlyVersion" :loading="saving" @click="validate">验证</el-button>
+          <el-button type="success" :disabled="isReadonlyVersion" :loading="saving" @click="publish">发布配置</el-button>
+        </template>
       </div>
     </el-card>
   </div>
