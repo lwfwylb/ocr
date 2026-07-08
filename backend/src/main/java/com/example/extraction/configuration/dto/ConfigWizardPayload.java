@@ -711,6 +711,7 @@ public class ConfigWizardPayload {
     public static class ExtractStrategy {
         private Boolean aiEnabled;
         private String outputMode;
+        private String llmModelCode;
         private String defaultStrategy;
         private BigDecimal confidenceThreshold;
         private String systemPrompt;
@@ -732,6 +733,14 @@ public class ConfigWizardPayload {
 
         public void setOutputMode(String outputMode) {
             this.outputMode = outputMode;
+        }
+
+        public String getLlmModelCode() {
+            return llmModelCode;
+        }
+
+        public void setLlmModelCode(String llmModelCode) {
+            this.llmModelCode = llmModelCode;
         }
 
         public String getDefaultStrategy() {

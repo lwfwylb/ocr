@@ -374,3 +374,28 @@ create table validation_test_stage_log (
   expire_at timestamp,
   cleaned char(1) default '0'
 );
+
+create table llm_model_config (
+  id varchar(64) primary key,
+  model_code varchar(128) not null,
+  model_name varchar(200) not null,
+  provider varchar(100) not null,
+  base_url varchar(500) not null,
+  api_key_secret_ref varchar(200),
+  model_identifier varchar(200) not null,
+  temperature decimal(5,3) default 0.100,
+  max_tokens int default 4096,
+  timeout_seconds int default 120,
+  retry_count int default 1,
+  json_schema_required char(1) default '1',
+  default_model char(1) default '0',
+  status varchar(30) not null,
+  description varchar(1000),
+  created_by varchar(100),
+  created_at timestamp not null,
+  updated_at timestamp not null
+);
+
+create unique index uk_llm_model_code on llm_model_config (model_code);
+create index idx_llm_model_status on llm_model_config (status);
+create index idx_llm_model_default on llm_model_config (default_model);

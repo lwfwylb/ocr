@@ -373,3 +373,27 @@ create table if not exists validation_test_stage_log (
   expire_at datetime,
   cleaned char(1) default '0'
 );
+
+create table if not exists llm_model_config (
+  id varchar(64) primary key,
+  model_code varchar(128) not null,
+  model_name varchar(200) not null,
+  provider varchar(100) not null,
+  base_url varchar(500) not null,
+  api_key_secret_ref varchar(200),
+  model_identifier varchar(200) not null,
+  temperature decimal(5,3) default 0.100,
+  max_tokens int default 4096,
+  timeout_seconds int default 120,
+  retry_count int default 1,
+  json_schema_required char(1) default '1',
+  default_model char(1) default '0',
+  status varchar(30) not null,
+  description varchar(1000),
+  created_by varchar(100),
+  created_at datetime not null,
+  updated_at datetime not null,
+  unique key uk_llm_model_code (model_code),
+  key idx_llm_model_status (status),
+  key idx_llm_model_default (default_model)
+);

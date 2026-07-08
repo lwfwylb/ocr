@@ -13,6 +13,7 @@ import {
   type ConfigOptions,
   type ConfigValidateResult
 } from '../api/config'
+import { listLlmModelOptions, type LlmModelOption } from '../api/model'
 
 type TransformRuleType = 'DICT' | 'API' | 'SQL'
 type PreprocessStepType = 'PAGE_RANGE' | 'KEYWORD_FILTER' | 'PDF_TO_IMAGE' | 'SPLIT_MERGE'
@@ -104,6 +105,7 @@ const options = ref<ConfigOptions>({
   resultTables: [],
   downstreamServices: []
 })
+const llmModelOptions = ref<LlmModelOption[]>([])
 const fields = ref(initialConfigFields.map((item) => ({ ...item })))
 fields.value.forEach((field) => {
   const mutable = field as any
@@ -327,6 +329,7 @@ const form = reactive({
   targetTableComment: '保存基金申购、赎回、划款、回单等业务场景的结构化要素结果',
   saveMode: 'SINGLE',
   outputMode: 'SINGLE',
+  llmModelCode: '',
   defaultStrategy: 'AI_FIRST_RULE_FALLBACK',
   confidenceThreshold: 0.9,
   reviewerRole: '运营复核岗',
@@ -656,6 +659,7 @@ const buildWizardPayload = () => ({
   extractStrategy: {
     aiEnabled: aiEnabled.value,
     outputMode: form.outputMode,
+    llmModelCode: form.llmModelCode,
     defaultStrategy: form.defaultStrategy,
     confidenceThreshold: form.confidenceThreshold,
     systemPrompt: aiSystemPrompt.value,
@@ -1018,6 +1022,7 @@ const applyWizardPayload = (payload: any) => {
     targetTableComment: storageConfig.targetTableComment || form.targetTableComment,
     saveMode: storageConfig.saveMode || form.saveMode,
     outputMode: extractStrategy.outputMode || form.outputMode,
+    llmModelCode: extractStrategy.llmModelCode || form.llmModelCode,
     defaultStrategy: extractStrategy.defaultStrategy || form.defaultStrategy,
     confidenceThreshold: extractStrategy.confidenceThreshold ?? reviewPolicy.confidenceThreshold ?? form.confidenceThreshold,
     reviewerRole: reviewPolicy.reviewerRole || form.reviewerRole,
@@ -1097,6 +1102,10 @@ const copyCurrentVersion = async () => {
 const loadWizardOptions = async () => {
   try {
     options.value = await getConfigOptions()
+    llmModelOptions.value = await listLlmModelOptions()
+    if (!form.llmModelCode && llmModelOptions.value.length) {
+      form.llmModelCode = llmModelOptions.value.find((item) => item.defaultModel)?.modelCode || llmModelOptions.value[0].modelCode
+    }
   } catch (error) {
     ElMessage.error(error instanceof Error ? error.message : '配置选项加载失败')
   }
@@ -1566,9 +1575,26 @@ onMounted(async () => {
         </div>
         <el-form :model="form" label-width="130px" class="form-grid">
           <el-form-item label="输出模式"><el-radio-group v-model="form.outputMode"><el-radio-button label="SINGLE">单对象</el-radio-button><el-radio-button label="ARRAY">数组对象</el-radio-button></el-radio-group></el-form-item>
+          <el-form-item label="LLM 模型">
+            <el-select v-model="form.llmModelCode" filterable clearable placeholder="请选择启用中的模型">
+              <el-option
+                v-for="model in llmModelOptions"
+                :key="model.modelCode"
+                :label="model.defaultModel ? `${model.label} 默认` : model.label"
+                :value="model.modelCode"
+              />
+            </el-select>
+          </el-form-item>
           <el-form-item label="默认策略"><el-select v-model="form.defaultStrategy"><el-option label="AI 优先，正则兜底" value="AI_FIRST_RULE_FALLBACK" /><el-option label="正则优先，AI 兜底" value="RULE_FIRST_AI_FALLBACK" /></el-select></el-form-item>
           <el-form-item label="置信度阈值"><el-input-number v-model="form.confidenceThreshold" :min="0" :max="1" :step="0.01" /></el-form-item>
         </el-form>
+        <el-alert
+          v-if="!llmModelOptions.length"
+          class="mb-12"
+          title="当前没有启用中的 LLM 配置。请先在“模型中心-LLM 配置”新增并启用模型。"
+          type="warning"
+          :closable="false"
+        />
 
         <div class="strategy-overview">
           <el-alert

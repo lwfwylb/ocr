@@ -338,6 +338,11 @@ public class ConfigWizardService {
         if (payload.getExtractStrategy() == null || !StringUtils.hasText(payload.getExtractStrategy().getDefaultStrategy())) {
             issues.add(issue("ERROR", "默认提取策略不能为空"));
         }
+        if (payload.getExtractStrategy() != null
+                && Boolean.TRUE.equals(payload.getExtractStrategy().getAiEnabled())
+                && !StringUtils.hasText(payload.getExtractStrategy().getLlmModelCode())) {
+            issues.add(issue("ERROR", "启用 AI 提取时必须选择 LLM 模型"));
+        }
         if (payload.getExtractStrategy() != null && payload.getExtractStrategy().getConfidenceThreshold() != null
                 && (payload.getExtractStrategy().getConfidenceThreshold().doubleValue() < 0
                 || payload.getExtractStrategy().getConfidenceThreshold().doubleValue() > 1)) {
