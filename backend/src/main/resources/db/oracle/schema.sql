@@ -464,3 +464,53 @@ create index idx_document_access_status on document_access_record (access_status
 create index idx_document_access_source on document_access_record (source_type, source_system);
 create index idx_document_access_department on document_access_record (department_id);
 create index idx_document_access_config on document_access_record (matched_config_id);
+
+create table extract_task (
+  id varchar2(64) primary key,
+  task_id varchar2(128) not null,
+  trace_id varchar2(128) not null,
+  document_id varchar2(128) not null,
+  access_record_id varchar2(64),
+  config_id varchar2(64),
+  config_name varchar2(200),
+  config_version number(10),
+  file_name varchar2(500) not null,
+  file_type varchar2(50),
+  file_size number(18),
+  storage_path varchar2(1000),
+  source_type varchar2(50),
+  source_system varchar2(200),
+  business_no varchar2(200),
+  department_id varchar2(100) not null,
+  category varchar2(100),
+  sub_category varchar2(100),
+  template_type varchar2(160),
+  document_type varchar2(100),
+  priority varchar2(20) not null,
+  status varchar2(30) not null,
+  current_stage varchar2(100),
+  progress number(10) default 0,
+  queue_level varchar2(20),
+  queue_name varchar2(200),
+  queue_capacity number(10),
+  queue_position number(10),
+  waiting_minutes number(10),
+  estimated_start_at varchar2(100),
+  manual_accelerated char(1) default '0',
+  dispatch_reason varchar2(1000),
+  error_code varchar2(100),
+  error_message varchar2(1000),
+  failed_stage varchar2(100),
+  retry_count number(10) default 0,
+  max_retry number(10) default 3,
+  failed_at timestamp null,
+  created_at timestamp not null,
+  updated_at timestamp not null
+);
+
+create unique index uk_extract_task_id on extract_task (task_id);
+create index idx_extract_task_trace on extract_task (trace_id);
+create index idx_extract_task_status on extract_task (status);
+create index idx_extract_task_queue on extract_task (department_id, queue_level, queue_position);
+create index idx_extract_task_config on extract_task (config_id);
+create index idx_extract_task_failed on extract_task (status, failed_at);

@@ -464,3 +464,53 @@ create index idx_document_access_status on document_access_record (access_status
 create index idx_document_access_source on document_access_record (source_type, source_system);
 create index idx_document_access_department on document_access_record (department_id);
 create index idx_document_access_config on document_access_record (matched_config_id);
+
+create table extract_task (
+  id varchar(64) primary key,
+  task_id varchar(128) not null,
+  trace_id varchar(128) not null,
+  document_id varchar(128) not null,
+  access_record_id varchar(64),
+  config_id varchar(64),
+  config_name varchar(200),
+  config_version int,
+  file_name varchar(500) not null,
+  file_type varchar(50),
+  file_size bigint,
+  storage_path varchar(1000),
+  source_type varchar(50),
+  source_system varchar(200),
+  business_no varchar(200),
+  department_id varchar(100) not null,
+  category varchar(100),
+  sub_category varchar(100),
+  template_type varchar(160),
+  document_type varchar(100),
+  priority varchar(20) not null,
+  status varchar(30) not null,
+  current_stage varchar(100),
+  progress int default 0,
+  queue_level varchar(20),
+  queue_name varchar(200),
+  queue_capacity int,
+  queue_position int,
+  waiting_minutes int,
+  estimated_start_at varchar(100),
+  manual_accelerated char(1) default '0',
+  dispatch_reason varchar(1000),
+  error_code varchar(100),
+  error_message varchar(1000),
+  failed_stage varchar(100),
+  retry_count int default 0,
+  max_retry int default 3,
+  failed_at timestamp null,
+  created_at timestamp not null,
+  updated_at timestamp not null
+);
+
+create unique index uk_extract_task_id on extract_task (task_id);
+create index idx_extract_task_trace on extract_task (trace_id);
+create index idx_extract_task_status on extract_task (status);
+create index idx_extract_task_queue on extract_task (department_id, queue_level, queue_position);
+create index idx_extract_task_config on extract_task (config_id);
+create index idx_extract_task_failed on extract_task (status, failed_at);

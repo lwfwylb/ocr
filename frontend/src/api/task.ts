@@ -1,0 +1,103 @@
+import { request } from './http'
+
+export interface ExtractTask {
+  id: string
+  taskId: string
+  traceId: string
+  documentId: string
+  accessRecordId?: string
+  configId?: string
+  configName?: string
+  configVersion?: number
+  fileName: string
+  fileType?: string
+  fileSize?: number
+  storagePath?: string
+  sourceType?: string
+  sourceSystem?: string
+  businessNo?: string
+  departmentId: string
+  category?: string
+  subCategory?: string
+  templateType?: string
+  documentType?: string
+  priority: 'HIGH' | 'MEDIUM' | 'LOW' | string
+  status: string
+  currentStage?: string
+  progress?: number
+  queueLevel?: 'HIGH' | 'MEDIUM' | 'LOW' | string
+  queueName?: string
+  queueCapacity?: number
+  queuePosition?: number
+  waitingMinutes?: number
+  estimatedStartAt?: string
+  manualAccelerated?: boolean
+  dispatchReason?: string
+  errorCode?: string
+  errorMessage?: string
+  failedStage?: string
+  retryCount?: number
+  maxRetry?: number
+  retryable?: boolean
+  failedAt?: string
+  createdAt: string
+  updatedAt: string
+}
+
+export interface TaskQuery {
+  keyword?: string
+  sourceType?: string
+  documentType?: string
+  departmentId?: string
+  priority?: string
+  status?: string
+}
+
+export interface TaskDispatchPayload {
+  mode: string
+  targetPriority: string
+  position?: number
+  durationMinutes?: number
+  reason: string
+}
+
+export interface TaskRetryPayload {
+  retryMode: string
+  priority?: string
+  reason?: string
+}
+
+function toQuery(params: TaskQuery) {
+  const searchParams = new URLSearchParams()
+  Object.entries(params).forEach(([key, value]) => {
+    if (value) searchParams.set(key, value)
+  })
+  const query = searchParams.toString()
+  return query ? `?${query}` : ''
+}
+
+export function listTasks(params: TaskQuery) {
+  return request<ExtractTask[]>(`/api/tasks${toQuery(params)}`)
+}
+
+export function listFailedTasks(params: TaskQuery) {
+  return request<ExtractTask[]>(`/api/tasks/failed${toQuery(params)}`)
+}
+
+export function getTaskDetail(taskId: string) {
+  return request<ExtractTask>(`/api/tasks/${taskId}`)
+}
+
+export function dispatchTask(taskId: string, payload: TaskDispatchPayload) {
+  return request<ExtractTask>(`/api/tasks/${taskId}/dispatch`, {
+    method: 'POST',
+    body: JSON.stringify(payload)
+  })
+}
+
+export function retryTask(taskId: string, payload: TaskRetryPayload) {
+  return request<ExtractTask>(`/api/tasks/${taskId}/retry`, {
+    method: 'POST',
+    body: JSON.stringify(payload)
+  })
+}

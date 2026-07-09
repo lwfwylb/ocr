@@ -1,0 +1,183 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.example.extraction.mapper.ExtractTaskMapper">
+    <resultMap id="ExtractTaskRecordMap" type="com.example.extraction.task.domain.ExtractTaskRecord">
+        <id property="id" column="id"/>
+        <result property="taskId" column="task_id"/>
+        <result property="traceId" column="trace_id"/>
+        <result property="documentId" column="document_id"/>
+        <result property="accessRecordId" column="access_record_id"/>
+        <result property="configId" column="config_id"/>
+        <result property="configName" column="config_name"/>
+        <result property="configVersion" column="config_version"/>
+        <result property="fileName" column="file_name"/>
+        <result property="fileType" column="file_type"/>
+        <result property="fileSize" column="file_size"/>
+        <result property="storagePath" column="storage_path"/>
+        <result property="sourceType" column="source_type"/>
+        <result property="sourceSystem" column="source_system"/>
+        <result property="businessNo" column="business_no"/>
+        <result property="departmentId" column="department_id"/>
+        <result property="category" column="category"/>
+        <result property="subCategory" column="sub_category"/>
+        <result property="templateType" column="template_type"/>
+        <result property="documentType" column="document_type"/>
+        <result property="priority" column="priority"/>
+        <result property="status" column="status"/>
+        <result property="currentStage" column="current_stage"/>
+        <result property="progress" column="progress"/>
+        <result property="queueLevel" column="queue_level"/>
+        <result property="queueName" column="queue_name"/>
+        <result property="queueCapacity" column="queue_capacity"/>
+        <result property="queuePosition" column="queue_position"/>
+        <result property="waitingMinutes" column="waiting_minutes"/>
+        <result property="estimatedStartAt" column="estimated_start_at"/>
+        <result property="manualAccelerated" column="manual_accelerated"/>
+        <result property="dispatchReason" column="dispatch_reason"/>
+        <result property="errorCode" column="error_code"/>
+        <result property="errorMessage" column="error_message"/>
+        <result property="failedStage" column="failed_stage"/>
+        <result property="retryCount" column="retry_count"/>
+        <result property="maxRetry" column="max_retry"/>
+        <result property="failedAt" column="failed_at"/>
+        <result property="createdAt" column="created_at"/>
+        <result property="updatedAt" column="updated_at"/>
+    </resultMap>
+
+    <sql id="BaseColumns">
+        id, task_id, trace_id, document_id, access_record_id, config_id, config_name, config_version,
+        file_name, file_type, file_size, storage_path, source_type, source_system, business_no,
+        department_id, category, sub_category, template_type, document_type, priority, status,
+        current_stage, progress, queue_level, queue_name, queue_capacity, queue_position,
+        waiting_minutes, estimated_start_at, manual_accelerated, dispatch_reason, error_code,
+        error_message, failed_stage, retry_count, max_retry, failed_at, created_at, updated_at
+    </sql>
+
+    <sql id="QueryWhere">
+        <bind name="keywordLike" value="query.keyword == null ? null : '%' + query.keyword + '%'"/>
+        <where>
+            <if test="query.keyword != null and query.keyword != ''">
+                and (task_id like #{keywordLike}
+                or trace_id like #{keywordLike}
+                or document_id like #{keywordLike}
+                or file_name like #{keywordLike}
+                or business_no like #{keywordLike}
+                or config_name like #{keywordLike})
+            </if>
+            <if test="query.sourceType != null and query.sourceType != ''">
+                and source_type = #{query.sourceType}
+            </if>
+            <if test="query.documentType != null and query.documentType != ''">
+                and document_type = #{query.documentType}
+            </if>
+            <if test="query.departmentId != null and query.departmentId != ''">
+                and department_id = #{query.departmentId}
+            </if>
+            <if test="query.priority != null and query.priority != ''">
+                and priority = #{query.priority}
+            </if>
+            <if test="query.status != null and query.status != ''">
+                and status = #{query.status}
+            </if>
+        </where>
+    </sql>
+
+    <select id="selectList" resultMap="ExtractTaskRecordMap">
+        select <include refid="BaseColumns"/>
+        from extract_task
+        <include refid="QueryWhere"/>
+        order by created_at desc
+    </select>
+
+    <select id="selectFailed" resultMap="ExtractTaskRecordMap">
+        <bind name="keywordLike" value="query.keyword == null ? null : '%' + query.keyword + '%'"/>
+        select <include refid="BaseColumns"/>
+        from extract_task
+        <where>
+            and status = 'FAILED'
+            <if test="query.keyword != null and query.keyword != ''">
+                and (task_id like #{keywordLike}
+                or trace_id like #{keywordLike}
+                or file_name like #{keywordLike}
+                or error_code like #{keywordLike})
+            </if>
+            <if test="query.departmentId != null and query.departmentId != ''">
+                and department_id = #{query.departmentId}
+            </if>
+            <if test="query.priority != null and query.priority != ''">
+                and priority = #{query.priority}
+            </if>
+        </where>
+        order by failed_at desc, updated_at desc
+    </select>
+
+    <select id="selectByTaskId" resultMap="ExtractTaskRecordMap">
+        select <include refid="BaseColumns"/>
+        from extract_task
+        where task_id = #{taskId}
+    </select>
+
+    <select id="countQueueTasks" resultType="java.lang.Integer">
+        select count(1)
+        from extract_task
+        where department_id = #{departmentId}
+          and queue_level = #{queueLevel}
+          and status in ('QUEUED', 'PARSING', 'EXTRACTING', 'WAIT_REVIEW')
+    </select>
+
+    <insert id="insert" parameterType="com.example.extraction.task.domain.ExtractTaskRecord">
+        insert into extract_task (
+            id, task_id, trace_id, document_id, access_record_id, config_id, config_name, config_version,
+            file_name, file_type, file_size, storage_path, source_type, source_system, business_no,
+            department_id, category, sub_category, template_type, document_type, priority, status,
+            current_stage, progress, queue_level, queue_name, queue_capacity, queue_position,
+            waiting_minutes, estimated_start_at, manual_accelerated, dispatch_reason, error_code,
+            error_message, failed_stage, retry_count, max_retry, failed_at, created_at, updated_at
+        ) values (
+            #{id}, #{taskId}, #{traceId}, #{documentId}, #{accessRecordId}, #{configId}, #{configName}, #{configVersion},
+            #{fileName}, #{fileType}, #{fileSize}, #{storagePath}, #{sourceType}, #{sourceSystem}, #{businessNo},
+            #{departmentId}, #{category}, #{subCategory}, #{templateType}, #{documentType}, #{priority}, #{status},
+            #{currentStage}, #{progress}, #{queueLevel}, #{queueName}, #{queueCapacity}, #{queuePosition},
+            #{waitingMinutes}, #{estimatedStartAt}, #{manualAccelerated}, #{dispatchReason}, #{errorCode},
+            #{errorMessage}, #{failedStage}, #{retryCount}, #{maxRetry}, #{failedAt}, #{createdAt}, #{updatedAt}
+        )
+    </insert>
+
+    <update id="updateDispatch" parameterType="com.example.extraction.task.domain.ExtractTaskRecord">
+        update extract_task
+        set priority = #{priority},
+            queue_level = #{queueLevel},
+            queue_name = #{queueName},
+            queue_capacity = #{queueCapacity},
+            queue_position = #{queuePosition},
+            waiting_minutes = #{waitingMinutes},
+            estimated_start_at = #{estimatedStartAt},
+            manual_accelerated = #{manualAccelerated},
+            dispatch_reason = #{dispatchReason},
+            updated_at = #{updatedAt}
+        where task_id = #{taskId}
+    </update>
+
+    <update id="updateRetry" parameterType="com.example.extraction.task.domain.ExtractTaskRecord">
+        update extract_task
+        set status = #{status},
+            current_stage = #{currentStage},
+            progress = #{progress},
+            priority = #{priority},
+            queue_level = #{queueLevel},
+            queue_name = #{queueName},
+            queue_capacity = #{queueCapacity},
+            queue_position = #{queuePosition},
+            waiting_minutes = #{waitingMinutes},
+            estimated_start_at = #{estimatedStartAt},
+            error_code = null,
+            error_message = null,
+            failed_stage = null,
+            failed_at = null,
+            retry_count = #{retryCount},
+            updated_at = #{updatedAt}
+        where task_id = #{taskId}
+          and status = 'FAILED'
+    </update>
+</mapper>

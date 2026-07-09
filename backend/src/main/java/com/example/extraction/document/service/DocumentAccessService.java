@@ -10,6 +10,7 @@ import com.example.extraction.document.dto.DocumentAccessResponse;
 import com.example.extraction.document.dto.DocumentConfirmRequest;
 import com.example.extraction.mapper.DocumentAccessMapper;
 import com.example.extraction.mapper.ExtractConfigMapper;
+import com.example.extraction.task.service.ExtractTaskService;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
@@ -23,13 +24,16 @@ public class DocumentAccessService {
     private final DocumentAccessMapper documentAccessMapper;
     private final ExtractConfigMapper extractConfigMapper;
     private final DocumentFileStorageService documentFileStorageService;
+    private final ExtractTaskService extractTaskService;
 
     public DocumentAccessService(DocumentAccessMapper documentAccessMapper,
                                  ExtractConfigMapper extractConfigMapper,
-                                 DocumentFileStorageService documentFileStorageService) {
+                                 DocumentFileStorageService documentFileStorageService,
+                                 ExtractTaskService extractTaskService) {
         this.documentAccessMapper = documentAccessMapper;
         this.extractConfigMapper = extractConfigMapper;
         this.documentFileStorageService = documentFileStorageService;
+        this.extractTaskService = extractTaskService;
     }
 
     public List<DocumentAccessResponse> list(DocumentAccessQueryRequest query) {
@@ -92,6 +96,7 @@ public class DocumentAccessService {
         applyMatch(record);
         record.setUpdatedAt(LocalDateTime.now());
         documentAccessMapper.updateMatchResult(record);
+        extractTaskService.createFromAccessRecord(record);
         return detail(id);
     }
 
@@ -128,6 +133,7 @@ public class DocumentAccessService {
         if (updated == 0) {
             throw new BusinessException("DOC_409", "Document status changed, please refresh and retry");
         }
+        extractTaskService.createFromAccessRecord(record);
         return detail(id);
     }
 
@@ -162,6 +168,7 @@ public class DocumentAccessService {
             applyMatch(record);
         }
         documentAccessMapper.insert(record);
+        extractTaskService.createFromAccessRecord(record);
         return detail(record.getId());
     }
 
