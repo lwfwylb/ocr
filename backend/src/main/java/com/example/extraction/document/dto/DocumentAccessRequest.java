@@ -2,6 +2,7 @@ package com.example.extraction.document.dto;
 
 public class DocumentAccessRequest {
     private String configId;
+    private String traceId;
     private String sourceType;
     private String sourceSystem;
     private String businessNo;
@@ -22,6 +23,14 @@ public class DocumentAccessRequest {
 
     public void setConfigId(String configId) {
         this.configId = configId;
+    }
+
+    public String getTraceId() {
+        return traceId;
+    }
+
+    public void setTraceId(String traceId) {
+        this.traceId = traceId;
     }
 
     public String getSourceType() {

@@ -4,6 +4,7 @@ frontend/dist/
 frontend/tsconfig.tsbuildinfo
 backend/target/
 backend/.idea/
+data/uploads/
 
 *.log
 *.tmp

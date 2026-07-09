@@ -13,6 +13,7 @@ import com.example.extraction.mapper.ExtractConfigMapper;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
+import org.springframework.web.multipart.MultipartFile;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -21,10 +22,14 @@ import java.util.List;
 public class DocumentAccessService {
     private final DocumentAccessMapper documentAccessMapper;
     private final ExtractConfigMapper extractConfigMapper;
+    private final DocumentFileStorageService documentFileStorageService;
 
-    public DocumentAccessService(DocumentAccessMapper documentAccessMapper, ExtractConfigMapper extractConfigMapper) {
+    public DocumentAccessService(DocumentAccessMapper documentAccessMapper,
+                                 ExtractConfigMapper extractConfigMapper,
+                                 DocumentFileStorageService documentFileStorageService) {
         this.documentAccessMapper = documentAccessMapper;
         this.extractConfigMapper = extractConfigMapper;
+        this.documentFileStorageService = documentFileStorageService;
     }
 
     public List<DocumentAccessResponse> list(DocumentAccessQueryRequest query) {
@@ -47,6 +52,26 @@ public class DocumentAccessService {
         if (!StringUtils.hasText(request.getSourceSystem())) {
             request.setSourceSystem("\u624b\u5de5\u4e0a\u4f20");
         }
+        return createAccess(request, true);
+    }
+
+    @Transactional
+    public DocumentAccessResponse manualUploadFile(String configId, String businessNo, String priority, MultipartFile file) {
+        if (!StringUtils.hasText(configId)) {
+            throw new BusinessException("PARAM_400", "configId is required");
+        }
+        String traceId = nextTraceId();
+        DocumentFileStorageService.StoredFile storedFile = documentFileStorageService.store(file, traceId);
+        DocumentAccessRequest request = new DocumentAccessRequest();
+        request.setTraceId(traceId);
+        request.setConfigId(configId);
+        request.setSourceType("MANUAL_UPLOAD");
+        request.setSourceSystem("\u624b\u5de5\u4e0a\u4f20");
+        request.setBusinessNo(businessNo);
+        request.setPriority(priority);
+        request.setFileName(storedFile.fileName());
+        request.setFileSize(storedFile.fileSize());
+        request.setStoragePath(storedFile.storagePath());
         return createAccess(request, true);
     }
 
@@ -111,7 +136,7 @@ public class DocumentAccessService {
         validateRequest(request);
         DocumentAccessRecord record = new DocumentAccessRecord();
         record.setId(IdGenerator.nextId("DAR"));
-        record.setTraceId(nextTraceId());
+        record.setTraceId(StringUtils.hasText(request.getTraceId()) ? request.getTraceId() : nextTraceId());
         record.setDocumentId(IdGenerator.nextId("DOC"));
         record.setFileName(request.getFileName());
         record.setFileType(resolveFileType(request));

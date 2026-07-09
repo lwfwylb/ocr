@@ -4,7 +4,7 @@ import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { UploadFilled } from '@element-plus/icons-vue'
 import { listExtractConfigs, type ConfigSummary } from '../api/config'
-import { manualUploadDocument, type DocumentAccessRecord } from '../api/document'
+import { manualUploadDocumentFile, type DocumentAccessRecord } from '../api/document'
 
 const router = useRouter()
 const loadingConfigs = ref(false)
@@ -62,17 +62,18 @@ const upload = async () => {
     ElMessage.warning('请先选择上传文件')
     return
   }
-  const fileName = selectedFile.name || `manual_upload_${Date.now()}.pdf`
+  const rawFile = selectedFile.raw as File | undefined
+  if (!rawFile) {
+    ElMessage.warning('无法读取上传文件')
+    return
+  }
   uploading.value = true
   try {
-    uploadResult.value = await manualUploadDocument({
+    uploadResult.value = await manualUploadDocumentFile({
       configId: form.configId,
-      sourceSystem: '手工上传',
       businessNo: form.businessNo,
       priority: form.priority,
-      fileName,
-      fileSize: selectedFile.size || 1024 * 1024,
-      storagePath: `mock://manual-upload/${fileName}`
+      file: rawFile
     })
     ElMessage.success('文档已接入并创建任务')
   } catch (error) {

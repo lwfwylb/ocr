@@ -85,6 +85,23 @@ export function manualUploadDocument(payload: DocumentAccessPayload) {
   })
 }
 
+export function manualUploadDocumentFile(payload: {
+  configId: string
+  file: File
+  businessNo?: string
+  priority?: string
+}) {
+  const formData = new FormData()
+  formData.set('configId', payload.configId)
+  formData.set('file', payload.file)
+  if (payload.businessNo) formData.set('businessNo', payload.businessNo)
+  if (payload.priority) formData.set('priority', payload.priority)
+  return request<DocumentAccessRecord>('/api/documents/manual-upload', {
+    method: 'POST',
+    body: formData
+  })
+}
+
 export function pushDocumentByApi(payload: DocumentAccessPayload) {
   return request<DocumentAccessRecord>('/api/documents/api-push', {
     method: 'POST',
