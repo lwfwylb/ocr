@@ -39,7 +39,8 @@ const priorityText = (value?: string) => {
 const loadConfigs = async () => {
   loadingConfigs.value = true
   try {
-    configs.value = await listExtractConfigs({ status: 'PUBLISHED' })
+    const publishedConfigs = await listExtractConfigs({ status: 'PUBLISHED' })
+    configs.value = publishedConfigs.filter((config) => config.currentEffective === true)
     if (!form.configId && configs.value.length) {
       form.configId = configs.value[0].id
     }
@@ -80,6 +81,8 @@ const upload = async () => {
     uploading.value = false
   }
 }
+
+onMounted(loadConfigs)
 </script>
 
 <template>
@@ -94,11 +97,12 @@ const upload = async () => {
             clearable
             :loading="loadingConfigs"
             placeholder="请选择配置名称"
+            no-data-text="暂无生效配置"
           >
             <el-option
               v-for="config in configs"
               :key="config.id"
-              :label="`${config.configName} / V${config.version} / ${config.documentType || '-'}`"
+              :label="`${config.configName} / V${config.version} / 生效中 / ${config.documentType || '-'}`"
               :value="config.id"
             />
           </el-select>
@@ -134,6 +138,7 @@ const upload = async () => {
         <el-descriptions v-else :column="1" border>
           <el-descriptions-item label="配置名称">{{ selectedConfig.configName }}</el-descriptions-item>
           <el-descriptions-item label="当前版本">V{{ selectedConfig.version }}</el-descriptions-item>
+          <el-descriptions-item label="状态"><el-tag type="success">生效中</el-tag></el-descriptions-item>
           <el-descriptions-item label="所属部门">{{ selectedConfig.departmentId || '-' }}</el-descriptions-item>
           <el-descriptions-item label="分类/子类">
             {{ selectedConfig.category || '-' }} / {{ selectedConfig.subCategory || '-' }}
@@ -153,9 +158,7 @@ const upload = async () => {
           <el-descriptions-item label="TraceId">{{ uploadResult.traceId }}</el-descriptions-item>
           <el-descriptions-item label="文档编号">{{ uploadResult.documentId }}</el-descriptions-item>
           <el-descriptions-item label="任务编号">{{ uploadResult.taskId || '-' }}</el-descriptions-item>
-          <el-descriptions-item label="匹配状态">
-            <el-tag type="success">已匹配</el-tag>
-          </el-descriptions-item>
+          <el-descriptions-item label="匹配状态"><el-tag type="success">已匹配</el-tag></el-descriptions-item>
           <el-descriptions-item label="匹配配置">
             {{ uploadResult.matchedConfigName || '-' }} {{ uploadResult.matchedConfigVersion ? `V${uploadResult.matchedConfigVersion}` : '' }}
           </el-descriptions-item>
