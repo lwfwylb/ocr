@@ -88,7 +88,7 @@
         from extract_config
         where config_name = #{configName}
           and status = 'PUBLISHED'
-        order by version desc
+        order by published_at desc, version desc
     </select>
 
     <select id="selectEditableVersions" resultMap="ExtractConfigRecordMap">

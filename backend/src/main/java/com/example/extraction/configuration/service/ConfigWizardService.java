@@ -9,6 +9,10 @@ import com.example.extraction.configuration.dto.ConfigQueryRequest;
 import com.example.extraction.configuration.dto.ConfigSummaryResponse;
 import com.example.extraction.configuration.dto.ConfigWizardPayload;
 import com.example.extraction.mapper.ExtractConfigMapper;
+import com.example.extraction.mapper.LlmModelConfigMapper;
+import com.example.extraction.mapper.OcrEngineConfigMapper;
+import com.example.extraction.model.domain.LlmModelConfigRecord;
+import com.example.extraction.model.domain.OcrEngineConfigRecord;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -29,10 +33,17 @@ import java.util.regex.PatternSyntaxException;
 @Service
 public class ConfigWizardService {
     private final ExtractConfigMapper extractConfigMapper;
+    private final OcrEngineConfigMapper ocrEngineConfigMapper;
+    private final LlmModelConfigMapper llmModelConfigMapper;
     private final ObjectMapper objectMapper;
 
-    public ConfigWizardService(ExtractConfigMapper extractConfigMapper, ObjectMapper objectMapper) {
+    public ConfigWizardService(ExtractConfigMapper extractConfigMapper,
+                               OcrEngineConfigMapper ocrEngineConfigMapper,
+                               LlmModelConfigMapper llmModelConfigMapper,
+                               ObjectMapper objectMapper) {
         this.extractConfigMapper = extractConfigMapper;
+        this.ocrEngineConfigMapper = ocrEngineConfigMapper;
+        this.llmModelConfigMapper = llmModelConfigMapper;
         this.objectMapper = objectMapper;
     }
 
@@ -56,8 +67,7 @@ public class ConfigWizardService {
         if (records.isEmpty()) {
             throw new BusinessException("CONFIG_404", "未找到已发布的生效配置");
         }
-        long configCodeCount = records.stream().map(ExtractConfigRecord::getConfigCode).distinct().count();
-        if (configCodeCount > 1) {
+        if (records.size() > 1) {
             throw new BusinessException("CONFIG_409", "存在多个同名已发布配置，请先处理配置名称唯一性");
         }
         ExtractConfigRecord record = records.get(0);
@@ -328,6 +338,14 @@ public class ConfigWizardService {
         if (!StringUtils.hasText(payload.getParseConfig().getEngineCode())) {
             issues.add(issue("ERROR", "解析引擎不能为空"));
         }
+        if (StringUtils.hasText(payload.getParseConfig().getEngineCode())) {
+            OcrEngineConfigRecord ocrEngine = ocrEngineConfigMapper.selectByEngineCode(payload.getParseConfig().getEngineCode());
+            if (ocrEngine == null) {
+                issues.add(issue("ERROR", "OCR engine does not exist: " + payload.getParseConfig().getEngineCode()));
+            } else if (!"ENABLED".equals(ocrEngine.getStatus())) {
+                issues.add(issue("ERROR", "OCR engine is disabled: " + payload.getParseConfig().getEngineCode()));
+            }
+        }
         if (!StringUtils.hasText(payload.getParseConfig().getParseMode())) {
             issues.add(issue("ERROR", "解析模式不能为空"));
         }
@@ -342,6 +360,16 @@ public class ConfigWizardService {
                 && Boolean.TRUE.equals(payload.getExtractStrategy().getAiEnabled())
                 && !StringUtils.hasText(payload.getExtractStrategy().getLlmModelCode())) {
             issues.add(issue("ERROR", "启用 AI 提取时必须选择 LLM 模型"));
+        }
+        if (payload.getExtractStrategy() != null
+                && Boolean.TRUE.equals(payload.getExtractStrategy().getAiEnabled())
+                && StringUtils.hasText(payload.getExtractStrategy().getLlmModelCode())) {
+            LlmModelConfigRecord llmModel = llmModelConfigMapper.selectByModelCode(payload.getExtractStrategy().getLlmModelCode());
+            if (llmModel == null) {
+                issues.add(issue("ERROR", "LLM model does not exist: " + payload.getExtractStrategy().getLlmModelCode()));
+            } else if (!"ENABLED".equals(llmModel.getStatus())) {
+                issues.add(issue("ERROR", "LLM model is disabled: " + payload.getExtractStrategy().getLlmModelCode()));
+            }
         }
         if (payload.getExtractStrategy() != null && payload.getExtractStrategy().getConfidenceThreshold() != null
                 && (payload.getExtractStrategy().getConfidenceThreshold().doubleValue() < 0
@@ -582,12 +610,21 @@ public class ConfigWizardService {
             issues.add(issue("INFO", "未启用下游推送规则"));
             return issues;
         }
+        Map<String, Map<String, Object>> downstreamServices = downstreamServicesByCode();
         for (ConfigWizardPayload.PushRule rule : payload.getPushRules()) {
             if (!Boolean.TRUE.equals(rule.getPushEnabled())) {
                 continue;
             }
             if (!StringUtils.hasText(rule.getServiceCode())) {
                 issues.add(issue("ERROR", "启用的推送规则必须选择目标接口服务"));
+            }
+            if (StringUtils.hasText(rule.getServiceCode())) {
+                Map<String, Object> service = downstreamServices.get(rule.getServiceCode());
+                if (service == null) {
+                    issues.add(issue("ERROR", "Downstream service does not exist: " + rule.getServiceCode()));
+                } else if (!Boolean.TRUE.equals(service.get("enabled"))) {
+                    issues.add(issue("ERROR", "Downstream service is disabled: " + rule.getServiceCode()));
+                }
             }
             if (!StringUtils.hasText(rule.getPushTrigger())) {
                 issues.add(issue("ERROR", "启用的推送规则必须维护触发时机：" + rule.getServiceCode()));
@@ -600,6 +637,21 @@ public class ConfigWizardService {
             issues.add(issue("INFO", "下游推送配置基础检查通过"));
         }
         return issues;
+    }
+
+    private Map<String, Map<String, Object>> downstreamServicesByCode() {
+        Map<String, Map<String, Object>> result = new LinkedHashMap<>();
+        ConfigOptionsResponse configOptions = options();
+        if (configOptions.getDownstreamServices() == null) {
+            return result;
+        }
+        for (Map<String, Object> service : configOptions.getDownstreamServices()) {
+            Object serviceCode = service.get("serviceCode");
+            if (serviceCode != null) {
+                result.put(String.valueOf(serviceCode), service);
+            }
+        }
+        return result;
     }
 
     private Map<String, Object> section(String code, String title, List<Map<String, Object>> items) {
@@ -730,6 +782,7 @@ public class ConfigWizardService {
         response.setDefaultPriority(record.getDefaultPriority());
         response.setStatus(record.getStatus());
         response.setVersion(record.getVersion());
+        response.setCurrentEffective("PUBLISHED".equals(record.getStatus()));
         fillPayloadSummary(record, response);
         response.setCreatedBy(record.getCreatedBy());
         response.setUpdatedBy(record.getCreatedBy());

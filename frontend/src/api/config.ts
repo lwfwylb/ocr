@@ -13,6 +13,7 @@ export interface ConfigSummary {
   defaultPriority: string
   status: 'DRAFT' | 'TESTING' | 'PUBLISHED' | 'DISABLED'
   version: number
+  currentEffective?: boolean
   parseEngine: string
   targetTable: string
   mappingProfile: string

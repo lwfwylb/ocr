@@ -15,6 +15,7 @@ public class ConfigSummaryResponse {
     private String defaultPriority;
     private String status;
     private Integer version;
+    private Boolean currentEffective;
     private String parseEngine;
     private String targetTable;
     private String mappingProfile;
@@ -119,6 +120,14 @@ public class ConfigSummaryResponse {
 
     public void setVersion(Integer version) {
         this.version = version;
+    }
+
+    public Boolean getCurrentEffective() {
+        return currentEffective;
+    }
+
+    public void setCurrentEffective(Boolean currentEffective) {
+        this.currentEffective = currentEffective;
     }
 
     public String getParseEngine() {

@@ -29,6 +29,7 @@ interface ConfigItem {
   documentType: string
   department: string
   version: string
+  currentEffective: boolean
   status: ConfigStatus
   parseEngine: string
   targetTable: string
@@ -97,6 +98,7 @@ const toConfigItem = (item: ConfigSummary): ConfigItem => ({
   documentType: item.documentType || '',
   department: item.departmentId || '',
   version: `V${item.version || 1}`,
+  currentEffective: Boolean(item.currentEffective),
   status: item.status,
   parseEngine: item.parseEngine || '-',
   targetTable: item.targetTable || '-',
@@ -405,6 +407,12 @@ onMounted(() => {
             </el-tag>
           </template>
         </el-table-column>
+        <el-table-column label="生效" width="90">
+          <template #default="{ row }">
+            <el-tag v-if="row.currentEffective" type="success">生效中</el-tag>
+            <span v-else>-</span>
+          </template>
+        </el-table-column>
         <el-table-column prop="parseEngine" label="解析引擎" min-width="150" />
         <el-table-column prop="targetTable" label="目标表" min-width="190" />
         <el-table-column prop="mappingProfile" label="映射方案" min-width="190" />
@@ -484,6 +492,12 @@ onMounted(() => {
               <el-tag :type="statusMap[row.status as ConfigStatus].type">
                 {{ statusMap[row.status as ConfigStatus].label }}
               </el-tag>
+            </template>
+          </el-table-column>
+          <el-table-column label="生效" width="90">
+            <template #default="{ row }">
+              <el-tag v-if="row.currentEffective" type="success">生效中</el-tag>
+              <span v-else>-</span>
             </template>
           </el-table-column>
           <el-table-column prop="mappingProfile" label="映射方案" min-width="180" />
