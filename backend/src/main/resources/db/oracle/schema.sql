@@ -426,3 +426,41 @@ create table ocr_engine_config (
 create unique index uk_ocr_engine_code on ocr_engine_config (engine_code);
 create index idx_ocr_engine_status on ocr_engine_config (status);
 create index idx_ocr_engine_default on ocr_engine_config (default_engine);
+
+create table document_access_record (
+  id varchar2(64) primary key,
+  trace_id varchar2(128) not null,
+  document_id varchar2(128) not null,
+  task_id varchar2(128),
+  file_name varchar2(500) not null,
+  file_type varchar2(50),
+  file_size number(18),
+  storage_path varchar2(1000),
+  source_type varchar2(50) not null,
+  source_system varchar2(200),
+  business_no varchar2(200),
+  department_id varchar2(100) not null,
+  category varchar2(100),
+  sub_category varchar2(100),
+  template_type varchar2(160),
+  document_type varchar2(100),
+  priority varchar2(20),
+  match_status varchar2(30) not null,
+  access_status varchar2(30) not null,
+  matched_config_id varchar2(64),
+  matched_config_name varchar2(200),
+  matched_config_version number(10),
+  match_message varchar2(1000),
+  confirm_comment varchar2(1000),
+  created_by varchar2(100),
+  confirmed_at timestamp null,
+  created_at timestamp not null,
+  updated_at timestamp not null
+);
+
+create unique index uk_document_access_trace on document_access_record (trace_id);
+create unique index uk_document_access_doc on document_access_record (document_id);
+create index idx_document_access_status on document_access_record (access_status, match_status);
+create index idx_document_access_source on document_access_record (source_type, source_system);
+create index idx_document_access_department on document_access_record (department_id);
+create index idx_document_access_config on document_access_record (matched_config_id);

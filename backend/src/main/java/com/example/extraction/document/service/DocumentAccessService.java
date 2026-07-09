@@ -1,0 +1,323 @@
+package com.example.extraction.document.service;
+
+import com.example.extraction.common.BusinessException;
+import com.example.extraction.common.IdGenerator;
+import com.example.extraction.configuration.domain.ExtractConfigRecord;
+import com.example.extraction.document.domain.DocumentAccessRecord;
+import com.example.extraction.document.dto.DocumentAccessQueryRequest;
+import com.example.extraction.document.dto.DocumentAccessRequest;
+import com.example.extraction.document.dto.DocumentAccessResponse;
+import com.example.extraction.document.dto.DocumentConfirmRequest;
+import com.example.extraction.mapper.DocumentAccessMapper;
+import com.example.extraction.mapper.ExtractConfigMapper;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+import org.springframework.util.StringUtils;
+
+import java.time.LocalDateTime;
+import java.util.List;
+
+@Service
+public class DocumentAccessService {
+    private final DocumentAccessMapper documentAccessMapper;
+    private final ExtractConfigMapper extractConfigMapper;
+
+    public DocumentAccessService(DocumentAccessMapper documentAccessMapper, ExtractConfigMapper extractConfigMapper) {
+        this.documentAccessMapper = documentAccessMapper;
+        this.extractConfigMapper = extractConfigMapper;
+    }
+
+    public List<DocumentAccessResponse> list(DocumentAccessQueryRequest query) {
+        normalizeQuery(query);
+        return documentAccessMapper.selectList(query).stream().map(this::toResponse).toList();
+    }
+
+    public List<DocumentAccessResponse> pendingConfirm(DocumentAccessQueryRequest query) {
+        normalizeQuery(query);
+        return documentAccessMapper.selectPendingConfirm(query).stream().map(this::toResponse).toList();
+    }
+
+    public DocumentAccessResponse detail(String id) {
+        return toResponse(requireRecord(id));
+    }
+
+    @Transactional
+    public DocumentAccessResponse manualUpload(DocumentAccessRequest request) {
+        request.setSourceType("MANUAL_UPLOAD");
+        if (!StringUtils.hasText(request.getSourceSystem())) {
+            request.setSourceSystem("Manual Upload");
+        }
+        return createAccess(request);
+    }
+
+    @Transactional
+    public DocumentAccessResponse apiPush(DocumentAccessRequest request) {
+        if (!StringUtils.hasText(request.getSourceType())) {
+            request.setSourceType("BUSINESS_API");
+        }
+        if (!StringUtils.hasText(request.getSourceSystem())) {
+            request.setSourceSystem("Business API");
+        }
+        return createAccess(request);
+    }
+
+    @Transactional
+    public DocumentAccessResponse rematch(String id) {
+        DocumentAccessRecord record = requireRecord(id);
+        applyMatch(record);
+        record.setUpdatedAt(LocalDateTime.now());
+        documentAccessMapper.updateMatchResult(record);
+        return detail(id);
+    }
+
+    @Transactional
+    public DocumentAccessResponse confirm(String id, DocumentConfirmRequest request) {
+        normalizeConfirmRequest(request);
+        DocumentAccessRecord record = requireRecord(id);
+        if (!"PENDING_CONFIRM".equals(record.getAccessStatus())) {
+            throw new BusinessException("DOC_409", "Only pending documents can be confirmed");
+        }
+        if (!StringUtils.hasText(request.getConfigId())) {
+            throw new BusinessException("PARAM_400", "configId is required");
+        }
+        ExtractConfigRecord config = extractConfigMapper.selectById(request.getConfigId());
+        if (config == null || !"PUBLISHED".equals(config.getStatus())) {
+            throw new BusinessException("CONFIG_404", "Published config not found");
+        }
+        record.setCategory(firstText(request.getCategory(), config.getCategory()));
+        record.setSubCategory(firstText(request.getSubCategory(), config.getSubCategory()));
+        record.setTemplateType(firstText(request.getTemplateType(), config.getTemplateType()));
+        record.setDocumentType(firstText(request.getDocumentType(), config.getDocumentType()));
+        record.setPriority(firstText(request.getPriority(), record.getPriority(), config.getDefaultPriority(), "MEDIUM"));
+        record.setMatchedConfigId(config.getId());
+        record.setMatchedConfigName(config.getConfigName());
+        record.setMatchedConfigVersion(config.getVersion());
+        record.setMatchStatus("MATCHED");
+        record.setAccessStatus("CREATED_TASK");
+        record.setTaskId(nextTaskId());
+        record.setMatchMessage("Manually confirmed with config: " + config.getConfigName() + " V" + config.getVersion());
+        record.setConfirmComment(request.getComment());
+        record.setConfirmedAt(LocalDateTime.now());
+        record.setUpdatedAt(record.getConfirmedAt());
+        int updated = documentAccessMapper.confirm(record);
+        if (updated == 0) {
+            throw new BusinessException("DOC_409", "Document status changed, please refresh and retry");
+        }
+        return detail(id);
+    }
+
+    private DocumentAccessResponse createAccess(DocumentAccessRequest request) {
+        normalizeRequest(request);
+        validateRequest(request);
+        DocumentAccessRecord record = new DocumentAccessRecord();
+        record.setId(IdGenerator.nextId("DAR"));
+        record.setTraceId(nextTraceId());
+        record.setDocumentId(IdGenerator.nextId("DOC"));
+        record.setFileName(request.getFileName());
+        record.setFileType(resolveFileType(request));
+        record.setFileSize(request.getFileSize());
+        record.setStoragePath(firstText(request.getStoragePath(), "mock://" + request.getFileName()));
+        record.setSourceType(request.getSourceType());
+        record.setSourceSystem(request.getSourceSystem());
+        record.setBusinessNo(request.getBusinessNo());
+        record.setDepartmentId(request.getDepartmentId());
+        record.setCategory(request.getCategory());
+        record.setSubCategory(request.getSubCategory());
+        record.setTemplateType(request.getTemplateType());
+        record.setDocumentType(request.getDocumentType());
+        record.setPriority(firstText(request.getPriority(), "MEDIUM"));
+        record.setCreatedBy("system");
+        record.setCreatedAt(LocalDateTime.now());
+        record.setUpdatedAt(record.getCreatedAt());
+        applyMatch(record);
+        documentAccessMapper.insert(record);
+        return detail(record.getId());
+    }
+
+    private void normalizeQuery(DocumentAccessQueryRequest query) {
+        if (query == null) {
+            return;
+        }
+        query.setDepartmentId(normalizeDepartment(query.getDepartmentId()));
+    }
+
+    private void normalizeRequest(DocumentAccessRequest request) {
+        request.setDepartmentId(normalizeDepartment(request.getDepartmentId()));
+        request.setCategory(normalizeCategory(request.getCategory()));
+        request.setSubCategory(normalizeDocumentType(request.getSubCategory()));
+        request.setTemplateType(normalizeTemplateType(request.getTemplateType()));
+        request.setDocumentType(normalizeDocumentType(request.getDocumentType()));
+    }
+
+    private void normalizeConfirmRequest(DocumentConfirmRequest request) {
+        request.setCategory(normalizeCategory(request.getCategory()));
+        request.setSubCategory(normalizeDocumentType(request.getSubCategory()));
+        request.setTemplateType(normalizeTemplateType(request.getTemplateType()));
+        request.setDocumentType(normalizeDocumentType(request.getDocumentType()));
+    }
+
+    private void validateRequest(DocumentAccessRequest request) {
+        if (!StringUtils.hasText(request.getFileName())) {
+            throw new BusinessException("PARAM_400", "fileName is required");
+        }
+        if (!StringUtils.hasText(request.getDepartmentId())) {
+            throw new BusinessException("PARAM_400", "departmentId is required");
+        }
+        if (!StringUtils.hasText(request.getSourceType())) {
+            throw new BusinessException("PARAM_400", "sourceType is required");
+        }
+    }
+
+    private void applyMatch(DocumentAccessRecord record) {
+        List<ExtractConfigRecord> candidates = extractConfigMapper.selectPublishedCandidates(
+                record.getDepartmentId(),
+                record.getCategory(),
+                record.getSubCategory(),
+                record.getTemplateType(),
+                record.getDocumentType()
+        );
+        if (candidates.size() == 1) {
+            ExtractConfigRecord config = candidates.get(0);
+            record.setMatchedConfigId(config.getId());
+            record.setMatchedConfigName(config.getConfigName());
+            record.setMatchedConfigVersion(config.getVersion());
+            record.setMatchStatus("MATCHED");
+            record.setAccessStatus("CREATED_TASK");
+            record.setTaskId(nextTaskId());
+            record.setMatchMessage("Auto matched effective config: " + config.getConfigName() + " V" + config.getVersion());
+            return;
+        }
+        record.setMatchedConfigId(null);
+        record.setMatchedConfigName(null);
+        record.setMatchedConfigVersion(null);
+        record.setTaskId(null);
+        record.setAccessStatus("PENDING_CONFIRM");
+        if (candidates.isEmpty()) {
+            record.setMatchStatus("UNMATCHED");
+            record.setMatchMessage("No published config matched; manual confirmation is required");
+        } else {
+            record.setMatchStatus("MULTIPLE");
+            record.setMatchMessage("Multiple published configs matched; please select one manually");
+        }
+    }
+
+    private DocumentAccessRecord requireRecord(String id) {
+        DocumentAccessRecord record = documentAccessMapper.selectById(id);
+        if (record == null) {
+            throw new BusinessException("DOC_404", "Document access record not found");
+        }
+        return record;
+    }
+
+    private String resolveFileType(DocumentAccessRequest request) {
+        if (StringUtils.hasText(request.getFileType())) {
+            return request.getFileType();
+        }
+        String fileName = request.getFileName();
+        int dotIndex = fileName == null ? -1 : fileName.lastIndexOf('.');
+        if (dotIndex < 0 || dotIndex == fileName.length() - 1) {
+            return "unknown";
+        }
+        return fileName.substring(dotIndex + 1).toLowerCase();
+    }
+
+    private String normalizeDepartment(String value) {
+        String key = firstText(value);
+        if (key == null) {
+            return value;
+        }
+        return switch (key) {
+            case "OPS" -> "\u8fd0\u8425\u90e8";
+            case "FINANCE" -> "\u8d22\u52a1\u90e8";
+            case "PRODUCT" -> "\u4ea7\u54c1\u90e8";
+            default -> value;
+        };
+    }
+
+    private String normalizeCategory(String value) {
+        String key = firstText(value);
+        if (key == null) {
+            return value;
+        }
+        return switch (key) {
+            case "FUND_BUSINESS" -> "\u8d44\u91d1\u4e1a\u52a1";
+            case "FUND_TRADE" -> "\u57fa\u91d1\u4ea4\u6613";
+            case "CUSTOMER_BUSINESS" -> "\u5ba2\u6237\u4e1a\u52a1";
+            default -> value;
+        };
+    }
+
+    private String normalizeDocumentType(String value) {
+        String key = firstText(value);
+        if (key == null) {
+            return value;
+        }
+        return switch (key) {
+            case "PAYMENT_INSTRUCTION" -> "\u5212\u6b3e\u6307\u4ee4";
+            case "BANK_RECEIPT" -> "\u94f6\u884c\u56de\u5355";
+            case "ACCOUNT_OPENING" -> "\u5f00\u6237\u8d44\u6599";
+            default -> value;
+        };
+    }
+
+    private String normalizeTemplateType(String value) {
+        String key = firstText(value);
+        if (key == null) {
+            return value;
+        }
+        return switch (key) {
+            case "GENERAL_PAYMENT_INSTRUCTION_TEMPLATE" -> "\u901a\u7528\u5212\u6b3e\u6307\u4ee4\u6a21\u677f";
+            case "GENERAL_BANK_RECEIPT_TEMPLATE" -> "\u901a\u7528\u94f6\u884c\u56de\u5355\u6a21\u677f";
+            default -> value;
+        };
+    }
+
+    private String nextTraceId() {
+        return IdGenerator.nextId("TRACE");
+    }
+
+    private String nextTaskId() {
+        return IdGenerator.nextId("TASK");
+    }
+
+    private String firstText(String... values) {
+        for (String value : values) {
+            if (StringUtils.hasText(value)) {
+                return value;
+            }
+        }
+        return null;
+    }
+
+    private DocumentAccessResponse toResponse(DocumentAccessRecord record) {
+        DocumentAccessResponse response = new DocumentAccessResponse();
+        response.setId(record.getId());
+        response.setTraceId(record.getTraceId());
+        response.setDocumentId(record.getDocumentId());
+        response.setTaskId(record.getTaskId());
+        response.setFileName(record.getFileName());
+        response.setFileType(record.getFileType());
+        response.setFileSize(record.getFileSize());
+        response.setStoragePath(record.getStoragePath());
+        response.setSourceType(record.getSourceType());
+        response.setSourceSystem(record.getSourceSystem());
+        response.setBusinessNo(record.getBusinessNo());
+        response.setDepartmentId(record.getDepartmentId());
+        response.setCategory(record.getCategory());
+        response.setSubCategory(record.getSubCategory());
+        response.setTemplateType(record.getTemplateType());
+        response.setDocumentType(record.getDocumentType());
+        response.setPriority(record.getPriority());
+        response.setMatchStatus(record.getMatchStatus());
+        response.setAccessStatus(record.getAccessStatus());
+        response.setMatchedConfigId(record.getMatchedConfigId());
+        response.setMatchedConfigName(record.getMatchedConfigName());
+        response.setMatchedConfigVersion(record.getMatchedConfigVersion());
+        response.setMatchMessage(record.getMatchMessage());
+        response.setConfirmComment(record.getConfirmComment());
+        response.setConfirmedAt(record.getConfirmedAt());
+        response.setCreatedAt(record.getCreatedAt());
+        response.setUpdatedAt(record.getUpdatedAt());
+        return response;
+    }
+}

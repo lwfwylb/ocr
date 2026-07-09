@@ -1,178 +1,245 @@
 <script setup lang="ts">
-import { reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
+import { listExtractConfigs, type ConfigSummary } from '../api/config'
+import {
+  confirmDocument,
+  listPendingDocuments,
+  rematchDocument,
+  type DocumentAccessRecord
+} from '../api/document'
 
-interface UnmatchedDoc {
-  traceId: string
-  documentId: string
-  fileName: string
-  sourceSystem: string
-  department: string
-  reason: string
-  suggestedTypes: string[]
-  selectedType: string
-  selectedConfig: string
-  priority: string
-  createdAt: string
-}
-
-const docs = ref<UnmatchedDoc[]>([
-  {
-    traceId: 'TRACE-20260628-0004',
-    documentId: 'DOC-20260628-0004',
-    fileName: '未知附件.zip',
-    sourceSystem: '文件分拣系统',
-    department: '产品部',
-    reason: '未匹配到文档类型，压缩包内存在多个 PDF',
-    suggestedTypes: ['产品合同', '托管协议', '开户资料'],
-    selectedType: '',
-    selectedConfig: '',
-    priority: 'MEDIUM',
-    createdAt: '2026-06-28 11:20:00'
-  },
-  {
-    traceId: 'TRACE-20260628-0008',
-    documentId: 'DOC-20260628-0008',
-    fileName: '扫描件_无标题.pdf',
-    sourceSystem: '邮件分拣系统',
-    department: '运营部',
-    reason: '命中多个配置，需要人工确认',
-    suggestedTypes: ['划款指令', '银行回单'],
-    selectedType: '划款指令',
-    selectedConfig: '划款指令-运营部-提取配置',
-    priority: 'HIGH',
-    createdAt: '2026-06-28 15:42:00'
-  }
-])
-
-const activeDoc = ref(docs.value[0])
+const loading = ref(false)
+const saving = ref(false)
+const docs = ref<DocumentAccessRecord[]>([])
+const activeDoc = ref<DocumentAccessRecord | null>(null)
+const publishedConfigs = ref<ConfigSummary[]>([])
+const departmentOptions = [
+  { label: 'Operations', value: 'OPS' },
+  { label: 'Finance', value: 'FINANCE' },
+  { label: 'Product', value: 'PRODUCT' }
+]
+const query = reactive({
+  keyword: '',
+  departmentId: '',
+  matchStatus: ''
+})
 const form = reactive({
-  category: '基金交易',
+  category: '',
   subCategory: '',
   templateType: '',
-  documentType: activeDoc.value.selectedType,
-  extractConfig: activeDoc.value.selectedConfig,
-  priority: activeDoc.value.priority,
+  documentType: '',
+  configId: '',
+  priority: 'MEDIUM',
   comment: ''
 })
 
-const selectDoc = (doc: UnmatchedDoc) => {
+const configOptions = computed(() => {
+  if (!activeDoc.value) return publishedConfigs.value
+  return publishedConfigs.value.filter((config) => {
+    const deptMatched = !activeDoc.value?.departmentId || config.departmentId === activeDoc.value.departmentId
+    const docTypeMatched = !form.documentType || config.documentType === form.documentType
+    return deptMatched && docTypeMatched
+  })
+})
+
+const loadDocs = async () => {
+  loading.value = true
+  try {
+    docs.value = await listPendingDocuments(query)
+    if (!activeDoc.value || !docs.value.some((item) => item.id === activeDoc.value?.id)) {
+      selectDoc(docs.value[0] || null)
+    }
+  } catch (error) {
+    docs.value = []
+    activeDoc.value = null
+    ElMessage.error(error instanceof Error ? error.message : 'Load pending documents failed')
+  } finally {
+    loading.value = false
+  }
+}
+
+const loadConfigs = async () => {
+  try {
+    publishedConfigs.value = await listExtractConfigs({ status: 'PUBLISHED' })
+  } catch (error) {
+    publishedConfigs.value = []
+    ElMessage.error(error instanceof Error ? error.message : 'Load published configs failed')
+  }
+}
+
+const selectDoc = (doc: DocumentAccessRecord | null) => {
   activeDoc.value = doc
-  form.documentType = doc.selectedType
-  form.extractConfig = doc.selectedConfig
-  form.priority = doc.priority
-  form.comment = ''
+  Object.assign(form, {
+    category: doc?.category || '',
+    subCategory: doc?.subCategory || '',
+    templateType: doc?.templateType || '',
+    documentType: doc?.documentType || '',
+    configId: doc?.matchedConfigId || '',
+    priority: doc?.priority || 'MEDIUM',
+    comment: ''
+  })
 }
 
-const confirm = () => {
-  activeDoc.value.selectedType = form.documentType
-  activeDoc.value.selectedConfig = form.extractConfig
-  activeDoc.value.priority = form.priority
-  ElMessage.success('已模拟确认文档类型并创建任务')
+const confirm = async () => {
+  if (!activeDoc.value) return
+  if (!form.configId) {
+    ElMessage.warning('Please select an effective config')
+    return
+  }
+  saving.value = true
+  try {
+    await confirmDocument(activeDoc.value.id, form)
+    ElMessage.success('Document confirmed and task created')
+    await loadDocs()
+  } catch (error) {
+    ElMessage.error(error instanceof Error ? error.message : 'Confirm failed')
+  } finally {
+    saving.value = false
+  }
 }
 
-const rematch = () => ElMessage.success('已模拟重新匹配规则')
+const rematch = async () => {
+  if (!activeDoc.value) return
+  try {
+    const result = await rematchDocument(activeDoc.value.id)
+    if (result.accessStatus === 'CREATED_TASK') {
+      ElMessage.success('Rematch succeeded and task created')
+    } else {
+      ElMessage.warning(result.matchMessage || 'Manual confirm is still required')
+    }
+    await loadDocs()
+  } catch (error) {
+    ElMessage.error(error instanceof Error ? error.message : 'Rematch failed')
+  }
+}
+
+const resetQuery = () => {
+  query.keyword = ''
+  query.departmentId = ''
+  query.matchStatus = ''
+  loadDocs()
+}
+
+onMounted(async () => {
+  await Promise.all([loadConfigs(), loadDocs()])
+})
 </script>
 
 <template>
   <div class="unmatched-layout">
     <el-card shadow="never" class="table-sidebar">
       <template #header>
-        <div class="card-header"><span>待确认文档</span><el-tag type="warning">{{ docs.length }}</el-tag></div>
+        <div class="card-header"><span>Pending Documents</span><el-tag type="warning">{{ docs.length }}</el-tag></div>
       </template>
+      <el-form :model="query" class="mb-12">
+        <el-form-item>
+          <el-input v-model="query.keyword" clearable placeholder="Search trace/file/business" @keyup.enter="loadDocs" />
+        </el-form-item>
+        <el-form-item>
+          <el-select v-model="query.departmentId" filterable clearable placeholder="Department">
+            <el-option v-for="item in departmentOptions" :key="item.value" :label="item.label" :value="item.value" />
+          </el-select>
+        </el-form-item>
+        <el-form-item>
+          <el-select v-model="query.matchStatus" clearable placeholder="Match Status">
+            <el-option label="Unmatched" value="UNMATCHED" />
+            <el-option label="Multiple" value="MULTIPLE" />
+          </el-select>
+        </el-form-item>
+        <el-form-item>
+          <el-button type="primary" :loading="loading" @click="loadDocs">Search</el-button>
+          <el-button @click="resetQuery">Reset</el-button>
+        </el-form-item>
+      </el-form>
       <div
         v-for="doc in docs"
-        :key="doc.documentId"
+        :key="doc.id"
         class="storage-table-item"
-        :class="{ active: activeDoc.documentId === doc.documentId }"
+        :class="{ active: activeDoc?.id === doc.id }"
         @click="selectDoc(doc)"
       >
         <strong>{{ doc.fileName }}</strong>
         <span>{{ doc.traceId }}</span>
-        <em>{{ doc.reason }}</em>
+        <em>{{ doc.matchMessage }}</em>
       </div>
+      <el-empty v-if="!docs.length" description="No pending documents" />
     </el-card>
 
     <div class="page-stack">
       <el-card shadow="never">
         <template #header>
           <div class="card-header">
-            <span>确认处理</span>
-            <div><el-button @click="rematch">重新匹配</el-button><el-button type="primary" @click="confirm">确认并创建任务</el-button></div>
+            <span>Confirm Document</span>
+            <div>
+              <el-button :disabled="!activeDoc" @click="rematch">Rematch</el-button>
+              <el-button type="primary" :disabled="!activeDoc" :loading="saving" @click="confirm">Confirm and Create Task</el-button>
+            </div>
           </div>
         </template>
-        <el-descriptions :column="3" border>
-          <el-descriptions-item label="TraceId">{{ activeDoc.traceId }}</el-descriptions-item>
-          <el-descriptions-item label="文档编号">{{ activeDoc.documentId }}</el-descriptions-item>
-          <el-descriptions-item label="来源">{{ activeDoc.sourceSystem }}</el-descriptions-item>
-          <el-descriptions-item label="文件名">{{ activeDoc.fileName }}</el-descriptions-item>
-          <el-descriptions-item label="部门">{{ activeDoc.department }}</el-descriptions-item>
-          <el-descriptions-item label="接入时间">{{ activeDoc.createdAt }}</el-descriptions-item>
-        </el-descriptions>
-        <el-alert class="mt-12" :title="activeDoc.reason" type="warning" :closable="false" />
+        <template v-if="activeDoc">
+          <el-descriptions :column="3" border>
+            <el-descriptions-item label="TraceId">{{ activeDoc.traceId }}</el-descriptions-item>
+            <el-descriptions-item label="Document Id">{{ activeDoc.documentId }}</el-descriptions-item>
+            <el-descriptions-item label="Source">{{ activeDoc.sourceSystem }}</el-descriptions-item>
+            <el-descriptions-item label="File Name">{{ activeDoc.fileName }}</el-descriptions-item>
+            <el-descriptions-item label="Department">{{ activeDoc.departmentId }}</el-descriptions-item>
+            <el-descriptions-item label="Access Time">{{ activeDoc.createdAt }}</el-descriptions-item>
+          </el-descriptions>
+          <el-alert class="mt-12" :title="activeDoc.matchMessage" type="warning" :closable="false" />
+        </template>
+        <el-empty v-else description="Select a pending document" />
       </el-card>
 
       <el-card shadow="never">
-        <template #header>人工确认</template>
+        <template #header>Manual Confirm</template>
         <el-form :model="form" label-width="130px" class="form-grid">
-          <el-form-item label="业务分类">
-            <el-select v-model="form.category" filterable>
-              <el-option label="资金业务" value="资金业务" />
-              <el-option label="基金交易" value="基金交易" />
-              <el-option label="客户业务" value="客户业务" />
-              <el-option label="产品业务" value="产品业务" />
+          <el-form-item label="Category">
+            <el-input v-model="form.category" placeholder="Optional" />
+          </el-form-item>
+          <el-form-item label="Sub Category">
+            <el-input v-model="form.subCategory" placeholder="Optional" />
+          </el-form-item>
+          <el-form-item label="Template Type">
+            <el-input v-model="form.templateType" placeholder="Optional" />
+          </el-form-item>
+          <el-form-item label="Document Type">
+            <el-input v-model="form.documentType" placeholder="Document type" />
+          </el-form-item>
+          <el-form-item label="Effective Config">
+            <el-select v-model="form.configId" filterable clearable placeholder="Select published config">
+              <el-option
+                v-for="config in configOptions"
+                :key="config.id"
+                :label="`${config.configName} / V${config.version} / ${config.documentType}`"
+                :value="config.id"
+              />
             </el-select>
           </el-form-item>
-          <el-form-item label="业务子类">
-            <el-select v-model="form.subCategory" filterable clearable>
-              <el-option label="基金申购" value="基金申购" />
-              <el-option label="基金赎回" value="基金赎回" />
-              <el-option label="划款指令" value="划款指令" />
-              <el-option label="银行回单" value="银行回单" />
-            </el-select>
-          </el-form-item>
-          <el-form-item label="模板/表单类型">
-            <el-select v-model="form.templateType" filterable clearable allow-create>
-              <el-option label="大成基金申购单" value="大成基金申购单" />
-              <el-option label="南方基金申购单" value="南方基金申购单" />
-              <el-option label="通用划款指令模板" value="通用划款指令模板" />
-            </el-select>
-          </el-form-item>
-          <el-form-item label="文档类型">
-            <el-select v-model="form.documentType" filterable clearable>
-              <el-option v-for="type in activeDoc.suggestedTypes" :key="type" :label="type" :value="type" />
-            </el-select>
-          </el-form-item>
-          <el-form-item label="提取配置">
-            <el-select v-model="form.extractConfig" filterable clearable allow-create>
-              <el-option label="划款指令-运营部-提取配置" value="划款指令-运营部-提取配置" />
-              <el-option label="银行回单-资金结果配置" value="银行回单-资金结果配置" />
-              <el-option label="产品合同-条款表映射" value="产品合同-条款表映射" />
-            </el-select>
-          </el-form-item>
-          <el-form-item label="任务优先级">
+          <el-form-item label="Priority">
             <el-radio-group v-model="form.priority">
-              <el-radio-button label="HIGH">高</el-radio-button>
-              <el-radio-button label="MEDIUM">中</el-radio-button>
-              <el-radio-button label="LOW">低</el-radio-button>
+              <el-radio-button label="HIGH">High</el-radio-button>
+              <el-radio-button label="MEDIUM">Medium</el-radio-button>
+              <el-radio-button label="LOW">Low</el-radio-button>
             </el-radio-group>
           </el-form-item>
-          <el-form-item label="处理说明" class="wide">
-            <el-input v-model="form.comment" type="textarea" :rows="3" placeholder="记录人工确认依据" />
+          <el-form-item label="Comment" class="wide">
+            <el-input v-model="form.comment" type="textarea" :rows="3" placeholder="Confirm reason" />
           </el-form-item>
         </el-form>
       </el-card>
 
       <el-card shadow="never">
-        <template #header>候选规则</template>
-        <el-table
-          :data="activeDoc.suggestedTypes.map((type, index) => ({ type, confidence: [0.72, 0.64, 0.51][index] || 0.5, reason: '关键字/版面特征相似' }))"
-        >
-          <el-table-column prop="type" label="候选文档类型" />
-          <el-table-column label="匹配置信度">
-            <template #default="{ row }">{{ Math.round(row.confidence * 100) }}%</template>
+        <template #header>Candidate Configs</template>
+        <el-table :data="configOptions">
+          <el-table-column prop="configName" label="Config Name" min-width="220" />
+          <el-table-column prop="version" label="Version" width="80">
+            <template #default="{ row }">V{{ row.version }}</template>
           </el-table-column>
-          <el-table-column prop="reason" label="命中原因" />
+          <el-table-column prop="departmentId" label="Dept" width="100" />
+          <el-table-column prop="documentType" label="Doc Type" width="120" />
+          <el-table-column prop="templateType" label="Template Type" min-width="170" />
+          <el-table-column prop="targetTable" label="Target Table" min-width="180" />
         </el-table>
       </el-card>
     </div>

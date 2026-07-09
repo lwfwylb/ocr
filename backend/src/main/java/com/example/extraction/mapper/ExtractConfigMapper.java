@@ -17,6 +17,12 @@ public interface ExtractConfigMapper {
 
     List<ExtractConfigRecord> selectPublishedByConfigName(@Param("configName") String configName);
 
+    List<ExtractConfigRecord> selectPublishedCandidates(@Param("departmentId") String departmentId,
+                                                        @Param("category") String category,
+                                                        @Param("subCategory") String subCategory,
+                                                        @Param("templateType") String templateType,
+                                                        @Param("documentType") String documentType);
+
     List<ExtractConfigRecord> selectEditableVersions(@Param("configCode") String configCode);
 
     Integer selectMaxVersion(@Param("configCode") String configCode);

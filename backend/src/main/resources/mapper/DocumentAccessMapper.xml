@@ -1,0 +1,158 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.example.extraction.mapper.DocumentAccessMapper">
+    <resultMap id="DocumentAccessRecordMap" type="com.example.extraction.document.domain.DocumentAccessRecord">
+        <id property="id" column="id"/>
+        <result property="traceId" column="trace_id"/>
+        <result property="documentId" column="document_id"/>
+        <result property="taskId" column="task_id"/>
+        <result property="fileName" column="file_name"/>
+        <result property="fileType" column="file_type"/>
+        <result property="fileSize" column="file_size"/>
+        <result property="storagePath" column="storage_path"/>
+        <result property="sourceType" column="source_type"/>
+        <result property="sourceSystem" column="source_system"/>
+        <result property="businessNo" column="business_no"/>
+        <result property="departmentId" column="department_id"/>
+        <result property="category" column="category"/>
+        <result property="subCategory" column="sub_category"/>
+        <result property="templateType" column="template_type"/>
+        <result property="documentType" column="document_type"/>
+        <result property="priority" column="priority"/>
+        <result property="matchStatus" column="match_status"/>
+        <result property="accessStatus" column="access_status"/>
+        <result property="matchedConfigId" column="matched_config_id"/>
+        <result property="matchedConfigName" column="matched_config_name"/>
+        <result property="matchedConfigVersion" column="matched_config_version"/>
+        <result property="matchMessage" column="match_message"/>
+        <result property="confirmComment" column="confirm_comment"/>
+        <result property="createdBy" column="created_by"/>
+        <result property="confirmedAt" column="confirmed_at"/>
+        <result property="createdAt" column="created_at"/>
+        <result property="updatedAt" column="updated_at"/>
+    </resultMap>
+
+    <sql id="BaseColumns">
+        id, trace_id, document_id, task_id, file_name, file_type, file_size, storage_path,
+        source_type, source_system, business_no, department_id, category, sub_category,
+        template_type, document_type, priority, match_status, access_status,
+        matched_config_id, matched_config_name, matched_config_version, match_message,
+        confirm_comment, created_by, confirmed_at, created_at, updated_at
+    </sql>
+
+    <sql id="QueryWhere">
+        <bind name="keywordLike" value="query.keyword == null ? null : '%' + query.keyword + '%'"/>
+        <where>
+            <if test="query.keyword != null and query.keyword != ''">
+                and (trace_id like #{keywordLike}
+                or document_id like #{keywordLike}
+                or task_id like #{keywordLike}
+                or file_name like #{keywordLike}
+                or business_no like #{keywordLike}
+                or matched_config_name like #{keywordLike})
+            </if>
+            <if test="query.sourceType != null and query.sourceType != ''">
+                and source_type = #{query.sourceType}
+            </if>
+            <if test="query.matchStatus != null and query.matchStatus != ''">
+                and match_status = #{query.matchStatus}
+            </if>
+            <if test="query.accessStatus != null and query.accessStatus != ''">
+                and access_status = #{query.accessStatus}
+            </if>
+            <if test="query.departmentId != null and query.departmentId != ''">
+                and department_id = #{query.departmentId}
+            </if>
+        </where>
+    </sql>
+
+    <select id="selectList" resultMap="DocumentAccessRecordMap">
+        select <include refid="BaseColumns"/>
+        from document_access_record
+        <include refid="QueryWhere"/>
+        order by created_at desc
+    </select>
+
+    <select id="selectPendingConfirm" resultMap="DocumentAccessRecordMap">
+        <bind name="keywordLike" value="query.keyword == null ? null : '%' + query.keyword + '%'"/>
+        select <include refid="BaseColumns"/>
+        from document_access_record
+        <where>
+            and access_status = 'PENDING_CONFIRM'
+            <if test="query.keyword != null and query.keyword != ''">
+                and (trace_id like #{keywordLike}
+                or document_id like #{keywordLike}
+                or file_name like #{keywordLike}
+                or business_no like #{keywordLike}
+                or match_message like #{keywordLike})
+            </if>
+            <if test="query.sourceType != null and query.sourceType != ''">
+                and source_type = #{query.sourceType}
+            </if>
+            <if test="query.matchStatus != null and query.matchStatus != ''">
+                and match_status = #{query.matchStatus}
+            </if>
+            <if test="query.departmentId != null and query.departmentId != ''">
+                and department_id = #{query.departmentId}
+            </if>
+        </where>
+        order by created_at desc
+    </select>
+
+    <select id="selectById" resultMap="DocumentAccessRecordMap">
+        select <include refid="BaseColumns"/>
+        from document_access_record
+        where id = #{id}
+    </select>
+
+    <insert id="insert" parameterType="com.example.extraction.document.domain.DocumentAccessRecord">
+        insert into document_access_record (
+            id, trace_id, document_id, task_id, file_name, file_type, file_size, storage_path,
+            source_type, source_system, business_no, department_id, category, sub_category,
+            template_type, document_type, priority, match_status, access_status,
+            matched_config_id, matched_config_name, matched_config_version, match_message,
+            confirm_comment, created_by, confirmed_at, created_at, updated_at
+        ) values (
+            #{id}, #{traceId}, #{documentId}, #{taskId}, #{fileName}, #{fileType}, #{fileSize}, #{storagePath},
+            #{sourceType}, #{sourceSystem}, #{businessNo}, #{departmentId}, #{category}, #{subCategory},
+            #{templateType}, #{documentType}, #{priority}, #{matchStatus}, #{accessStatus},
+            #{matchedConfigId}, #{matchedConfigName}, #{matchedConfigVersion}, #{matchMessage},
+            #{confirmComment}, #{createdBy}, #{confirmedAt}, #{createdAt}, #{updatedAt}
+        )
+    </insert>
+
+    <update id="updateMatchResult" parameterType="com.example.extraction.document.domain.DocumentAccessRecord">
+        update document_access_record
+        set match_status = #{matchStatus},
+            access_status = #{accessStatus},
+            matched_config_id = #{matchedConfigId},
+            matched_config_name = #{matchedConfigName},
+            matched_config_version = #{matchedConfigVersion},
+            match_message = #{matchMessage},
+            task_id = #{taskId},
+            updated_at = #{updatedAt}
+        where id = #{id}
+    </update>
+
+    <update id="confirm" parameterType="com.example.extraction.document.domain.DocumentAccessRecord">
+        update document_access_record
+        set category = #{category},
+            sub_category = #{subCategory},
+            template_type = #{templateType},
+            document_type = #{documentType},
+            priority = #{priority},
+            match_status = #{matchStatus},
+            access_status = #{accessStatus},
+            matched_config_id = #{matchedConfigId},
+            matched_config_name = #{matchedConfigName},
+            matched_config_version = #{matchedConfigVersion},
+            match_message = #{matchMessage},
+            confirm_comment = #{confirmComment},
+            task_id = #{taskId},
+            confirmed_at = #{confirmedAt},
+            updated_at = #{updatedAt}
+        where id = #{id}
+          and access_status = 'PENDING_CONFIRM'
+    </update>
+</mapper>

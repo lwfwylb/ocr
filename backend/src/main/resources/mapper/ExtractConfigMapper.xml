@@ -91,6 +91,28 @@
         order by published_at desc, version desc
     </select>
 
+    <select id="selectPublishedCandidates" resultMap="ExtractConfigRecordMap">
+        select <include refid="BaseColumns"/>
+        from extract_config
+        where status = 'PUBLISHED'
+        <if test="departmentId != null and departmentId != ''">
+          and department_id = #{departmentId}
+        </if>
+        <if test="category != null and category != ''">
+          and category = #{category}
+        </if>
+        <if test="subCategory != null and subCategory != ''">
+          and sub_category = #{subCategory}
+        </if>
+        <if test="templateType != null and templateType != ''">
+          and template_type = #{templateType}
+        </if>
+        <if test="documentType != null and documentType != ''">
+          and document_type = #{documentType}
+        </if>
+        order by published_at desc, version desc
+    </select>
+
     <select id="selectEditableVersions" resultMap="ExtractConfigRecordMap">
         select <include refid="BaseColumns"/>
         from extract_config
