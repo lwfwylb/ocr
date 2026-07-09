@@ -45,7 +45,7 @@ public class DocumentAccessService {
     public DocumentAccessResponse manualUpload(DocumentAccessRequest request) {
         request.setSourceType("MANUAL_UPLOAD");
         if (!StringUtils.hasText(request.getSourceSystem())) {
-            request.setSourceSystem("Manual Upload");
+            request.setSourceSystem("\u624b\u5de5\u4e0a\u4f20");
         }
         return createAccess(request);
     }
@@ -56,7 +56,7 @@ public class DocumentAccessService {
             request.setSourceType("BUSINESS_API");
         }
         if (!StringUtils.hasText(request.getSourceSystem())) {
-            request.setSourceSystem("Business API");
+            request.setSourceSystem("\u4e1a\u52a1\u7cfb\u7edfAPI");
         }
         return createAccess(request);
     }
@@ -95,7 +95,7 @@ public class DocumentAccessService {
         record.setMatchStatus("MATCHED");
         record.setAccessStatus("CREATED_TASK");
         record.setTaskId(nextTaskId());
-        record.setMatchMessage("Manually confirmed with config: " + config.getConfigName() + " V" + config.getVersion());
+        record.setMatchMessage("\u4eba\u5de5\u786e\u8ba4\u5339\u914d\u914d\u7f6e\uff1a" + config.getConfigName() + " V" + config.getVersion());
         record.setConfirmComment(request.getComment());
         record.setConfirmedAt(LocalDateTime.now());
         record.setUpdatedAt(record.getConfirmedAt());
@@ -184,7 +184,7 @@ public class DocumentAccessService {
             record.setMatchStatus("MATCHED");
             record.setAccessStatus("CREATED_TASK");
             record.setTaskId(nextTaskId());
-            record.setMatchMessage("Auto matched effective config: " + config.getConfigName() + " V" + config.getVersion());
+            record.setMatchMessage("\u81ea\u52a8\u5339\u914d\u5230\u751f\u6548\u914d\u7f6e\uff1a" + config.getConfigName() + " V" + config.getVersion());
             return;
         }
         record.setMatchedConfigId(null);
@@ -194,10 +194,10 @@ public class DocumentAccessService {
         record.setAccessStatus("PENDING_CONFIRM");
         if (candidates.isEmpty()) {
             record.setMatchStatus("UNMATCHED");
-            record.setMatchMessage("No published config matched; manual confirmation is required");
+            record.setMatchMessage("\u672a\u5339\u914d\u5230\u5df2\u53d1\u5e03\u914d\u7f6e\uff0c\u9700\u8981\u4eba\u5de5\u786e\u8ba4");
         } else {
             record.setMatchStatus("MULTIPLE");
-            record.setMatchMessage("Multiple published configs matched; please select one manually");
+            record.setMatchMessage("\u547d\u4e2d\u591a\u4e2a\u5df2\u53d1\u5e03\u914d\u7f6e\uff0c\u8bf7\u4eba\u5de5\u9009\u62e9\u5177\u4f53\u914d\u7f6e");
         }
     }
 

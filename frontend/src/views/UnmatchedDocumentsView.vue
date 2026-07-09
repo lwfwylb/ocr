@@ -15,9 +15,9 @@ const docs = ref<DocumentAccessRecord[]>([])
 const activeDoc = ref<DocumentAccessRecord | null>(null)
 const publishedConfigs = ref<ConfigSummary[]>([])
 const departmentOptions = [
-  { label: 'Operations', value: 'OPS' },
-  { label: 'Finance', value: 'FINANCE' },
-  { label: 'Product', value: 'PRODUCT' }
+  { label: '运营部', value: 'OPS' },
+  { label: '财务部', value: 'FINANCE' },
+  { label: '产品部', value: 'PRODUCT' }
 ]
 const query = reactive({
   keyword: '',
@@ -53,7 +53,7 @@ const loadDocs = async () => {
   } catch (error) {
     docs.value = []
     activeDoc.value = null
-    ElMessage.error(error instanceof Error ? error.message : 'Load pending documents failed')
+    ElMessage.error(error instanceof Error ? error.message : '待确认文档加载失败')
   } finally {
     loading.value = false
   }
@@ -64,7 +64,7 @@ const loadConfigs = async () => {
     publishedConfigs.value = await listExtractConfigs({ status: 'PUBLISHED' })
   } catch (error) {
     publishedConfigs.value = []
-    ElMessage.error(error instanceof Error ? error.message : 'Load published configs failed')
+    ElMessage.error(error instanceof Error ? error.message : '生效配置加载失败')
   }
 }
 
@@ -84,16 +84,16 @@ const selectDoc = (doc: DocumentAccessRecord | null) => {
 const confirm = async () => {
   if (!activeDoc.value) return
   if (!form.configId) {
-    ElMessage.warning('Please select an effective config')
+    ElMessage.warning('请选择生效配置')
     return
   }
   saving.value = true
   try {
     await confirmDocument(activeDoc.value.id, form)
-    ElMessage.success('Document confirmed and task created')
+    ElMessage.success('文档已确认，任务已创建')
     await loadDocs()
   } catch (error) {
-    ElMessage.error(error instanceof Error ? error.message : 'Confirm failed')
+    ElMessage.error(error instanceof Error ? error.message : '确认失败')
   } finally {
     saving.value = false
   }
@@ -104,13 +104,13 @@ const rematch = async () => {
   try {
     const result = await rematchDocument(activeDoc.value.id)
     if (result.accessStatus === 'CREATED_TASK') {
-      ElMessage.success('Rematch succeeded and task created')
+      ElMessage.success('重新匹配成功，任务已创建')
     } else {
-      ElMessage.warning(result.matchMessage || 'Manual confirm is still required')
+      ElMessage.warning(result.matchMessage || '仍需人工确认')
     }
     await loadDocs()
   } catch (error) {
-    ElMessage.error(error instanceof Error ? error.message : 'Rematch failed')
+    ElMessage.error(error instanceof Error ? error.message : '重新匹配失败')
   }
 }
 
@@ -130,26 +130,26 @@ onMounted(async () => {
   <div class="unmatched-layout">
     <el-card shadow="never" class="table-sidebar">
       <template #header>
-        <div class="card-header"><span>Pending Documents</span><el-tag type="warning">{{ docs.length }}</el-tag></div>
+        <div class="card-header"><span>待确认文档</span><el-tag type="warning">{{ docs.length }}</el-tag></div>
       </template>
       <el-form :model="query" class="mb-12">
         <el-form-item>
-          <el-input v-model="query.keyword" clearable placeholder="Search trace/file/business" @keyup.enter="loadDocs" />
+          <el-input v-model="query.keyword" clearable placeholder="搜索 traceId/文件名/业务号" @keyup.enter="loadDocs" />
         </el-form-item>
         <el-form-item>
-          <el-select v-model="query.departmentId" filterable clearable placeholder="Department">
+          <el-select v-model="query.departmentId" filterable clearable placeholder="所属部门">
             <el-option v-for="item in departmentOptions" :key="item.value" :label="item.label" :value="item.value" />
           </el-select>
         </el-form-item>
         <el-form-item>
-          <el-select v-model="query.matchStatus" clearable placeholder="Match Status">
-            <el-option label="Unmatched" value="UNMATCHED" />
-            <el-option label="Multiple" value="MULTIPLE" />
+          <el-select v-model="query.matchStatus" clearable placeholder="匹配状态">
+            <el-option label="未匹配" value="UNMATCHED" />
+            <el-option label="多配置命中" value="MULTIPLE" />
           </el-select>
         </el-form-item>
         <el-form-item>
-          <el-button type="primary" :loading="loading" @click="loadDocs">Search</el-button>
-          <el-button @click="resetQuery">Reset</el-button>
+          <el-button type="primary" :loading="loading" @click="loadDocs">查询</el-button>
+          <el-button @click="resetQuery">重置</el-button>
         </el-form-item>
       </el-form>
       <div
@@ -163,51 +163,51 @@ onMounted(async () => {
         <span>{{ doc.traceId }}</span>
         <em>{{ doc.matchMessage }}</em>
       </div>
-      <el-empty v-if="!docs.length" description="No pending documents" />
+      <el-empty v-if="!docs.length" description="暂无待确认文档" />
     </el-card>
 
     <div class="page-stack">
       <el-card shadow="never">
         <template #header>
           <div class="card-header">
-            <span>Confirm Document</span>
+            <span>确认文档</span>
             <div>
-              <el-button :disabled="!activeDoc" @click="rematch">Rematch</el-button>
-              <el-button type="primary" :disabled="!activeDoc" :loading="saving" @click="confirm">Confirm and Create Task</el-button>
+              <el-button :disabled="!activeDoc" @click="rematch">重新匹配</el-button>
+              <el-button type="primary" :disabled="!activeDoc" :loading="saving" @click="confirm">确认并创建任务</el-button>
             </div>
           </div>
         </template>
         <template v-if="activeDoc">
           <el-descriptions :column="3" border>
             <el-descriptions-item label="TraceId">{{ activeDoc.traceId }}</el-descriptions-item>
-            <el-descriptions-item label="Document Id">{{ activeDoc.documentId }}</el-descriptions-item>
-            <el-descriptions-item label="Source">{{ activeDoc.sourceSystem }}</el-descriptions-item>
-            <el-descriptions-item label="File Name">{{ activeDoc.fileName }}</el-descriptions-item>
-            <el-descriptions-item label="Department">{{ activeDoc.departmentId }}</el-descriptions-item>
-            <el-descriptions-item label="Access Time">{{ activeDoc.createdAt }}</el-descriptions-item>
+            <el-descriptions-item label="文档编号">{{ activeDoc.documentId }}</el-descriptions-item>
+            <el-descriptions-item label="来源系统">{{ activeDoc.sourceSystem }}</el-descriptions-item>
+            <el-descriptions-item label="文件名">{{ activeDoc.fileName }}</el-descriptions-item>
+            <el-descriptions-item label="所属部门">{{ activeDoc.departmentId }}</el-descriptions-item>
+            <el-descriptions-item label="接入时间">{{ activeDoc.createdAt }}</el-descriptions-item>
           </el-descriptions>
           <el-alert class="mt-12" :title="activeDoc.matchMessage" type="warning" :closable="false" />
         </template>
-        <el-empty v-else description="Select a pending document" />
+        <el-empty v-else description="请选择待确认文档" />
       </el-card>
 
       <el-card shadow="never">
-        <template #header>Manual Confirm</template>
+        <template #header>人工确认</template>
         <el-form :model="form" label-width="130px" class="form-grid">
-          <el-form-item label="Category">
-            <el-input v-model="form.category" placeholder="Optional" />
+          <el-form-item label="分类">
+            <el-input v-model="form.category" placeholder="可选" />
           </el-form-item>
-          <el-form-item label="Sub Category">
-            <el-input v-model="form.subCategory" placeholder="Optional" />
+          <el-form-item label="子类">
+            <el-input v-model="form.subCategory" placeholder="可选" />
           </el-form-item>
-          <el-form-item label="Template Type">
-            <el-input v-model="form.templateType" placeholder="Optional" />
+          <el-form-item label="模板类型">
+            <el-input v-model="form.templateType" placeholder="可选" />
           </el-form-item>
-          <el-form-item label="Document Type">
-            <el-input v-model="form.documentType" placeholder="Document type" />
+          <el-form-item label="文档类型">
+            <el-input v-model="form.documentType" placeholder="文档类型" />
           </el-form-item>
-          <el-form-item label="Effective Config">
-            <el-select v-model="form.configId" filterable clearable placeholder="Select published config">
+          <el-form-item label="生效配置">
+            <el-select v-model="form.configId" filterable clearable placeholder="请选择已发布配置">
               <el-option
                 v-for="config in configOptions"
                 :key="config.id"
@@ -216,30 +216,30 @@ onMounted(async () => {
               />
             </el-select>
           </el-form-item>
-          <el-form-item label="Priority">
+          <el-form-item label="优先级">
             <el-radio-group v-model="form.priority">
-              <el-radio-button label="HIGH">High</el-radio-button>
-              <el-radio-button label="MEDIUM">Medium</el-radio-button>
-              <el-radio-button label="LOW">Low</el-radio-button>
+              <el-radio-button label="HIGH">高</el-radio-button>
+              <el-radio-button label="MEDIUM">中</el-radio-button>
+              <el-radio-button label="LOW">低</el-radio-button>
             </el-radio-group>
           </el-form-item>
-          <el-form-item label="Comment" class="wide">
-            <el-input v-model="form.comment" type="textarea" :rows="3" placeholder="Confirm reason" />
+          <el-form-item label="确认备注" class="wide">
+            <el-input v-model="form.comment" type="textarea" :rows="3" placeholder="填写确认原因或处理说明" />
           </el-form-item>
         </el-form>
       </el-card>
 
       <el-card shadow="never">
-        <template #header>Candidate Configs</template>
+        <template #header>候选配置</template>
         <el-table :data="configOptions">
-          <el-table-column prop="configName" label="Config Name" min-width="220" />
-          <el-table-column prop="version" label="Version" width="80">
+          <el-table-column prop="configName" label="配置名称" min-width="220" />
+          <el-table-column prop="version" label="版本" width="80">
             <template #default="{ row }">V{{ row.version }}</template>
           </el-table-column>
-          <el-table-column prop="departmentId" label="Dept" width="100" />
-          <el-table-column prop="documentType" label="Doc Type" width="120" />
-          <el-table-column prop="templateType" label="Template Type" min-width="170" />
-          <el-table-column prop="targetTable" label="Target Table" min-width="180" />
+          <el-table-column prop="departmentId" label="部门" width="100" />
+          <el-table-column prop="documentType" label="文档类型" width="120" />
+          <el-table-column prop="templateType" label="模板类型" min-width="170" />
+          <el-table-column prop="targetTable" label="目标表" min-width="180" />
         </el-table>
       </el-card>
     </div>
