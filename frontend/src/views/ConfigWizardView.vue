@@ -13,7 +13,7 @@ import {
   type ConfigOptions,
   type ConfigValidateResult
 } from '../api/config'
-import { listLlmModelOptions, type LlmModelOption } from '../api/model'
+import { listLlmModelOptions, listOcrEngineOptions, type LlmModelOption, type OcrEngineOption } from '../api/model'
 
 type TransformRuleType = 'DICT' | 'API' | 'SQL'
 type PreprocessStepType = 'PAGE_RANGE' | 'KEYWORD_FILTER' | 'PDF_TO_IMAGE' | 'SPLIT_MERGE'
@@ -106,6 +106,7 @@ const options = ref<ConfigOptions>({
   downstreamServices: []
 })
 const llmModelOptions = ref<LlmModelOption[]>([])
+const ocrEngineOptions = ref<OcrEngineOption[]>([])
 const fields = ref(initialConfigFields.map((item) => ({ ...item })))
 fields.value.forEach((field) => {
   const mutable = field as any
@@ -1103,6 +1104,10 @@ const loadWizardOptions = async () => {
   try {
     options.value = await getConfigOptions()
     llmModelOptions.value = await listLlmModelOptions()
+    ocrEngineOptions.value = await listOcrEngineOptions()
+    if (!form.engineCode && ocrEngineOptions.value.length) {
+      form.engineCode = ocrEngineOptions.value.find((item) => item.defaultEngine)?.engineCode || ocrEngineOptions.value[0].engineCode
+    }
     if (!form.llmModelCode && llmModelOptions.value.length) {
       form.llmModelCode = llmModelOptions.value.find((item) => item.defaultModel)?.modelCode || llmModelOptions.value[0].modelCode
     }
@@ -1291,11 +1296,16 @@ onMounted(async () => {
             </div>
           </template>
           <el-form :model="form" label-width="130px" class="form-grid">
-            <el-form-item label="OCR 引擎">
-              <el-select v-model="form.engineCode" filterable>
-                <el-option v-for="item in options.ocrEngines" :key="item.value" :label="item.label" :value="item.value" />
-              </el-select>
-            </el-form-item>
+          <el-form-item label="OCR 引擎">
+            <el-select v-model="form.engineCode" filterable placeholder="请选择启用中的 OCR 引擎">
+              <el-option
+                v-for="item in ocrEngineOptions"
+                :key="item.engineCode"
+                :label="`${item.engineName}（${item.provider}）`"
+                :value="item.engineCode"
+              />
+            </el-select>
+          </el-form-item>
             <el-form-item label="解析模式" class="wide">
               <el-radio-group v-model="form.parseMode">
                 <el-radio-button label="FULL">全文解析</el-radio-button>

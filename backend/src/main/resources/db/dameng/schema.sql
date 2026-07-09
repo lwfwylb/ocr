@@ -399,3 +399,30 @@ create table llm_model_config (
 create unique index uk_llm_model_code on llm_model_config (model_code);
 create index idx_llm_model_status on llm_model_config (status);
 create index idx_llm_model_default on llm_model_config (default_model);
+
+create table ocr_engine_config (
+  id varchar(64) primary key,
+  engine_code varchar(128) not null,
+  engine_name varchar(200) not null,
+  engine_type varchar(100) not null,
+  provider varchar(100) not null,
+  base_url varchar(500) not null,
+  auth_mode varchar(50),
+  api_key_secret_ref varchar(200),
+  default_engine char(1) default '0',
+  priority int default 100,
+  timeout_seconds int default 120,
+  retry_count int default 2,
+  supported_file_types varchar(500),
+  output_format varchar(50) default 'Markdown',
+  max_pages_per_call int,
+  status varchar(30) not null,
+  description varchar(1000),
+  created_by varchar(100),
+  created_at timestamp not null,
+  updated_at timestamp not null
+);
+
+create unique index uk_ocr_engine_code on ocr_engine_config (engine_code);
+create index idx_ocr_engine_status on ocr_engine_config (status);
+create index idx_ocr_engine_default on ocr_engine_config (default_engine);

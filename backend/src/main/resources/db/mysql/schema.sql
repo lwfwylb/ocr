@@ -397,3 +397,29 @@ create table if not exists llm_model_config (
   key idx_llm_model_status (status),
   key idx_llm_model_default (default_model)
 );
+
+create table if not exists ocr_engine_config (
+  id varchar(64) primary key,
+  engine_code varchar(128) not null,
+  engine_name varchar(200) not null,
+  engine_type varchar(100) not null,
+  provider varchar(100) not null,
+  base_url varchar(500) not null,
+  auth_mode varchar(50),
+  api_key_secret_ref varchar(200),
+  default_engine char(1) default '0',
+  priority int default 100,
+  timeout_seconds int default 120,
+  retry_count int default 2,
+  supported_file_types varchar(500),
+  output_format varchar(50) default 'Markdown',
+  max_pages_per_call int,
+  status varchar(30) not null,
+  description varchar(1000),
+  created_by varchar(100),
+  created_at datetime not null,
+  updated_at datetime not null,
+  unique key uk_ocr_engine_code (engine_code),
+  key idx_ocr_engine_status (status),
+  key idx_ocr_engine_default (default_engine)
+);

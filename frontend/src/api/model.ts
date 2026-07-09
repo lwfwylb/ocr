@@ -86,3 +86,95 @@ export function testLlmModelConfig(id: string) {
 export function listLlmModelOptions() {
   return request<LlmModelOption[]>('/api/model/llm-configs/options')
 }
+
+export interface OcrEngineConfig {
+  id: string
+  engineCode: string
+  engineName: string
+  engineType: string
+  provider: string
+  baseUrl: string
+  authMode?: string
+  apiKeySecretRef?: string
+  defaultEngine: boolean
+  priority: number
+  timeoutSeconds: number
+  retryCount: number
+  supportedFileTypes?: string
+  outputFormat: string
+  maxPagesPerCall?: number
+  status: 'ENABLED' | 'DISABLED'
+  description?: string
+  createdBy?: string
+  createdAt?: string
+  updatedAt?: string
+}
+
+export interface OcrEngineOption {
+  value: string
+  label: string
+  engineCode: string
+  engineName: string
+  engineType: string
+  provider: string
+  defaultEngine: boolean
+  outputFormat: string
+}
+
+export interface OcrEngineTestResult {
+  passed: boolean
+  message: string
+  engineCode: string
+  baseUrl: string
+  outputFormat: string
+  checkedAt: string
+}
+
+export type OcrEnginePayload = Omit<OcrEngineConfig, 'id' | 'createdBy' | 'createdAt' | 'updatedAt'>
+
+export function listOcrEngineConfigs(params: Record<string, string>) {
+  const searchParams = new URLSearchParams()
+  Object.entries(params).forEach(([key, value]) => {
+    if (value) searchParams.set(key, value)
+  })
+  const query = searchParams.toString()
+  return request<OcrEngineConfig[]>(`/api/model/ocr-engines${query ? `?${query}` : ''}`)
+}
+
+export function getOcrEngineConfig(id: string) {
+  return request<OcrEngineConfig>(`/api/model/ocr-engines/${id}`)
+}
+
+export function createOcrEngineConfig(payload: OcrEnginePayload) {
+  return request<OcrEngineConfig>('/api/model/ocr-engines', {
+    method: 'POST',
+    body: JSON.stringify(payload)
+  })
+}
+
+export function updateOcrEngineConfig(id: string, payload: OcrEnginePayload) {
+  return request<OcrEngineConfig>(`/api/model/ocr-engines/${id}`, {
+    method: 'PUT',
+    body: JSON.stringify(payload)
+  })
+}
+
+export function enableOcrEngineConfig(id: string) {
+  return request<OcrEngineConfig>(`/api/model/ocr-engines/${id}/enable`, { method: 'POST' })
+}
+
+export function disableOcrEngineConfig(id: string) {
+  return request<OcrEngineConfig>(`/api/model/ocr-engines/${id}/disable`, { method: 'POST' })
+}
+
+export function setDefaultOcrEngineConfig(id: string) {
+  return request<OcrEngineConfig>(`/api/model/ocr-engines/${id}/default`, { method: 'POST' })
+}
+
+export function testOcrEngineConfig(id: string) {
+  return request<OcrEngineTestResult>(`/api/model/ocr-engines/${id}/test`, { method: 'POST' })
+}
+
+export function listOcrEngineOptions() {
+  return request<OcrEngineOption[]>('/api/model/ocr-engines/options')
+}
