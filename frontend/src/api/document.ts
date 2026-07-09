@@ -12,7 +12,7 @@ export interface DocumentAccessRecord {
   sourceType: string
   sourceSystem?: string
   businessNo?: string
-  departmentId: string
+  departmentId?: string
   category?: string
   subCategory?: string
   templateType?: string
@@ -31,10 +31,11 @@ export interface DocumentAccessRecord {
 }
 
 export interface DocumentAccessPayload {
+  configId?: string
   sourceType?: string
   sourceSystem?: string
   businessNo?: string
-  departmentId: string
+  departmentId?: string
   category?: string
   subCategory?: string
   templateType?: string

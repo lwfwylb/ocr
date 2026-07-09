@@ -47,7 +47,7 @@ public class DocumentAccessService {
         if (!StringUtils.hasText(request.getSourceSystem())) {
             request.setSourceSystem("\u624b\u5de5\u4e0a\u4f20");
         }
-        return createAccess(request);
+        return createAccess(request, true);
     }
 
     @Transactional
@@ -58,7 +58,7 @@ public class DocumentAccessService {
         if (!StringUtils.hasText(request.getSourceSystem())) {
             request.setSourceSystem("\u4e1a\u52a1\u7cfb\u7edfAPI");
         }
-        return createAccess(request);
+        return createAccess(request, false);
     }
 
     @Transactional
@@ -106,7 +106,7 @@ public class DocumentAccessService {
         return detail(id);
     }
 
-    private DocumentAccessResponse createAccess(DocumentAccessRequest request) {
+    private DocumentAccessResponse createAccess(DocumentAccessRequest request, boolean configRequired) {
         normalizeRequest(request);
         validateRequest(request);
         DocumentAccessRecord record = new DocumentAccessRecord();
@@ -125,11 +125,17 @@ public class DocumentAccessService {
         record.setSubCategory(request.getSubCategory());
         record.setTemplateType(request.getTemplateType());
         record.setDocumentType(request.getDocumentType());
-        record.setPriority(firstText(request.getPriority(), "MEDIUM"));
+        record.setPriority(request.getPriority());
         record.setCreatedBy("system");
         record.setCreatedAt(LocalDateTime.now());
         record.setUpdatedAt(record.getCreatedAt());
-        applyMatch(record);
+        if (StringUtils.hasText(request.getConfigId())) {
+            applySpecifiedConfig(record, request.getConfigId());
+        } else if (configRequired) {
+            throw new BusinessException("PARAM_400", "configId is required");
+        } else {
+            applyMatch(record);
+        }
         documentAccessMapper.insert(record);
         return detail(record.getId());
     }
@@ -160,7 +166,7 @@ public class DocumentAccessService {
         if (!StringUtils.hasText(request.getFileName())) {
             throw new BusinessException("PARAM_400", "fileName is required");
         }
-        if (!StringUtils.hasText(request.getDepartmentId())) {
+        if (!StringUtils.hasText(request.getDepartmentId()) && !StringUtils.hasText(request.getConfigId())) {
             throw new BusinessException("PARAM_400", "departmentId is required");
         }
         if (!StringUtils.hasText(request.getSourceType())) {
@@ -181,6 +187,7 @@ public class DocumentAccessService {
             record.setMatchedConfigId(config.getId());
             record.setMatchedConfigName(config.getConfigName());
             record.setMatchedConfigVersion(config.getVersion());
+            record.setPriority(firstText(record.getPriority(), config.getDefaultPriority(), "MEDIUM"));
             record.setMatchStatus("MATCHED");
             record.setAccessStatus("CREATED_TASK");
             record.setTaskId(nextTaskId());
@@ -192,6 +199,7 @@ public class DocumentAccessService {
         record.setMatchedConfigVersion(null);
         record.setTaskId(null);
         record.setAccessStatus("PENDING_CONFIRM");
+        record.setPriority(firstText(record.getPriority(), "MEDIUM"));
         if (candidates.isEmpty()) {
             record.setMatchStatus("UNMATCHED");
             record.setMatchMessage("\u672a\u5339\u914d\u5230\u5df2\u53d1\u5e03\u914d\u7f6e\uff0c\u9700\u8981\u4eba\u5de5\u786e\u8ba4");
@@ -199,6 +207,26 @@ public class DocumentAccessService {
             record.setMatchStatus("MULTIPLE");
             record.setMatchMessage("\u547d\u4e2d\u591a\u4e2a\u5df2\u53d1\u5e03\u914d\u7f6e\uff0c\u8bf7\u4eba\u5de5\u9009\u62e9\u5177\u4f53\u914d\u7f6e");
         }
+    }
+
+    private void applySpecifiedConfig(DocumentAccessRecord record, String configId) {
+        ExtractConfigRecord config = extractConfigMapper.selectById(configId);
+        if (config == null || !"PUBLISHED".equals(config.getStatus())) {
+            throw new BusinessException("CONFIG_404", "Published config not found");
+        }
+        record.setDepartmentId(config.getDepartmentId());
+        record.setCategory(config.getCategory());
+        record.setSubCategory(config.getSubCategory());
+        record.setTemplateType(config.getTemplateType());
+        record.setDocumentType(config.getDocumentType());
+        record.setPriority(firstText(record.getPriority(), config.getDefaultPriority(), "MEDIUM"));
+        record.setMatchedConfigId(config.getId());
+        record.setMatchedConfigName(config.getConfigName());
+        record.setMatchedConfigVersion(config.getVersion());
+        record.setMatchStatus("MATCHED");
+        record.setAccessStatus("CREATED_TASK");
+        record.setTaskId(nextTaskId());
+        record.setMatchMessage("\u624b\u5de5\u4e0a\u4f20\u6307\u5b9a\u751f\u6548\u914d\u7f6e\uff1a" + config.getConfigName() + " V" + config.getVersion());
     }
 
     private DocumentAccessRecord requireRecord(String id) {

@@ -1,6 +1,7 @@
 package com.example.extraction.document.dto;
 
 public class DocumentAccessRequest {
+    private String configId;
     private String sourceType;
     private String sourceSystem;
     private String businessNo;
@@ -14,6 +15,14 @@ public class DocumentAccessRequest {
     private String fileType;
     private Long fileSize;
     private String storagePath;
+
+    public String getConfigId() {
+        return configId;
+    }
+
+    public void setConfigId(String configId) {
+        this.configId = configId;
+    }
 
     public String getSourceType() {
         return sourceType;
