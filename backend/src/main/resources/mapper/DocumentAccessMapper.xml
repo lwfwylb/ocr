@@ -106,6 +106,12 @@
         where id = #{id}
     </select>
 
+    <select id="selectByTraceId" resultMap="DocumentAccessRecordMap">
+        select <include refid="BaseColumns"/>
+        from document_access_record
+        where trace_id = #{traceId}
+    </select>
+
     <insert id="insert" parameterType="com.example.extraction.document.domain.DocumentAccessRecord">
         insert into document_access_record (
             id, trace_id, document_id, task_id, file_name, file_type, file_size, storage_path,

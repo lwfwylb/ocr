@@ -13,6 +13,8 @@ public interface DocumentAccessMapper {
 
     DocumentAccessRecord selectById(@Param("id") String id);
 
+    DocumentAccessRecord selectByTraceId(@Param("traceId") String traceId);
+
     void insert(DocumentAccessRecord record);
 
     int updateMatchResult(DocumentAccessRecord record);

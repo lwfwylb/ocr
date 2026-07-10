@@ -118,6 +118,12 @@
         where task_id = #{taskId}
     </select>
 
+    <select id="selectByTraceId" resultMap="ExtractTaskRecordMap">
+        select <include refid="BaseColumns"/>
+        from extract_task
+        where trace_id = #{traceId}
+    </select>
+
     <select id="selectNextQueued" resultMap="ExtractTaskRecordMap">
         select <include refid="BaseColumns"/>
         from extract_task

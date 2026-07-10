@@ -13,6 +13,8 @@ public interface ExtractTaskMapper {
 
     ExtractTaskRecord selectByTaskId(@Param("taskId") String taskId);
 
+    ExtractTaskRecord selectByTraceId(@Param("traceId") String traceId);
+
     List<ExtractTaskRecord> selectNextQueued();
 
     int countQueueTasks(@Param("departmentId") String departmentId, @Param("queueLevel") String queueLevel);
