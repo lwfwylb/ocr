@@ -121,6 +121,14 @@
         order by version desc
     </select>
 
+    <select id="countPayloadReferences" resultType="java.lang.Integer">
+        <bind name="keywordLike" value="'%' + keyword + '%'"/>
+        select count(1)
+        from extract_config
+        where status != 'DELETED'
+          and config_payload like #{keywordLike}
+    </select>
+
     <select id="selectMaxVersion" resultType="java.lang.Integer">
         select max(version)
         from extract_config

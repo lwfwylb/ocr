@@ -25,6 +25,8 @@ public interface ExtractConfigMapper {
 
     List<ExtractConfigRecord> selectEditableVersions(@Param("configCode") String configCode);
 
+    int countPayloadReferences(@Param("keyword") String keyword);
+
     Integer selectMaxVersion(@Param("configCode") String configCode);
 
     void insert(ExtractConfigRecord record);

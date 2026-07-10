@@ -1,9 +1,11 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   createIntegrationService,
   createIntegrationSystem,
+  deleteIntegrationService,
+  deleteIntegrationSystem,
   disableIntegrationService,
   disableIntegrationSystem,
   enableIntegrationService,
@@ -153,6 +155,28 @@ const saveSystem = async () => {
   }
 }
 
+const deleteSystem = async () => {
+  const system = selectedSystem.value
+  if (!system) return
+  try {
+    await ElMessageBox.confirm(
+      `确认删除下游系统「${system.systemName}」？删除后不可恢复；如系统下仍有接口服务，需要先删除接口服务。`,
+      '删除下游系统',
+      {
+        confirmButtonText: '确认删除',
+        cancelButtonText: '取消',
+        type: 'warning'
+      }
+    )
+    await deleteIntegrationSystem(system.id)
+    ElMessage.success('下游系统已删除')
+    selectedSystemCode.value = ''
+    await loadData()
+  } catch (error) {
+    if (error !== 'cancel') ElMessage.error(error instanceof Error ? error.message : '删除下游系统失败')
+  }
+}
+
 const openCreateService = () => {
   if (!selectedSystem.value) {
     ElMessage.info('请先选择下游系统')
@@ -209,6 +233,29 @@ const saveService = async () => {
     ElMessage.error(error instanceof Error ? error.message : '保存接口服务失败')
   } finally {
     saving.value = false
+  }
+}
+
+const deleteService = async (service: DownstreamService) => {
+  try {
+    await ElMessageBox.confirm(
+      `确认删除接口服务「${service.serviceName}」？删除后不可恢复；如已被配置向导引用，需要先解除绑定或停用。`,
+      '删除接口服务',
+      {
+        confirmButtonText: '确认删除',
+        cancelButtonText: '取消',
+        type: 'warning'
+      }
+    )
+    await deleteIntegrationService(service.id)
+    ElMessage.success('接口服务已删除')
+    if (selectedService.value?.id === service.id) {
+      serviceDrawerVisible.value = false
+      selectedService.value = null
+    }
+    await loadData()
+  } catch (error) {
+    if (error !== 'cancel') ElMessage.error(error instanceof Error ? error.message : '删除接口服务失败')
   }
 }
 
@@ -355,6 +402,7 @@ onMounted(loadData)
                 <el-button :disabled="!selectedSystem" @click="toggleSystem(selectedSystem)">
                   {{ selectedSystem?.enabled ? '停用系统' : '启用系统' }}
                 </el-button>
+                <el-button :disabled="!selectedSystem" type="danger" @click="deleteSystem">删除系统</el-button>
                 <el-button :disabled="!selectedSystem" type="primary" @click="openEditSystem">编辑系统</el-button>
               </div>
             </div>
@@ -404,7 +452,7 @@ onMounted(loadData)
                 <el-tag :type="row.enabled ? 'success' : 'info'">{{ row.enabled ? '启用' : '停用' }}</el-tag>
               </template>
             </el-table-column>
-            <el-table-column label="操作" width="260" fixed="right">
+            <el-table-column label="操作" width="300" fixed="right">
               <template #default="{ row }">
                 <el-button link type="primary" @click="openServiceDetail(row)">详情</el-button>
                 <el-button link type="primary" @click="openEditService(row)">编辑</el-button>
@@ -412,6 +460,7 @@ onMounted(loadData)
                 <el-button link :type="row.enabled ? 'danger' : 'success'" @click="toggleService(row)">
                   {{ row.enabled ? '停用' : '启用' }}
                 </el-button>
+                <el-button link type="danger" @click="deleteService(row)">删除</el-button>
               </template>
             </el-table-column>
           </el-table>
@@ -517,6 +566,7 @@ onMounted(loadData)
         </el-form>
         <div class="mt-12">
           <el-button type="primary" @click="openEditService(selectedService)">编辑接口服务</el-button>
+          <el-button type="danger" @click="deleteService(selectedService)">删除接口服务</el-button>
         </div>
         <el-alert
           class="mt-12"

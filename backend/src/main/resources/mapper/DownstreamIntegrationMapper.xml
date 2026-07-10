@@ -128,6 +128,12 @@
         select count(1) from downstream_system_config
     </select>
 
+    <select id="countServicesBySystemId" resultType="java.lang.Integer">
+        select count(1)
+        from downstream_service_config
+        where system_id = #{systemId}
+    </select>
+
     <insert id="insertSystem" parameterType="com.example.extraction.integration.domain.DownstreamSystemConfigRecord">
         insert into downstream_system_config (
             id, system_code, system_name, owner_department_id, default_auth_mode,
@@ -194,4 +200,14 @@
             updated_at = current_timestamp
         where id = #{id}
     </update>
+
+    <delete id="deleteSystem">
+        delete from downstream_system_config
+        where id = #{id}
+    </delete>
+
+    <delete id="deleteService">
+        delete from downstream_service_config
+        where id = #{id}
+    </delete>
 </mapper>

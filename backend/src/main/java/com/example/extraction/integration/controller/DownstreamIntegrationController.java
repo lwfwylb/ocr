@@ -7,6 +7,7 @@ import com.example.extraction.integration.dto.DownstreamSystemRequest;
 import com.example.extraction.integration.dto.DownstreamSystemResponse;
 import com.example.extraction.integration.dto.IntegrationQueryRequest;
 import com.example.extraction.integration.service.DownstreamIntegrationService;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -69,6 +70,12 @@ public class DownstreamIntegrationController {
         return ApiResponse.success(integrationService.disableSystem(id));
     }
 
+    @DeleteMapping("/systems/{id}")
+    public ApiResponse<Void> deleteSystem(@PathVariable("id") String id) {
+        integrationService.deleteSystem(id);
+        return ApiResponse.success(null);
+    }
+
     @PostMapping("/services/{id}/enable")
     public ApiResponse<DownstreamServiceResponse> enableService(@PathVariable("id") String id) {
         return ApiResponse.success(integrationService.enableService(id));
@@ -77,6 +84,12 @@ public class DownstreamIntegrationController {
     @PostMapping("/services/{id}/disable")
     public ApiResponse<DownstreamServiceResponse> disableService(@PathVariable("id") String id) {
         return ApiResponse.success(integrationService.disableService(id));
+    }
+
+    @DeleteMapping("/services/{id}")
+    public ApiResponse<Void> deleteService(@PathVariable("id") String id) {
+        integrationService.deleteService(id);
+        return ApiResponse.success(null);
     }
 
     @PostMapping("/services/{id}/test")

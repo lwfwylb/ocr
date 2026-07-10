@@ -120,6 +120,14 @@ export function updateIntegrationService(id: string, payload: DownstreamServiceP
   })
 }
 
+export function deleteIntegrationSystem(id: string) {
+  return request<void>(`/api/integrations/systems/${id}`, { method: 'DELETE' })
+}
+
+export function deleteIntegrationService(id: string) {
+  return request<void>(`/api/integrations/services/${id}`, { method: 'DELETE' })
+}
+
 export function enableIntegrationSystem(id: string) {
   return request<DownstreamSystem>(`/api/integrations/systems/${id}/enable`, { method: 'POST' })
 }

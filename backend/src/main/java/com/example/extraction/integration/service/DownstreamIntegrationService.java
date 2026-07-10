@@ -10,6 +10,7 @@ import com.example.extraction.integration.dto.DownstreamSystemRequest;
 import com.example.extraction.integration.dto.DownstreamSystemResponse;
 import com.example.extraction.integration.dto.IntegrationQueryRequest;
 import com.example.extraction.mapper.DownstreamIntegrationMapper;
+import com.example.extraction.mapper.ExtractConfigMapper;
 import com.example.extraction.result.dto.PushQueryRequest;
 import com.example.extraction.result.dto.PushRecordResponse;
 import com.example.extraction.result.service.DownstreamPushService;
@@ -25,11 +26,14 @@ import java.util.Map;
 @Service
 public class DownstreamIntegrationService {
     private final DownstreamIntegrationMapper integrationMapper;
+    private final ExtractConfigMapper extractConfigMapper;
     private final DownstreamPushService downstreamPushService;
 
     public DownstreamIntegrationService(DownstreamIntegrationMapper integrationMapper,
+                                        ExtractConfigMapper extractConfigMapper,
                                         DownstreamPushService downstreamPushService) {
         this.integrationMapper = integrationMapper;
+        this.extractConfigMapper = extractConfigMapper;
         this.downstreamPushService = downstreamPushService;
     }
 
@@ -90,6 +94,16 @@ public class DownstreamIntegrationService {
     }
 
     @Transactional
+    public void deleteSystem(String id) {
+        requireSystem(id);
+        int serviceCount = integrationMapper.countServicesBySystemId(id);
+        if (serviceCount > 0) {
+            throw new BusinessException("INTEGRATION_409", "该下游系统下仍有接口服务，请先删除接口服务后再删除系统");
+        }
+        integrationMapper.deleteSystem(id);
+    }
+
+    @Transactional
     public DownstreamServiceResponse enableService(String id) {
         return updateServiceEnabled(id, "1");
     }
@@ -130,6 +144,16 @@ public class DownstreamIntegrationService {
     @Transactional
     public DownstreamServiceResponse disableService(String id) {
         return updateServiceEnabled(id, "0");
+    }
+
+    @Transactional
+    public void deleteService(String id) {
+        DownstreamServiceConfigRecord service = requireService(id);
+        int referenceCount = countServiceReferences(service.getServiceCode());
+        if (referenceCount > 0) {
+            throw new BusinessException("INTEGRATION_409", "该接口服务已被配置向导引用，请先在配置中解除绑定或停用服务");
+        }
+        integrationMapper.deleteService(id);
     }
 
     public Map<String, Object> testService(String id) {
@@ -303,11 +327,18 @@ public class DownstreamIntegrationService {
         response.setRetryCount(record.getRetryCount());
         response.setResponseSuccessRule(record.getResponseSuccessRule());
         response.setEnabled("1".equals(record.getEnabled()));
-        response.setBoundConfigCount(0);
+        response.setBoundConfigCount(countServiceReferences(record.getServiceCode()));
         response.setSuccessRate(successRate(List.of(record)));
         response.setCreatedAt(record.getCreatedAt());
         response.setUpdatedAt(record.getUpdatedAt());
         return response;
+    }
+
+    private int countServiceReferences(String serviceCode) {
+        if (!StringUtils.hasText(serviceCode)) {
+            return 0;
+        }
+        return extractConfigMapper.countPayloadReferences(serviceCode);
     }
 
     private int successRate(List<DownstreamServiceConfigRecord> services) {

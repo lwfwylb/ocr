@@ -22,6 +22,8 @@ public interface DownstreamIntegrationMapper {
 
     int countSystems();
 
+    int countServicesBySystemId(@Param("systemId") String systemId);
+
     void insertSystem(DownstreamSystemConfigRecord record);
 
     void insertService(DownstreamServiceConfigRecord record);
@@ -33,4 +35,8 @@ public interface DownstreamIntegrationMapper {
     int updateSystemStatus(@Param("id") String id, @Param("status") String status);
 
     int updateServiceEnabled(@Param("id") String id, @Param("enabled") String enabled);
+
+    int deleteSystem(@Param("id") String id);
+
+    int deleteService(@Param("id") String id);
 }
