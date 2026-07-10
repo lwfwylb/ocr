@@ -616,3 +616,35 @@ create index idx_storage_result_trace on storage_result_record (trace_id);
 create index idx_storage_result_table on storage_result_record (target_table);
 create index idx_storage_result_status on storage_result_record (storage_status);
 create index idx_storage_result_config on storage_result_record (config_id);
+
+create table downstream_push_record (
+  id varchar(64) primary key,
+  push_id varchar(128) not null,
+  trace_id varchar(128) not null,
+  task_id varchar(128) not null,
+  document_id varchar(128),
+  config_id varchar(64),
+  target_system varchar(200),
+  service_code varchar(128),
+  service_name varchar(200),
+  push_method varchar(50),
+  trigger_type varchar(50),
+  idempotent_key varchar(500),
+  request_payload clob,
+  response_payload clob,
+  status varchar(30) not null,
+  retry_count int default 0,
+  max_retry int default 3,
+  response_code varchar(100),
+  response_message varchar(1000),
+  pushed_at timestamp,
+  created_at timestamp not null,
+  updated_at timestamp not null,
+  constraint uk_downstream_push_id unique (push_id)
+);
+
+create index idx_downstream_push_trace on downstream_push_record (trace_id);
+create index idx_downstream_push_task on downstream_push_record (task_id);
+create index idx_downstream_push_status on downstream_push_record (status);
+create index idx_downstream_push_service on downstream_push_record (service_code);
+create index idx_downstream_push_idempotent on downstream_push_record (idempotent_key);

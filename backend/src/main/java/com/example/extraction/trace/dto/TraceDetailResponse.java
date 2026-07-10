@@ -2,6 +2,7 @@ package com.example.extraction.trace.dto;
 
 import com.example.extraction.document.dto.DocumentAccessResponse;
 import com.example.extraction.result.dto.ResultDetailResponse;
+import com.example.extraction.result.dto.PushRecordResponse;
 import com.example.extraction.result.dto.ReviewLogResponse;
 import com.example.extraction.result.dto.StorageRecordResponse;
 import com.example.extraction.task.dto.TaskResponse;
@@ -15,6 +16,7 @@ public class TraceDetailResponse {
     private TaskResponse task;
     private ResultDetailResponse result;
     private StorageRecordResponse storageRecord;
+    private List<PushRecordResponse> pushRecords = new ArrayList<>();
     private List<TraceStageResponse> stages = new ArrayList<>();
     private List<ReviewLogResponse> reviewLogs = new ArrayList<>();
     private List<String> suggestions = new ArrayList<>();
@@ -29,6 +31,8 @@ public class TraceDetailResponse {
     public void setResult(ResultDetailResponse result) { this.result = result; }
     public StorageRecordResponse getStorageRecord() { return storageRecord; }
     public void setStorageRecord(StorageRecordResponse storageRecord) { this.storageRecord = storageRecord; }
+    public List<PushRecordResponse> getPushRecords() { return pushRecords; }
+    public void setPushRecords(List<PushRecordResponse> pushRecords) { this.pushRecords = pushRecords; }
     public List<TraceStageResponse> getStages() { return stages; }
     public void setStages(List<TraceStageResponse> stages) { this.stages = stages; }
     public List<ReviewLogResponse> getReviewLogs() { return reviewLogs; }

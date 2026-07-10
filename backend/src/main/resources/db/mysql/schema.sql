@@ -606,3 +606,34 @@ create table if not exists storage_result_record (
   key idx_storage_result_status (storage_status),
   key idx_storage_result_config (config_id)
 );
+
+create table if not exists downstream_push_record (
+  id varchar(64) primary key,
+  push_id varchar(128) not null,
+  trace_id varchar(128) not null,
+  task_id varchar(128) not null,
+  document_id varchar(128),
+  config_id varchar(64),
+  target_system varchar(200),
+  service_code varchar(128),
+  service_name varchar(200),
+  push_method varchar(50),
+  trigger_type varchar(50),
+  idempotent_key varchar(500),
+  request_payload longtext,
+  response_payload longtext,
+  status varchar(30) not null,
+  retry_count int default 0,
+  max_retry int default 3,
+  response_code varchar(100),
+  response_message varchar(1000),
+  pushed_at datetime,
+  created_at datetime not null,
+  updated_at datetime not null,
+  unique key uk_downstream_push_id (push_id),
+  key idx_downstream_push_trace (trace_id),
+  key idx_downstream_push_task (task_id),
+  key idx_downstream_push_status (status),
+  key idx_downstream_push_service (service_code),
+  key idx_downstream_push_idempotent (idempotent_key)
+);

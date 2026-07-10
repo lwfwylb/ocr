@@ -4,6 +4,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import ConfidenceTag from '../components/ConfidenceTag.vue'
 import { getResultDetail, listResults, type ResultDetail, type ResultSummary } from '../api/result'
 import { executeStorage } from '../api/storage'
+import { pushResultToDownstream } from '../api/push'
 
 type ResultStatus = 'STORED' | 'WAIT_REVIEW' | 'PUSHED' | 'FAILED'
 
@@ -34,7 +35,7 @@ const query = reactive({
 const results = ref<ResultSummary[]>([])
 
 const statusMap: Record<ResultStatus, { label: string; type: 'success' | 'warning' | 'danger' | 'info' }> = {
-  STORED: { label: '已生成', type: 'success' },
+  STORED: { label: '已落库', type: 'success' },
   WAIT_REVIEW: { label: '待复核', type: 'warning' },
   PUSHED: { label: '已推送', type: 'success' },
   FAILED: { label: '失败', type: 'danger' }
@@ -125,12 +126,25 @@ const openDetail = async (row: ResultSummary, tab = 'fields') => {
 }
 
 const exportResult = (type: string) => {
-  ElMessage.success(`已生成${type}导出任务，后续接入导出记录接口`)
+  ElMessage.success(`已生成 ${type} 导出任务，后续接入导出记录接口`)
 }
 
 const pushResult = async (row: ResultSummary) => {
-  await ElMessageBox.confirm('确认将该结果重新推送到下游系统？当前原型仅做操作提示。', '手工推送', { type: 'warning' })
-  ElMessage.success(`已提交 ${row.taskId} 的模拟推送请求`)
+  await ElMessageBox.confirm('确认将该结果推送到下游业务系统？仅成功落库的数据允许推送。', '手工推送', { type: 'warning' })
+  try {
+    const record = await pushResultToDownstream(row.taskId, {
+      targetSystem: '模拟业务系统',
+      serviceCode: 'mock_result_receive',
+      serviceName: '模拟结果接收服务',
+      pushMethod: 'HTTP',
+      triggerType: 'MANUAL',
+      operator: '当前用户'
+    })
+    ElMessage.success(`推送完成：${record.pushId}`)
+    await loadResults()
+  } catch (error) {
+    ElMessage.error(error instanceof Error ? error.message : '推送失败')
+  }
 }
 
 const executeStorageForResult = async (row: ResultSummary) => {
@@ -138,6 +152,7 @@ const executeStorageForResult = async (row: ResultSummary) => {
   try {
     await executeStorage(row.taskId, { storedBy: '当前用户', duplicateStrategy: 'UPSERT_BY_TASK_ID' })
     ElMessage.success('落库成功，可在落库数据查询中查看')
+    await loadResults()
   } catch (error) {
     ElMessage.error(error instanceof Error ? error.message : '执行落库失败')
   }
@@ -174,7 +189,7 @@ onMounted(loadResults)
         <em>后端结果记录</em>
       </el-card>
       <el-card shadow="never" class="metric-card">
-        <span>已生成</span>
+        <span>已落库</span>
         <strong>{{ metrics.stored }}</strong>
         <em>含已推送</em>
       </el-card>
@@ -198,7 +213,7 @@ onMounted(loadResults)
     <el-card shadow="never">
       <el-form :inline="true" :model="query" class="search-form compact-search">
         <el-form-item label="关键字">
-          <el-input v-model="query.keyword" placeholder="任务号/traceId/文件名" clearable />
+          <el-input v-model="query.keyword" placeholder="任务号/traceId/文件名" clearable @keyup.enter="loadResults" />
         </el-form-item>
         <el-form-item label="文档类型">
           <el-input v-model="query.documentType" placeholder="如：划款指令" clearable />
@@ -220,7 +235,7 @@ onMounted(loadResults)
         </el-form-item>
         <el-form-item label="结果状态">
           <el-select v-model="query.resultStatus" clearable filterable placeholder="全部">
-            <el-option label="已生成" value="STORED" />
+            <el-option label="已落库" value="STORED" />
             <el-option label="待复核" value="WAIT_REVIEW" />
             <el-option label="已推送" value="PUSHED" />
             <el-option label="失败" value="FAILED" />

@@ -3,6 +3,7 @@ import type { ResultDetail } from './result'
 import type { ReviewLog } from './review'
 import type { StorageRecord } from './storage'
 import type { ExtractTask } from './task'
+import type { PushRecord } from './push'
 
 export interface TraceSummary {
   traceId: string
@@ -39,6 +40,7 @@ export interface TraceDetail {
   task?: ExtractTask
   result?: ResultDetail
   storageRecord?: StorageRecord
+  pushRecords: PushRecord[]
   stages: TraceStage[]
   reviewLogs: ReviewLog[]
   suggestions: string[]

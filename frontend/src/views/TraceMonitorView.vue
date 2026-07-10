@@ -61,6 +61,7 @@ const activeStep = computed(() => {
 })
 const resultFields = computed(() => Object.entries(detail.value?.result?.result || {}).map(([field, value]) => ({ field, value })))
 const storageFields = computed(() => Object.entries(detail.value?.storageRecord?.storageData || {}).map(([field, value]) => ({ field, value })))
+const latestPush = computed(() => detail.value?.pushRecords?.[0])
 
 const loadList = async (preferredTraceId?: string) => {
   loadingList.value = true
@@ -145,6 +146,7 @@ onMounted(() => loadList())
             <el-option label="待复核" value="WAIT_REVIEW" />
             <el-option label="已完成" value="COMPLETED" />
             <el-option label="已落库" value="STORED" />
+            <el-option label="已推送" value="PUSHED" />
             <el-option label="失败" value="FAILED" />
           </el-select>
         </el-form-item>
@@ -237,7 +239,7 @@ onMounted(() => loadList())
         </el-card>
 
         <el-card shadow="never">
-          <template #header>落库摘要</template>
+          <template #header>落库与推送摘要</template>
           <el-descriptions v-if="detail?.storageRecord" :column="1" border>
             <el-descriptions-item label="目标表">{{ detail.storageRecord.targetTable }}</el-descriptions-item>
             <el-descriptions-item label="落库状态">
@@ -247,10 +249,46 @@ onMounted(() => loadList())
             </el-descriptions-item>
             <el-descriptions-item label="落库人">{{ detail.storageRecord.storedBy || '-' }}</el-descriptions-item>
             <el-descriptions-item label="落库时间">{{ detail.storageRecord.storedAt || '-' }}</el-descriptions-item>
+            <el-descriptions-item label="推送状态">
+              <el-tag v-if="latestPush" :type="getStatus(latestPush.status).type">
+                {{ getStatus(latestPush.status).label }}
+              </el-tag>
+              <span v-else>-</span>
+            </el-descriptions-item>
+            <el-descriptions-item label="推送服务">{{ latestPush?.serviceName || latestPush?.serviceCode || '-' }}</el-descriptions-item>
           </el-descriptions>
           <el-empty v-else description="暂无落库记录" />
         </el-card>
       </div>
+
+      <el-card shadow="never">
+        <template #header>落库字段</template>
+        <el-table :data="storageFields" height="220">
+          <el-table-column prop="field" label="字段" min-width="150" />
+          <el-table-column label="值" min-width="220" show-overflow-tooltip>
+            <template #default="{ row }">{{ formatValue(row.value) }}</template>
+          </el-table-column>
+        </el-table>
+        <el-empty v-if="!storageFields.length" description="暂无落库数据" />
+      </el-card>
+
+      <el-card shadow="never">
+        <template #header>推送记录</template>
+        <el-table :data="detail?.pushRecords || []" stripe>
+          <el-table-column prop="pushId" label="推送编号" min-width="180" />
+          <el-table-column prop="targetSystem" label="目标系统" min-width="130" />
+          <el-table-column prop="serviceName" label="接口服务" min-width="160" />
+          <el-table-column label="状态" width="90">
+            <template #default="{ row }">
+              <el-tag :type="getStatus(row.status).type">{{ getStatus(row.status).label }}</el-tag>
+            </template>
+          </el-table-column>
+          <el-table-column prop="retryCount" label="重试" width="70" />
+          <el-table-column prop="responseMessage" label="响应摘要" min-width="220" show-overflow-tooltip />
+          <el-table-column prop="pushedAt" label="推送时间" min-width="160" />
+        </el-table>
+        <el-empty v-if="!(detail?.pushRecords || []).length" description="暂无推送记录" />
+      </el-card>
 
       <el-card shadow="never">
         <template #header>复核日志</template>
