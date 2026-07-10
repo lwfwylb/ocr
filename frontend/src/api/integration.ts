@@ -50,6 +50,31 @@ export interface IntegrationQuery {
   systemCode?: string
 }
 
+export interface DownstreamSystemPayload {
+  systemCode: string
+  systemName: string
+  ownerDepartmentId?: string
+  defaultAuthMode?: string
+  defaultTimeoutSeconds?: number
+  defaultRetryCount?: number
+  status?: string
+}
+
+export interface DownstreamServicePayload {
+  systemId: string
+  serviceCode: string
+  serviceName: string
+  purpose?: string
+  serviceType: string
+  endpoint?: string
+  httpMethod?: string
+  authMode?: string
+  timeoutSeconds?: number
+  retryCount?: number
+  responseSuccessRule?: string
+  enabled?: boolean
+}
+
 function toQuery(params: IntegrationQuery) {
   const searchParams = new URLSearchParams()
   Object.entries(params).forEach(([key, value]) => {
@@ -65,6 +90,34 @@ export function listIntegrationSystems(params: IntegrationQuery = {}) {
 
 export function listIntegrationServices(params: IntegrationQuery = {}) {
   return request<DownstreamService[]>(`/api/integrations/services${toQuery(params)}`)
+}
+
+export function createIntegrationSystem(payload: DownstreamSystemPayload) {
+  return request<DownstreamSystem>('/api/integrations/systems', {
+    method: 'POST',
+    body: JSON.stringify(payload)
+  })
+}
+
+export function updateIntegrationSystem(id: string, payload: DownstreamSystemPayload) {
+  return request<DownstreamSystem>(`/api/integrations/systems/${id}`, {
+    method: 'PUT',
+    body: JSON.stringify(payload)
+  })
+}
+
+export function createIntegrationService(payload: DownstreamServicePayload) {
+  return request<DownstreamService>('/api/integrations/services', {
+    method: 'POST',
+    body: JSON.stringify(payload)
+  })
+}
+
+export function updateIntegrationService(id: string, payload: DownstreamServicePayload) {
+  return request<DownstreamService>(`/api/integrations/services/${id}`, {
+    method: 'PUT',
+    body: JSON.stringify(payload)
+  })
 }
 
 export function enableIntegrationSystem(id: string) {

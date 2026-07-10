@@ -1,13 +1,17 @@
 package com.example.extraction.integration.controller;
 
 import com.example.extraction.common.ApiResponse;
+import com.example.extraction.integration.dto.DownstreamServiceRequest;
 import com.example.extraction.integration.dto.DownstreamServiceResponse;
+import com.example.extraction.integration.dto.DownstreamSystemRequest;
 import com.example.extraction.integration.dto.DownstreamSystemResponse;
 import com.example.extraction.integration.dto.IntegrationQueryRequest;
 import com.example.extraction.integration.service.DownstreamIntegrationService;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -31,6 +35,28 @@ public class DownstreamIntegrationController {
     @GetMapping("/services")
     public ApiResponse<List<DownstreamServiceResponse>> services(IntegrationQueryRequest query) {
         return ApiResponse.success(integrationService.services(query));
+    }
+
+    @PostMapping("/systems")
+    public ApiResponse<DownstreamSystemResponse> createSystem(@RequestBody DownstreamSystemRequest request) {
+        return ApiResponse.success(integrationService.createSystem(request));
+    }
+
+    @PutMapping("/systems/{id}")
+    public ApiResponse<DownstreamSystemResponse> updateSystem(@PathVariable("id") String id,
+                                                              @RequestBody DownstreamSystemRequest request) {
+        return ApiResponse.success(integrationService.updateSystem(id, request));
+    }
+
+    @PostMapping("/services")
+    public ApiResponse<DownstreamServiceResponse> createService(@RequestBody DownstreamServiceRequest request) {
+        return ApiResponse.success(integrationService.createService(request));
+    }
+
+    @PutMapping("/services/{id}")
+    public ApiResponse<DownstreamServiceResponse> updateService(@PathVariable("id") String id,
+                                                                @RequestBody DownstreamServiceRequest request) {
+        return ApiResponse.success(integrationService.updateService(id, request));
     }
 
     @PostMapping("/systems/{id}/enable")

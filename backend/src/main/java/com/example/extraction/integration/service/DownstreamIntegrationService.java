@@ -4,7 +4,9 @@ import com.example.extraction.common.BusinessException;
 import com.example.extraction.common.IdGenerator;
 import com.example.extraction.integration.domain.DownstreamServiceConfigRecord;
 import com.example.extraction.integration.domain.DownstreamSystemConfigRecord;
+import com.example.extraction.integration.dto.DownstreamServiceRequest;
 import com.example.extraction.integration.dto.DownstreamServiceResponse;
+import com.example.extraction.integration.dto.DownstreamSystemRequest;
 import com.example.extraction.integration.dto.DownstreamSystemResponse;
 import com.example.extraction.integration.dto.IntegrationQueryRequest;
 import com.example.extraction.mapper.DownstreamIntegrationMapper;
@@ -13,6 +15,7 @@ import com.example.extraction.result.dto.PushRecordResponse;
 import com.example.extraction.result.service.DownstreamPushService;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.util.StringUtils;
 
 import java.time.LocalDateTime;
 import java.util.LinkedHashMap;
@@ -51,6 +54,37 @@ public class DownstreamIntegrationService {
     }
 
     @Transactional
+    public DownstreamSystemResponse createSystem(DownstreamSystemRequest request) {
+        ensureDefaults();
+        validateSystemRequest(request);
+        if (integrationMapper.selectSystemByCode(request.getSystemCode()) != null) {
+            throw new BusinessException("INTEGRATION_409", "下游系统编码已存在");
+        }
+        DownstreamSystemConfigRecord record = new DownstreamSystemConfigRecord();
+        record.setId(IdGenerator.nextId("DSYS"));
+        fillSystem(record, request);
+        record.setCreatedAt(LocalDateTime.now());
+        record.setUpdatedAt(record.getCreatedAt());
+        integrationMapper.insertSystem(record);
+        return toSystemResponse(record, integrationMapper.selectServices(new IntegrationQueryRequest()));
+    }
+
+    @Transactional
+    public DownstreamSystemResponse updateSystem(String id, DownstreamSystemRequest request) {
+        ensureDefaults();
+        validateSystemRequest(request);
+        DownstreamSystemConfigRecord record = requireSystem(id);
+        DownstreamSystemConfigRecord sameCode = integrationMapper.selectSystemByCode(request.getSystemCode());
+        if (sameCode != null && !id.equals(sameCode.getId())) {
+            throw new BusinessException("INTEGRATION_409", "下游系统编码已存在");
+        }
+        fillSystem(record, request);
+        record.setUpdatedAt(LocalDateTime.now());
+        integrationMapper.updateSystem(record);
+        return toSystemResponse(requireSystem(id), integrationMapper.selectServices(new IntegrationQueryRequest()));
+    }
+
+    @Transactional
     public DownstreamSystemResponse disableSystem(String id) {
         return updateSystemStatus(id, "DISABLED");
     }
@@ -58,6 +92,39 @@ public class DownstreamIntegrationService {
     @Transactional
     public DownstreamServiceResponse enableService(String id) {
         return updateServiceEnabled(id, "1");
+    }
+
+    @Transactional
+    public DownstreamServiceResponse createService(DownstreamServiceRequest request) {
+        ensureDefaults();
+        validateServiceRequest(request);
+        requireSystem(request.getSystemId());
+        if (integrationMapper.selectServiceByCode(request.getServiceCode()) != null) {
+            throw new BusinessException("INTEGRATION_409", "接口服务编码已存在");
+        }
+        DownstreamServiceConfigRecord record = new DownstreamServiceConfigRecord();
+        record.setId(IdGenerator.nextId("DSRV"));
+        fillService(record, request);
+        record.setCreatedAt(LocalDateTime.now());
+        record.setUpdatedAt(record.getCreatedAt());
+        integrationMapper.insertService(record);
+        return toServiceResponse(integrationMapper.selectServiceById(record.getId()));
+    }
+
+    @Transactional
+    public DownstreamServiceResponse updateService(String id, DownstreamServiceRequest request) {
+        ensureDefaults();
+        validateServiceRequest(request);
+        requireSystem(request.getSystemId());
+        DownstreamServiceConfigRecord record = requireService(id);
+        DownstreamServiceConfigRecord sameCode = integrationMapper.selectServiceByCode(request.getServiceCode());
+        if (sameCode != null && !id.equals(sameCode.getId())) {
+            throw new BusinessException("INTEGRATION_409", "接口服务编码已存在");
+        }
+        fillService(record, request);
+        record.setUpdatedAt(LocalDateTime.now());
+        integrationMapper.updateService(record);
+        return toServiceResponse(requireService(id));
     }
 
     @Transactional
@@ -111,6 +178,73 @@ public class DownstreamIntegrationService {
         requireService(id);
         integrationMapper.updateServiceEnabled(id, enabled);
         return toServiceResponse(requireService(id));
+    }
+
+    private void validateSystemRequest(DownstreamSystemRequest request) {
+        if (!StringUtils.hasText(request.getSystemCode())) {
+            throw new BusinessException("PARAM_400", "系统编码不能为空");
+        }
+        if (!request.getSystemCode().matches("^[a-zA-Z][a-zA-Z0-9_\\-]*$")) {
+            throw new BusinessException("PARAM_400", "系统编码必须以字母开头，仅支持字母、数字、下划线和中划线");
+        }
+        if (!StringUtils.hasText(request.getSystemName())) {
+            throw new BusinessException("PARAM_400", "系统名称不能为空");
+        }
+        if (request.getDefaultTimeoutSeconds() != null && request.getDefaultTimeoutSeconds() <= 0) {
+            throw new BusinessException("PARAM_400", "默认超时时间必须大于 0");
+        }
+        if (request.getDefaultRetryCount() != null && request.getDefaultRetryCount() < 0) {
+            throw new BusinessException("PARAM_400", "默认重试次数不能小于 0");
+        }
+    }
+
+    private void validateServiceRequest(DownstreamServiceRequest request) {
+        if (!StringUtils.hasText(request.getSystemId())) {
+            throw new BusinessException("PARAM_400", "所属系统不能为空");
+        }
+        if (!StringUtils.hasText(request.getServiceCode())) {
+            throw new BusinessException("PARAM_400", "服务编码不能为空");
+        }
+        if (!request.getServiceCode().matches("^[a-zA-Z][a-zA-Z0-9_\\-]*$")) {
+            throw new BusinessException("PARAM_400", "服务编码必须以字母开头，仅支持字母、数字、下划线和中划线");
+        }
+        if (!StringUtils.hasText(request.getServiceName())) {
+            throw new BusinessException("PARAM_400", "服务名称不能为空");
+        }
+        if (!StringUtils.hasText(request.getServiceType())) {
+            throw new BusinessException("PARAM_400", "服务类型不能为空");
+        }
+        if (request.getTimeoutSeconds() != null && request.getTimeoutSeconds() <= 0) {
+            throw new BusinessException("PARAM_400", "超时时间必须大于 0");
+        }
+        if (request.getRetryCount() != null && request.getRetryCount() < 0) {
+            throw new BusinessException("PARAM_400", "重试次数不能小于 0");
+        }
+    }
+
+    private void fillSystem(DownstreamSystemConfigRecord record, DownstreamSystemRequest request) {
+        record.setSystemCode(request.getSystemCode());
+        record.setSystemName(request.getSystemName());
+        record.setOwnerDepartmentId(request.getOwnerDepartmentId());
+        record.setDefaultAuthMode(StringUtils.hasText(request.getDefaultAuthMode()) ? request.getDefaultAuthMode() : "NONE");
+        record.setDefaultTimeoutSeconds(request.getDefaultTimeoutSeconds() == null ? 30 : request.getDefaultTimeoutSeconds());
+        record.setDefaultRetryCount(request.getDefaultRetryCount() == null ? 3 : request.getDefaultRetryCount());
+        record.setStatus(StringUtils.hasText(request.getStatus()) ? request.getStatus() : "ENABLED");
+    }
+
+    private void fillService(DownstreamServiceConfigRecord record, DownstreamServiceRequest request) {
+        record.setSystemId(request.getSystemId());
+        record.setServiceCode(request.getServiceCode());
+        record.setServiceName(request.getServiceName());
+        record.setPurpose(request.getPurpose());
+        record.setServiceType(request.getServiceType());
+        record.setEndpoint(request.getEndpoint());
+        record.setHttpMethod(StringUtils.hasText(request.getHttpMethod()) ? request.getHttpMethod() : "-");
+        record.setAuthMode(StringUtils.hasText(request.getAuthMode()) ? request.getAuthMode() : "INHERIT");
+        record.setTimeoutSeconds(request.getTimeoutSeconds() == null ? 30 : request.getTimeoutSeconds());
+        record.setRetryCount(request.getRetryCount() == null ? 3 : request.getRetryCount());
+        record.setResponseSuccessRule(request.getResponseSuccessRule());
+        record.setEnabled(Boolean.FALSE.equals(request.getEnabled()) ? "0" : "1");
     }
 
     private DownstreamSystemConfigRecord requireSystem(String id) {

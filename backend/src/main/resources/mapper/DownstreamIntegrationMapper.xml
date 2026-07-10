@@ -150,6 +150,37 @@
         )
     </insert>
 
+    <update id="updateSystem" parameterType="com.example.extraction.integration.domain.DownstreamSystemConfigRecord">
+        update downstream_system_config
+        set system_code = #{systemCode},
+            system_name = #{systemName},
+            owner_department_id = #{ownerDepartmentId},
+            default_auth_mode = #{defaultAuthMode},
+            default_timeout_seconds = #{defaultTimeoutSeconds},
+            default_retry_count = #{defaultRetryCount},
+            status = #{status},
+            updated_at = #{updatedAt}
+        where id = #{id}
+    </update>
+
+    <update id="updateService" parameterType="com.example.extraction.integration.domain.DownstreamServiceConfigRecord">
+        update downstream_service_config
+        set system_id = #{systemId},
+            service_code = #{serviceCode},
+            service_name = #{serviceName},
+            purpose = #{purpose},
+            service_type = #{serviceType},
+            endpoint = #{endpoint},
+            http_method = #{httpMethod},
+            auth_mode = #{authMode},
+            timeout_seconds = #{timeoutSeconds},
+            retry_count = #{retryCount},
+            response_success_rule = #{responseSuccessRule},
+            enabled = #{enabled},
+            updated_at = #{updatedAt}
+        where id = #{id}
+    </update>
+
     <update id="updateSystemStatus">
         update downstream_system_config
         set status = #{status},

@@ -26,6 +26,10 @@ public interface DownstreamIntegrationMapper {
 
     void insertService(DownstreamServiceConfigRecord record);
 
+    int updateSystem(DownstreamSystemConfigRecord record);
+
+    int updateService(DownstreamServiceConfigRecord record);
+
     int updateSystemStatus(@Param("id") String id, @Param("status") String status);
 
     int updateServiceEnabled(@Param("id") String id, @Param("enabled") String enabled);
