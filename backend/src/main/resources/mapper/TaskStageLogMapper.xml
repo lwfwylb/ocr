@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.example.extraction.mapper.TaskStageLogMapper">
+    <resultMap id="TaskStageLogRecordMap" type="com.example.extraction.task.domain.TaskStageLogRecord">
+        <id property="id" column="id"/>
+        <result property="taskId" column="task_id"/>
+        <result property="traceId" column="trace_id"/>
+        <result property="stageCode" column="stage_code"/>
+        <result property="stageName" column="stage_name"/>
+        <result property="status" column="status"/>
+        <result property="inputSummary" column="input_summary"/>
+        <result property="outputSummary" column="output_summary"/>
+        <result property="errorCode" column="error_code"/>
+        <result property="errorMessage" column="error_message"/>
+        <result property="startedAt" column="started_at"/>
+        <result property="endedAt" column="ended_at"/>
+        <result property="durationMs" column="duration_ms"/>
+        <result property="createdAt" column="created_at"/>
+    </resultMap>
+
+    <select id="selectByTaskId" resultMap="TaskStageLogRecordMap">
+        select id, task_id, trace_id, stage_code, stage_name, status, input_summary, output_summary,
+               error_code, error_message, started_at, ended_at, duration_ms, created_at
+        from task_stage_log
+        where task_id = #{taskId}
+        order by started_at asc, created_at asc
+    </select>
+
+    <insert id="insert" parameterType="com.example.extraction.task.domain.TaskStageLogRecord">
+        insert into task_stage_log (
+            id, task_id, trace_id, stage_code, stage_name, status, input_summary, output_summary,
+            error_code, error_message, started_at, ended_at, duration_ms, created_at
+        ) values (
+            #{id}, #{taskId}, #{traceId}, #{stageCode}, #{stageName}, #{status}, #{inputSummary}, #{outputSummary},
+            #{errorCode}, #{errorMessage}, #{startedAt}, #{endedAt}, #{durationMs}, #{createdAt}
+        )
+    </insert>
+</mapper>

@@ -509,3 +509,23 @@ create table if not exists extract_task (
   key idx_extract_task_config (config_id),
   key idx_extract_task_failed (status, failed_at)
 );
+
+create table if not exists task_stage_log (
+  id varchar(64) primary key,
+  task_id varchar(128) not null,
+  trace_id varchar(128) not null,
+  stage_code varchar(50) not null,
+  stage_name varchar(100) not null,
+  status varchar(30) not null,
+  input_summary varchar(1000),
+  output_summary varchar(1000),
+  error_code varchar(100),
+  error_message varchar(1000),
+  started_at datetime,
+  ended_at datetime,
+  duration_ms bigint,
+  created_at datetime not null,
+  key idx_task_stage_log_task (task_id),
+  key idx_task_stage_log_trace (trace_id),
+  key idx_task_stage_log_status (status)
+);

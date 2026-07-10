@@ -118,6 +118,17 @@
         where task_id = #{taskId}
     </select>
 
+    <select id="selectNextQueued" resultMap="ExtractTaskRecordMap">
+        select <include refid="BaseColumns"/>
+        from extract_task
+        where status = 'QUEUED'
+        order by
+          case manual_accelerated when '1' then 0 else 1 end,
+          case priority when 'HIGH' then 1 when 'MEDIUM' then 2 else 3 end,
+          queue_position asc,
+          created_at asc
+    </select>
+
     <select id="countQueueTasks" resultType="java.lang.Integer">
         select count(1)
         from extract_task
@@ -179,5 +190,18 @@
             updated_at = #{updatedAt}
         where task_id = #{taskId}
           and status = 'FAILED'
+    </update>
+
+    <update id="updateExecutionState" parameterType="com.example.extraction.task.domain.ExtractTaskRecord">
+        update extract_task
+        set status = #{status},
+            current_stage = #{currentStage},
+            progress = #{progress},
+            error_code = #{errorCode},
+            error_message = #{errorMessage},
+            failed_stage = #{failedStage},
+            failed_at = #{failedAt},
+            updated_at = #{updatedAt}
+        where task_id = #{taskId}
     </update>
 </mapper>

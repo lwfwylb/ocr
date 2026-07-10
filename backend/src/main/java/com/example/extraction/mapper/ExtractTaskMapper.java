@@ -13,6 +13,8 @@ public interface ExtractTaskMapper {
 
     ExtractTaskRecord selectByTaskId(@Param("taskId") String taskId);
 
+    List<ExtractTaskRecord> selectNextQueued();
+
     int countQueueTasks(@Param("departmentId") String departmentId, @Param("queueLevel") String queueLevel);
 
     void insert(ExtractTaskRecord record);
@@ -20,4 +22,6 @@ public interface ExtractTaskMapper {
     int updateDispatch(ExtractTaskRecord record);
 
     int updateRetry(ExtractTaskRecord record);
+
+    int updateExecutionState(ExtractTaskRecord record);
 }

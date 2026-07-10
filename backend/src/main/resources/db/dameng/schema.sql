@@ -514,3 +514,24 @@ create index idx_extract_task_status on extract_task (status);
 create index idx_extract_task_queue on extract_task (department_id, queue_level, queue_position);
 create index idx_extract_task_config on extract_task (config_id);
 create index idx_extract_task_failed on extract_task (status, failed_at);
+
+create table task_stage_log (
+  id varchar(64) primary key,
+  task_id varchar(128) not null,
+  trace_id varchar(128) not null,
+  stage_code varchar(50) not null,
+  stage_name varchar(100) not null,
+  status varchar(30) not null,
+  input_summary varchar(1000),
+  output_summary varchar(1000),
+  error_code varchar(100),
+  error_message varchar(1000),
+  started_at timestamp,
+  ended_at timestamp,
+  duration_ms bigint,
+  created_at timestamp not null
+);
+
+create index idx_task_stage_log_task on task_stage_log (task_id);
+create index idx_task_stage_log_trace on task_stage_log (trace_id);
+create index idx_task_stage_log_status on task_stage_log (status);

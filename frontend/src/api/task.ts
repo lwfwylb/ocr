@@ -44,6 +44,23 @@ export interface ExtractTask {
   updatedAt: string
 }
 
+export interface TaskStageLog {
+  id: string
+  taskId: string
+  traceId: string
+  stageCode: string
+  stageName: string
+  status: string
+  inputSummary?: string
+  outputSummary?: string
+  errorCode?: string
+  errorMessage?: string
+  startedAt?: string
+  endedAt?: string
+  durationMs?: number
+  createdAt: string
+}
+
 export interface TaskQuery {
   keyword?: string
   sourceType?: string
@@ -100,4 +117,16 @@ export function retryTask(taskId: string, payload: TaskRetryPayload) {
     method: 'POST',
     body: JSON.stringify(payload)
   })
+}
+
+export function executeTask(taskId: string) {
+  return request<ExtractTask>(`/api/tasks/${taskId}/execute`, { method: 'POST' })
+}
+
+export function executeNextTask() {
+  return request<ExtractTask>('/api/tasks/execute-next', { method: 'POST' })
+}
+
+export function listTaskStageLogs(taskId: string) {
+  return request<TaskStageLog[]>(`/api/tasks/${taskId}/stage-logs`)
 }

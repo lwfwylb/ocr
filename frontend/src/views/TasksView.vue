@@ -4,11 +4,15 @@ import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import {
   dispatchTask,
+  executeNextTask,
+  executeTask,
   getTaskDetail,
+  listTaskStageLogs,
   listTasks,
   retryTask,
   type ExtractTask,
-  type TaskDispatchPayload
+  type TaskDispatchPayload,
+  type TaskStageLog
 } from '../api/task'
 
 const router = useRouter()
@@ -18,6 +22,7 @@ const dispatchVisible = ref(false)
 const selectedTask = ref<ExtractTask | null>(null)
 const dispatchTarget = ref<ExtractTask | null>(null)
 const tasks = ref<ExtractTask[]>([])
+const stageLogs = ref<TaskStageLog[]>([])
 
 const query = reactive({
   keyword: '',
@@ -82,8 +87,10 @@ const resetQuery = () => {
 const openDetail = async (task: ExtractTask) => {
   drawerVisible.value = true
   selectedTask.value = task
+  stageLogs.value = []
   try {
     selectedTask.value = await getTaskDetail(task.taskId)
+    stageLogs.value = await listTaskStageLogs(task.taskId)
   } catch (error) {
     ElMessage.error(error instanceof Error ? error.message : '任务详情加载失败')
   }
@@ -128,10 +135,31 @@ const retry = async (task: ExtractTask) => {
   }
 }
 
+const execute = async (task: ExtractTask) => {
+  try {
+    await executeTask(task.taskId)
+    ElMessage.success('模拟执行完成')
+    await loadTasks()
+  } catch (error) {
+    ElMessage.error(error instanceof Error ? error.message : '模拟执行失败')
+  }
+}
+
+const executeNext = async () => {
+  try {
+    const result = await executeNextTask()
+    ElMessage.success(`已执行任务 ${result.taskId}`)
+    await loadTasks()
+  } catch (error) {
+    ElMessage.error(error instanceof Error ? error.message : '执行下一条失败')
+  }
+}
+
 const statusText = (status?: string) => statusMap[status || '']?.label || status || '-'
 const statusType = (status?: string) => statusMap[status || '']?.type || 'info'
 const priorityText = (priority?: string) => priorityMap[priority || '']?.label || priority || '-'
 const priorityType = (priority?: string) => priorityMap[priority || '']?.type || 'info'
+const logType = (status?: string) => status === 'FAILED' ? 'danger' : 'success'
 
 onMounted(loadTasks)
 </script>
@@ -195,6 +223,7 @@ onMounted(loadTasks)
           <span>任务列表</span>
           <div>
             <el-button @click="router.push('/documents/upload')">上传文档</el-button>
+            <el-button @click="executeNext">执行下一条</el-button>
             <el-button type="primary" :loading="loading" @click="loadTasks">刷新队列</el-button>
           </div>
         </div>
@@ -226,10 +255,11 @@ onMounted(loadTasks)
           <template #default="{ row }"><el-progress :percentage="row.progress || 0" /></template>
         </el-table-column>
         <el-table-column prop="createdAt" label="创建时间" min-width="165" />
-        <el-table-column label="操作" width="230" fixed="right">
+        <el-table-column label="操作" width="280" fixed="right">
           <template #default="{ row }">
             <el-button link type="primary" @click="openDetail(row)">详情</el-button>
             <el-button link type="primary" @click="openDispatch(row)">插队</el-button>
+            <el-button link type="success" :disabled="!['QUEUED', 'PARSING', 'EXTRACTING'].includes(row.status)" @click="execute(row)">模拟执行</el-button>
             <el-button link @click="router.push('/monitor/traces')">链路</el-button>
             <el-button link type="success" :disabled="row.status !== 'FAILED'" @click="retry(row)">重试</el-button>
           </template>
@@ -237,7 +267,7 @@ onMounted(loadTasks)
       </el-table>
     </el-card>
 
-    <el-drawer v-model="drawerVisible" title="任务详情" size="620px">
+    <el-drawer v-model="drawerVisible" title="任务详情" size="680px">
       <template v-if="selectedTask">
         <el-descriptions :column="1" border>
           <el-descriptions-item label="任务编号">{{ selectedTask.taskId }}</el-descriptions-item>
@@ -253,6 +283,20 @@ onMounted(loadTasks)
           <el-descriptions-item v-if="selectedTask.dispatchReason" label="插队原因">{{ selectedTask.dispatchReason }}</el-descriptions-item>
           <el-descriptions-item v-if="selectedTask.errorMessage" label="错误信息">{{ selectedTask.errorMessage }}</el-descriptions-item>
         </el-descriptions>
+        <h3 class="section-title">阶段日志</h3>
+        <el-timeline v-if="stageLogs.length">
+          <el-timeline-item
+            v-for="log in stageLogs"
+            :key="log.id"
+            :timestamp="log.endedAt || log.createdAt"
+            :type="logType(log.status)"
+          >
+            <strong>{{ log.stageName }}</strong>
+            <p>{{ log.outputSummary || log.errorMessage || log.inputSummary }}</p>
+            <p class="muted">耗时：{{ log.durationMs || 0 }} ms</p>
+          </el-timeline-item>
+        </el-timeline>
+        <el-empty v-else description="暂无阶段日志" />
       </template>
     </el-drawer>
 
