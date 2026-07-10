@@ -1,0 +1,60 @@
+package com.example.extraction.integration.controller;
+
+import com.example.extraction.common.ApiResponse;
+import com.example.extraction.integration.dto.DownstreamServiceResponse;
+import com.example.extraction.integration.dto.DownstreamSystemResponse;
+import com.example.extraction.integration.dto.IntegrationQueryRequest;
+import com.example.extraction.integration.service.DownstreamIntegrationService;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
+
+import java.util.List;
+import java.util.Map;
+
+@RestController
+@RequestMapping("/api/integrations")
+public class DownstreamIntegrationController {
+    private final DownstreamIntegrationService integrationService;
+
+    public DownstreamIntegrationController(DownstreamIntegrationService integrationService) {
+        this.integrationService = integrationService;
+    }
+
+    @GetMapping("/systems")
+    public ApiResponse<List<DownstreamSystemResponse>> systems(IntegrationQueryRequest query) {
+        return ApiResponse.success(integrationService.systems(query));
+    }
+
+    @GetMapping("/services")
+    public ApiResponse<List<DownstreamServiceResponse>> services(IntegrationQueryRequest query) {
+        return ApiResponse.success(integrationService.services(query));
+    }
+
+    @PostMapping("/systems/{id}/enable")
+    public ApiResponse<DownstreamSystemResponse> enableSystem(@PathVariable("id") String id) {
+        return ApiResponse.success(integrationService.enableSystem(id));
+    }
+
+    @PostMapping("/systems/{id}/disable")
+    public ApiResponse<DownstreamSystemResponse> disableSystem(@PathVariable("id") String id) {
+        return ApiResponse.success(integrationService.disableSystem(id));
+    }
+
+    @PostMapping("/services/{id}/enable")
+    public ApiResponse<DownstreamServiceResponse> enableService(@PathVariable("id") String id) {
+        return ApiResponse.success(integrationService.enableService(id));
+    }
+
+    @PostMapping("/services/{id}/disable")
+    public ApiResponse<DownstreamServiceResponse> disableService(@PathVariable("id") String id) {
+        return ApiResponse.success(integrationService.disableService(id));
+    }
+
+    @PostMapping("/services/{id}/test")
+    public ApiResponse<Map<String, Object>> testService(@PathVariable("id") String id) {
+        return ApiResponse.success(integrationService.testService(id));
+    }
+}

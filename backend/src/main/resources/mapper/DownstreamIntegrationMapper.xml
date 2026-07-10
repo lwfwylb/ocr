@@ -1,0 +1,166 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.example.extraction.mapper.DownstreamIntegrationMapper">
+    <resultMap id="DownstreamSystemConfigRecordMap" type="com.example.extraction.integration.domain.DownstreamSystemConfigRecord">
+        <id property="id" column="id"/>
+        <result property="systemCode" column="system_code"/>
+        <result property="systemName" column="system_name"/>
+        <result property="ownerDepartmentId" column="owner_department_id"/>
+        <result property="defaultAuthMode" column="default_auth_mode"/>
+        <result property="defaultTimeoutSeconds" column="default_timeout_seconds"/>
+        <result property="defaultRetryCount" column="default_retry_count"/>
+        <result property="status" column="status"/>
+        <result property="createdAt" column="created_at"/>
+        <result property="updatedAt" column="updated_at"/>
+    </resultMap>
+
+    <resultMap id="DownstreamServiceConfigRecordMap" type="com.example.extraction.integration.domain.DownstreamServiceConfigRecord">
+        <id property="id" column="id"/>
+        <result property="systemId" column="system_id"/>
+        <result property="systemCode" column="system_code"/>
+        <result property="systemName" column="system_name"/>
+        <result property="ownerDepartmentId" column="owner_department_id"/>
+        <result property="serviceCode" column="service_code"/>
+        <result property="serviceName" column="service_name"/>
+        <result property="purpose" column="purpose"/>
+        <result property="serviceType" column="service_type"/>
+        <result property="endpoint" column="endpoint"/>
+        <result property="httpMethod" column="http_method"/>
+        <result property="authMode" column="auth_mode"/>
+        <result property="timeoutSeconds" column="timeout_seconds"/>
+        <result property="retryCount" column="retry_count"/>
+        <result property="responseSuccessRule" column="response_success_rule"/>
+        <result property="enabled" column="enabled"/>
+        <result property="createdAt" column="created_at"/>
+        <result property="updatedAt" column="updated_at"/>
+    </resultMap>
+
+    <sql id="SystemColumns">
+        id, system_code, system_name, owner_department_id, default_auth_mode,
+        default_timeout_seconds, default_retry_count, status, created_at, updated_at
+    </sql>
+
+    <sql id="ServiceColumns">
+        s.id, s.system_id, sys.system_code, sys.system_name, sys.owner_department_id,
+        s.service_code, s.service_name, s.purpose, s.service_type, s.endpoint, s.http_method,
+        s.auth_mode, s.timeout_seconds, s.retry_count, s.response_success_rule,
+        s.enabled, s.created_at, s.updated_at
+    </sql>
+
+    <select id="selectSystems" resultMap="DownstreamSystemConfigRecordMap">
+        <bind name="keywordLike" value="query.keyword == null ? null : '%' + query.keyword + '%'"/>
+        select <include refid="SystemColumns"/>
+        from downstream_system_config
+        <where>
+            <if test="query.keyword != null and query.keyword != ''">
+                and (system_code like #{keywordLike} or system_name like #{keywordLike})
+            </if>
+            <if test="query.ownerDepartmentId != null and query.ownerDepartmentId != ''">
+                and owner_department_id = #{query.ownerDepartmentId}
+            </if>
+            <if test="query.status != null and query.status != ''">
+                and status = #{query.status}
+            </if>
+        </where>
+        order by status desc, updated_at desc
+    </select>
+
+    <select id="selectSystemById" resultMap="DownstreamSystemConfigRecordMap">
+        select <include refid="SystemColumns"/>
+        from downstream_system_config
+        where id = #{id}
+    </select>
+
+    <select id="selectSystemByCode" resultMap="DownstreamSystemConfigRecordMap">
+        select <include refid="SystemColumns"/>
+        from downstream_system_config
+        where system_code = #{systemCode}
+    </select>
+
+    <select id="selectServices" resultMap="DownstreamServiceConfigRecordMap">
+        <bind name="keywordLike" value="query.keyword == null ? null : '%' + query.keyword + '%'"/>
+        select <include refid="ServiceColumns"/>
+        from downstream_service_config s
+        join downstream_system_config sys on s.system_id = sys.id
+        <where>
+            <if test="query.keyword != null and query.keyword != ''">
+                and (sys.system_code like #{keywordLike}
+                or sys.system_name like #{keywordLike}
+                or s.service_code like #{keywordLike}
+                or s.service_name like #{keywordLike}
+                or s.endpoint like #{keywordLike})
+            </if>
+            <if test="query.systemCode != null and query.systemCode != ''">
+                and sys.system_code = #{query.systemCode}
+            </if>
+            <if test="query.ownerDepartmentId != null and query.ownerDepartmentId != ''">
+                and sys.owner_department_id = #{query.ownerDepartmentId}
+            </if>
+            <if test="query.serviceType != null and query.serviceType != ''">
+                and s.service_type = #{query.serviceType}
+            </if>
+            <if test="query.status == 'ENABLED'">
+                and s.enabled = '1'
+            </if>
+            <if test="query.status == 'DISABLED'">
+                and s.enabled = '0'
+            </if>
+        </where>
+        order by sys.system_code asc, s.enabled desc, s.updated_at desc
+    </select>
+
+    <select id="selectServiceById" resultMap="DownstreamServiceConfigRecordMap">
+        select <include refid="ServiceColumns"/>
+        from downstream_service_config s
+        join downstream_system_config sys on s.system_id = sys.id
+        where s.id = #{id}
+    </select>
+
+    <select id="selectServiceByCode" resultMap="DownstreamServiceConfigRecordMap">
+        select <include refid="ServiceColumns"/>
+        from downstream_service_config s
+        join downstream_system_config sys on s.system_id = sys.id
+        where s.service_code = #{serviceCode}
+    </select>
+
+    <select id="countSystems" resultType="java.lang.Integer">
+        select count(1) from downstream_system_config
+    </select>
+
+    <insert id="insertSystem" parameterType="com.example.extraction.integration.domain.DownstreamSystemConfigRecord">
+        insert into downstream_system_config (
+            id, system_code, system_name, owner_department_id, default_auth_mode,
+            default_timeout_seconds, default_retry_count, status, created_at, updated_at
+        ) values (
+            #{id}, #{systemCode}, #{systemName}, #{ownerDepartmentId}, #{defaultAuthMode},
+            #{defaultTimeoutSeconds}, #{defaultRetryCount}, #{status}, #{createdAt}, #{updatedAt}
+        )
+    </insert>
+
+    <insert id="insertService" parameterType="com.example.extraction.integration.domain.DownstreamServiceConfigRecord">
+        insert into downstream_service_config (
+            id, system_id, service_code, service_name, purpose, service_type, endpoint,
+            http_method, auth_mode, timeout_seconds, retry_count, response_success_rule,
+            enabled, created_at, updated_at
+        ) values (
+            #{id}, #{systemId}, #{serviceCode}, #{serviceName}, #{purpose}, #{serviceType}, #{endpoint},
+            #{httpMethod}, #{authMode}, #{timeoutSeconds}, #{retryCount}, #{responseSuccessRule},
+            #{enabled}, #{createdAt}, #{updatedAt}
+        )
+    </insert>
+
+    <update id="updateSystemStatus">
+        update downstream_system_config
+        set status = #{status},
+            updated_at = current_timestamp
+        where id = #{id}
+    </update>
+
+    <update id="updateServiceEnabled">
+        update downstream_service_config
+        set enabled = #{enabled},
+            updated_at = current_timestamp
+        where id = #{id}
+    </update>
+</mapper>

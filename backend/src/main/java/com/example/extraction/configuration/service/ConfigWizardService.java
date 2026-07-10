@@ -8,6 +8,7 @@ import com.example.extraction.configuration.dto.ConfigOptionsResponse;
 import com.example.extraction.configuration.dto.ConfigQueryRequest;
 import com.example.extraction.configuration.dto.ConfigSummaryResponse;
 import com.example.extraction.configuration.dto.ConfigWizardPayload;
+import com.example.extraction.integration.service.DownstreamIntegrationService;
 import com.example.extraction.mapper.ExtractConfigMapper;
 import com.example.extraction.mapper.LlmModelConfigMapper;
 import com.example.extraction.mapper.OcrEngineConfigMapper;
@@ -35,15 +36,18 @@ public class ConfigWizardService {
     private final ExtractConfigMapper extractConfigMapper;
     private final OcrEngineConfigMapper ocrEngineConfigMapper;
     private final LlmModelConfigMapper llmModelConfigMapper;
+    private final DownstreamIntegrationService downstreamIntegrationService;
     private final ObjectMapper objectMapper;
 
     public ConfigWizardService(ExtractConfigMapper extractConfigMapper,
                                OcrEngineConfigMapper ocrEngineConfigMapper,
                                LlmModelConfigMapper llmModelConfigMapper,
+                               DownstreamIntegrationService downstreamIntegrationService,
                                ObjectMapper objectMapper) {
         this.extractConfigMapper = extractConfigMapper;
         this.ocrEngineConfigMapper = ocrEngineConfigMapper;
         this.llmModelConfigMapper = llmModelConfigMapper;
+        this.downstreamIntegrationService = downstreamIntegrationService;
         this.objectMapper = objectMapper;
     }
 
@@ -244,6 +248,7 @@ public class ConfigWizardService {
                 service("dw_extract_result_topic", "结果批量同步 Topic", "data_warehouse", "数据仓库", "MQ", "批量同步",
                         "topic.extract.result", "-", "broker ack", 5, true)
         ));
+        response.setDownstreamServices(downstreamIntegrationService.serviceOptions());
         return response;
     }
 
