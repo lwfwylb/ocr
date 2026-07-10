@@ -582,3 +582,27 @@ create table if not exists extract_review_log (
   key idx_extract_review_trace (trace_id),
   key idx_extract_review_action (action)
 );
+
+create table if not exists storage_result_record (
+  id varchar(64) primary key,
+  task_id varchar(128) not null,
+  trace_id varchar(128) not null,
+  document_id varchar(128) not null,
+  config_id varchar(64),
+  target_table varchar(200) not null,
+  mapping_profile varchar(200),
+  storage_json longtext not null,
+  unique_key_json longtext,
+  storage_status varchar(30) not null,
+  duplicate_strategy varchar(50),
+  error_message varchar(1000),
+  stored_by varchar(100),
+  stored_at datetime,
+  created_at datetime not null,
+  updated_at datetime not null,
+  unique key uk_storage_result_task (task_id),
+  key idx_storage_result_trace (trace_id),
+  key idx_storage_result_table (target_table),
+  key idx_storage_result_status (storage_status),
+  key idx_storage_result_config (config_id)
+);

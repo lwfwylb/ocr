@@ -3,6 +3,7 @@ import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import ConfidenceTag from '../components/ConfidenceTag.vue'
 import { getResultDetail, listResults, type ResultDetail, type ResultSummary } from '../api/result'
+import { executeStorage } from '../api/storage'
 
 type ResultStatus = 'STORED' | 'WAIT_REVIEW' | 'PUSHED' | 'FAILED'
 
@@ -132,6 +133,16 @@ const pushResult = async (row: ResultSummary) => {
   ElMessage.success(`已提交 ${row.taskId} 的模拟推送请求`)
 }
 
+const executeStorageForResult = async (row: ResultSummary) => {
+  await ElMessageBox.confirm('确认将该提取结果写入落库台账？待复核或失败结果不允许落库。', '执行落库', { type: 'warning' })
+  try {
+    await executeStorage(row.taskId, { storedBy: '当前用户', duplicateStrategy: 'UPSERT_BY_TASK_ID' })
+    ElMessage.success('落库成功，可在落库数据查询中查看')
+  } catch (error) {
+    ElMessage.error(error instanceof Error ? error.message : '执行落库失败')
+  }
+}
+
 const resetQuery = () => {
   query.keyword = ''
   query.documentType = ''
@@ -255,11 +266,12 @@ onMounted(loadResults)
           <template #default="{ row }"><ConfidenceTag :value="formatConfidence(row.overallConfidence)" /></template>
         </el-table-column>
         <el-table-column prop="updatedAt" label="更新时间" min-width="160" />
-        <el-table-column label="操作" width="250" fixed="right">
+        <el-table-column label="操作" width="330" fixed="right">
           <template #default="{ row }">
             <el-button link type="primary" @click="openDetail(row, 'fields')">字段</el-button>
             <el-button link type="primary" @click="openDetail(row, 'parse')">解析</el-button>
             <el-button link type="primary" @click="openDetail(row, 'storage')">落库</el-button>
+            <el-button link type="warning" @click="executeStorageForResult(row)">执行落库</el-button>
             <el-button link type="success" @click="pushResult(row)">推送</el-button>
           </template>
         </el-table-column>

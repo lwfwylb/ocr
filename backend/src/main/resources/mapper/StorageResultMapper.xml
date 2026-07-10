@@ -1,0 +1,156 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.example.extraction.mapper.StorageResultMapper">
+    <resultMap id="StorageResultRecordMap" type="com.example.extraction.result.domain.StorageResultRecord">
+        <id property="id" column="id"/>
+        <result property="taskId" column="task_id"/>
+        <result property="traceId" column="trace_id"/>
+        <result property="documentId" column="document_id"/>
+        <result property="configId" column="config_id"/>
+        <result property="targetTable" column="target_table"/>
+        <result property="mappingProfile" column="mapping_profile"/>
+        <result property="storageJson" column="storage_json"/>
+        <result property="uniqueKeyJson" column="unique_key_json"/>
+        <result property="storageStatus" column="storage_status"/>
+        <result property="duplicateStrategy" column="duplicate_strategy"/>
+        <result property="errorMessage" column="error_message"/>
+        <result property="storedBy" column="stored_by"/>
+        <result property="storedAt" column="stored_at"/>
+        <result property="createdAt" column="created_at"/>
+        <result property="updatedAt" column="updated_at"/>
+    </resultMap>
+
+    <resultMap id="StorageTableResponseMap" type="com.example.extraction.result.dto.StorageTableResponse">
+        <result property="tableName" column="table_name"/>
+        <result property="tableCnName" column="table_cn_name"/>
+        <result property="description" column="description"/>
+        <result property="rowCount" column="row_count"/>
+        <result property="relatedConfigs" column="related_configs"/>
+        <result property="lastStoredAt" column="last_stored_at"/>
+    </resultMap>
+
+    <resultMap id="StorageRecordResponseMap" type="com.example.extraction.result.dto.StorageRecordResponse">
+        <id property="id" column="id"/>
+        <result property="taskId" column="task_id"/>
+        <result property="traceId" column="trace_id"/>
+        <result property="documentId" column="document_id"/>
+        <result property="fileName" column="file_name"/>
+        <result property="documentType" column="document_type"/>
+        <result property="sourceType" column="source_type"/>
+        <result property="businessNo" column="business_no"/>
+        <result property="targetTable" column="target_table"/>
+        <result property="mappingProfile" column="mapping_profile"/>
+        <result property="storageJson" column="storage_json"/>
+        <result property="uniqueKeyJson" column="unique_key_json"/>
+        <result property="storageStatus" column="storage_status"/>
+        <result property="duplicateStrategy" column="duplicate_strategy"/>
+        <result property="errorMessage" column="error_message"/>
+        <result property="storedBy" column="stored_by"/>
+        <result property="storedAt" column="stored_at"/>
+        <result property="createdAt" column="created_at"/>
+        <result property="updatedAt" column="updated_at"/>
+    </resultMap>
+
+    <select id="selectByTaskId" resultMap="StorageResultRecordMap">
+        select id, task_id, trace_id, document_id, config_id, target_table, mapping_profile,
+               storage_json, unique_key_json, storage_status, duplicate_strategy, error_message,
+               stored_by, stored_at, created_at, updated_at
+        from storage_result_record
+        where task_id = #{taskId}
+    </select>
+
+    <select id="selectTables" resultMap="StorageTableResponseMap">
+        <bind name="keywordLike" value="keyword == null ? null : '%' + keyword + '%'"/>
+        select target_table as table_name,
+               target_table as table_cn_name,
+               target_table as description,
+               count(1) as row_count,
+               min(mapping_profile) as related_configs,
+               max(stored_at) as last_stored_at
+        from storage_result_record
+        <where>
+            storage_status = 'SUCCESS'
+            <if test="keyword != null and keyword != ''">
+                and (target_table like #{keywordLike} or mapping_profile like #{keywordLike})
+            </if>
+        </where>
+        group by target_table
+        order by max(stored_at) desc
+    </select>
+
+    <select id="selectRecords" resultMap="StorageRecordResponseMap">
+        <bind name="keywordLike" value="query.keyword == null ? null : '%' + query.keyword + '%'"/>
+        select s.id,
+               s.task_id,
+               s.trace_id,
+               s.document_id,
+               t.file_name,
+               t.document_type,
+               t.source_type,
+               t.business_no,
+               s.target_table,
+               s.mapping_profile,
+               s.storage_json,
+               s.unique_key_json,
+               s.storage_status,
+               s.duplicate_strategy,
+               s.error_message,
+               s.stored_by,
+               s.stored_at,
+               s.created_at,
+               s.updated_at
+        from storage_result_record s
+        left join extract_task t on s.task_id = t.task_id
+        <where>
+            <if test="query.targetTable != null and query.targetTable != ''">
+                and s.target_table = #{query.targetTable}
+            </if>
+            <if test="query.storageStatus != null and query.storageStatus != ''">
+                and s.storage_status = #{query.storageStatus}
+            </if>
+            <if test="query.documentType != null and query.documentType != ''">
+                and t.document_type = #{query.documentType}
+            </if>
+            <if test="query.sourceType != null and query.sourceType != ''">
+                and t.source_type = #{query.sourceType}
+            </if>
+            <if test="query.keyword != null and query.keyword != ''">
+                and (s.task_id like #{keywordLike}
+                or s.trace_id like #{keywordLike}
+                or s.document_id like #{keywordLike}
+                or t.file_name like #{keywordLike}
+                or t.business_no like #{keywordLike})
+            </if>
+        </where>
+        order by s.stored_at desc, s.updated_at desc
+    </select>
+
+    <insert id="insert" parameterType="com.example.extraction.result.domain.StorageResultRecord">
+        insert into storage_result_record (
+            id, task_id, trace_id, document_id, config_id, target_table, mapping_profile,
+            storage_json, unique_key_json, storage_status, duplicate_strategy, error_message,
+            stored_by, stored_at, created_at, updated_at
+        ) values (
+            #{id}, #{taskId}, #{traceId}, #{documentId}, #{configId}, #{targetTable}, #{mappingProfile},
+            #{storageJson}, #{uniqueKeyJson}, #{storageStatus}, #{duplicateStrategy}, #{errorMessage},
+            #{storedBy}, #{storedAt}, #{createdAt}, #{updatedAt}
+        )
+    </insert>
+
+    <update id="update" parameterType="com.example.extraction.result.domain.StorageResultRecord">
+        update storage_result_record
+        set config_id = #{configId},
+            target_table = #{targetTable},
+            mapping_profile = #{mappingProfile},
+            storage_json = #{storageJson},
+            unique_key_json = #{uniqueKeyJson},
+            storage_status = #{storageStatus},
+            duplicate_strategy = #{duplicateStrategy},
+            error_message = #{errorMessage},
+            stored_by = #{storedBy},
+            stored_at = #{storedAt},
+            updated_at = #{updatedAt}
+        where task_id = #{taskId}
+    </update>
+</mapper>

@@ -591,3 +591,28 @@ create table extract_review_log (
 create index idx_extract_review_task on extract_review_log (task_id);
 create index idx_extract_review_trace on extract_review_log (trace_id);
 create index idx_extract_review_action on extract_review_log (action);
+
+create table storage_result_record (
+  id varchar2(64) primary key,
+  task_id varchar2(128) not null,
+  trace_id varchar2(128) not null,
+  document_id varchar2(128) not null,
+  config_id varchar2(64),
+  target_table varchar2(200) not null,
+  mapping_profile varchar2(200),
+  storage_json clob not null,
+  unique_key_json clob,
+  storage_status varchar2(30) not null,
+  duplicate_strategy varchar2(50),
+  error_message varchar2(1000),
+  stored_by varchar2(100),
+  stored_at timestamp,
+  created_at timestamp not null,
+  updated_at timestamp not null,
+  constraint uk_storage_result_task unique (task_id)
+);
+
+create index idx_storage_result_trace on storage_result_record (trace_id);
+create index idx_storage_result_table on storage_result_record (target_table);
+create index idx_storage_result_status on storage_result_record (storage_status);
+create index idx_storage_result_config on storage_result_record (config_id);
