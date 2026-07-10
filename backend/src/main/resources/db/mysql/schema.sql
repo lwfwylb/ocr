@@ -529,3 +529,41 @@ create table if not exists task_stage_log (
   key idx_task_stage_log_trace (trace_id),
   key idx_task_stage_log_status (status)
 );
+
+create table if not exists document_parse_result (
+  id varchar(64) primary key,
+  task_id varchar(128) not null,
+  trace_id varchar(128) not null,
+  document_id varchar(128) not null,
+  engine_code varchar(128),
+  parse_text longtext,
+  parse_markdown_path varchar(1000),
+  page_count int,
+  status varchar(30) not null,
+  created_at datetime not null,
+  updated_at datetime not null,
+  unique key uk_document_parse_task (task_id),
+  key idx_document_parse_trace (trace_id)
+);
+
+create table if not exists extract_result_record (
+  id varchar(64) primary key,
+  task_id varchar(128) not null,
+  trace_id varchar(128) not null,
+  document_id varchar(128) not null,
+  config_id varchar(64),
+  result_json longtext,
+  confidence_json longtext,
+  overall_confidence decimal(8,6),
+  need_review char(1) default '0',
+  status varchar(30) not null,
+  field_count int,
+  target_table varchar(200),
+  mapping_profile varchar(200),
+  created_at datetime not null,
+  updated_at datetime not null,
+  unique key uk_extract_result_task (task_id),
+  key idx_extract_result_trace (trace_id),
+  key idx_extract_result_status (status),
+  key idx_extract_result_config (config_id)
+);

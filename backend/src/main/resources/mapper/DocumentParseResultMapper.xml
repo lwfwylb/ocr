@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.example.extraction.mapper.DocumentParseResultMapper">
+    <resultMap id="DocumentParseResultRecordMap" type="com.example.extraction.result.domain.DocumentParseResultRecord">
+        <id property="id" column="id"/>
+        <result property="taskId" column="task_id"/>
+        <result property="traceId" column="trace_id"/>
+        <result property="documentId" column="document_id"/>
+        <result property="engineCode" column="engine_code"/>
+        <result property="parseText" column="parse_text"/>
+        <result property="parseMarkdownPath" column="parse_markdown_path"/>
+        <result property="pageCount" column="page_count"/>
+        <result property="status" column="status"/>
+        <result property="createdAt" column="created_at"/>
+        <result property="updatedAt" column="updated_at"/>
+    </resultMap>
+
+    <select id="selectByTaskId" resultMap="DocumentParseResultRecordMap">
+        select id, task_id, trace_id, document_id, engine_code, parse_text, parse_markdown_path,
+               page_count, status, created_at, updated_at
+        from document_parse_result
+        where task_id = #{taskId}
+    </select>
+
+    <insert id="insert" parameterType="com.example.extraction.result.domain.DocumentParseResultRecord">
+        insert into document_parse_result (
+            id, task_id, trace_id, document_id, engine_code, parse_text, parse_markdown_path,
+            page_count, status, created_at, updated_at
+        ) values (
+            #{id}, #{taskId}, #{traceId}, #{documentId}, #{engineCode}, #{parseText}, #{parseMarkdownPath},
+            #{pageCount}, #{status}, #{createdAt}, #{updatedAt}
+        )
+    </insert>
+
+    <update id="update" parameterType="com.example.extraction.result.domain.DocumentParseResultRecord">
+        update document_parse_result
+        set engine_code = #{engineCode},
+            parse_text = #{parseText},
+            parse_markdown_path = #{parseMarkdownPath},
+            page_count = #{pageCount},
+            status = #{status},
+            updated_at = #{updatedAt}
+        where task_id = #{taskId}
+    </update>
+</mapper>

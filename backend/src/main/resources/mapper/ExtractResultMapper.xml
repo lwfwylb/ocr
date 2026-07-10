@@ -1,0 +1,116 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.example.extraction.mapper.ExtractResultMapper">
+    <resultMap id="ExtractResultRecordMap" type="com.example.extraction.result.domain.ExtractResultRecord">
+        <id property="id" column="id"/>
+        <result property="taskId" column="task_id"/>
+        <result property="traceId" column="trace_id"/>
+        <result property="documentId" column="document_id"/>
+        <result property="configId" column="config_id"/>
+        <result property="resultJson" column="result_json"/>
+        <result property="confidenceJson" column="confidence_json"/>
+        <result property="overallConfidence" column="overall_confidence"/>
+        <result property="needReview" column="need_review"/>
+        <result property="status" column="status"/>
+        <result property="fieldCount" column="field_count"/>
+        <result property="targetTable" column="target_table"/>
+        <result property="mappingProfile" column="mapping_profile"/>
+        <result property="createdAt" column="created_at"/>
+        <result property="updatedAt" column="updated_at"/>
+    </resultMap>
+
+    <resultMap id="ResultSummaryMap" type="com.example.extraction.result.dto.ResultSummaryResponse">
+        <result property="taskId" column="task_id"/>
+        <result property="traceId" column="trace_id"/>
+        <result property="documentId" column="document_id"/>
+        <result property="fileName" column="file_name"/>
+        <result property="documentType" column="document_type"/>
+        <result property="departmentId" column="department_id"/>
+        <result property="sourceType" column="source_type"/>
+        <result property="resultStatus" column="result_status"/>
+        <result property="reviewStatus" column="review_status"/>
+        <result property="targetTable" column="target_table"/>
+        <result property="mappingProfile" column="mapping_profile"/>
+        <result property="fieldCount" column="field_count"/>
+        <result property="overallConfidence" column="overall_confidence"/>
+        <result property="createdAt" column="created_at"/>
+        <result property="updatedAt" column="updated_at"/>
+    </resultMap>
+
+    <select id="selectByTaskId" resultMap="ExtractResultRecordMap">
+        select id, task_id, trace_id, document_id, config_id, result_json, confidence_json,
+               overall_confidence, need_review, status, field_count, target_table, mapping_profile,
+               created_at, updated_at
+        from extract_result_record
+        where task_id = #{taskId}
+    </select>
+
+    <select id="selectSummaryList" resultMap="ResultSummaryMap">
+        <bind name="keywordLike" value="query.keyword == null ? null : '%' + query.keyword + '%'"/>
+        select r.task_id,
+               r.trace_id,
+               r.document_id,
+               t.file_name,
+               t.document_type,
+               t.department_id,
+               t.source_type,
+               r.status as result_status,
+               case r.need_review when '1' then '&#x5F85;&#x590D;&#x6838;' else '&#x81EA;&#x52A8;&#x901A;&#x8FC7;' end as review_status,
+               r.target_table,
+               r.mapping_profile,
+               r.field_count,
+               r.overall_confidence,
+               r.created_at,
+               r.updated_at
+        from extract_result_record r
+        left join extract_task t on r.task_id = t.task_id
+        <where>
+            <if test="query.keyword != null and query.keyword != ''">
+                and (r.task_id like #{keywordLike}
+                or r.trace_id like #{keywordLike}
+                or r.document_id like #{keywordLike}
+                or t.file_name like #{keywordLike})
+            </if>
+            <if test="query.documentType != null and query.documentType != ''">
+                and t.document_type = #{query.documentType}
+            </if>
+            <if test="query.departmentId != null and query.departmentId != ''">
+                and t.department_id = #{query.departmentId}
+            </if>
+            <if test="query.sourceType != null and query.sourceType != ''">
+                and t.source_type = #{query.sourceType}
+            </if>
+            <if test="query.resultStatus != null and query.resultStatus != ''">
+                and r.status = #{query.resultStatus}
+            </if>
+        </where>
+        order by r.updated_at desc
+    </select>
+
+    <insert id="insert" parameterType="com.example.extraction.result.domain.ExtractResultRecord">
+        insert into extract_result_record (
+            id, task_id, trace_id, document_id, config_id, result_json, confidence_json,
+            overall_confidence, need_review, status, field_count, target_table, mapping_profile,
+            created_at, updated_at
+        ) values (
+            #{id}, #{taskId}, #{traceId}, #{documentId}, #{configId}, #{resultJson}, #{confidenceJson},
+            #{overallConfidence}, #{needReview}, #{status}, #{fieldCount}, #{targetTable}, #{mappingProfile},
+            #{createdAt}, #{updatedAt}
+        )
+    </insert>
+
+    <update id="update" parameterType="com.example.extraction.result.domain.ExtractResultRecord">
+        update extract_result_record
+        set result_json = #{resultJson},
+            confidence_json = #{confidenceJson},
+            overall_confidence = #{overallConfidence},
+            need_review = #{needReview},
+            status = #{status},
+            field_count = #{fieldCount},
+            target_table = #{targetTable},
+            mapping_profile = #{mappingProfile},
+            updated_at = #{updatedAt}
+        where task_id = #{taskId}
+    </update>
+</mapper>

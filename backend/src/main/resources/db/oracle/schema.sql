@@ -535,3 +535,43 @@ create table task_stage_log (
 create index idx_task_stage_log_task on task_stage_log (task_id);
 create index idx_task_stage_log_trace on task_stage_log (trace_id);
 create index idx_task_stage_log_status on task_stage_log (status);
+
+create table document_parse_result (
+  id varchar2(64) primary key,
+  task_id varchar2(128) not null,
+  trace_id varchar2(128) not null,
+  document_id varchar2(128) not null,
+  engine_code varchar2(128),
+  parse_text clob,
+  parse_markdown_path varchar2(1000),
+  page_count number(10),
+  status varchar2(30) not null,
+  created_at timestamp not null,
+  updated_at timestamp not null,
+  constraint uk_document_parse_task unique (task_id)
+);
+
+create index idx_document_parse_trace on document_parse_result (trace_id);
+
+create table extract_result_record (
+  id varchar2(64) primary key,
+  task_id varchar2(128) not null,
+  trace_id varchar2(128) not null,
+  document_id varchar2(128) not null,
+  config_id varchar2(64),
+  result_json clob,
+  confidence_json clob,
+  overall_confidence number(8,6),
+  need_review char(1) default '0',
+  status varchar2(30) not null,
+  field_count number(10),
+  target_table varchar2(200),
+  mapping_profile varchar2(200),
+  created_at timestamp not null,
+  updated_at timestamp not null,
+  constraint uk_extract_result_task unique (task_id)
+);
+
+create index idx_extract_result_trace on extract_result_record (trace_id);
+create index idx_extract_result_status on extract_result_record (status);
+create index idx_extract_result_config on extract_result_record (config_id);
