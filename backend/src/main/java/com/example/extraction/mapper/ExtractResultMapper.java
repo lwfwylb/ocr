@@ -15,4 +15,6 @@ public interface ExtractResultMapper {
     void insert(ExtractResultRecord record);
 
     int update(ExtractResultRecord record);
+
+    int updateReviewState(ExtractResultRecord record);
 }

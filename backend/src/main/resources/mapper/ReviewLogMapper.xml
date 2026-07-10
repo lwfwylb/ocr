@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.example.extraction.mapper.ReviewLogMapper">
+    <resultMap id="ReviewLogRecordMap" type="com.example.extraction.result.domain.ReviewLogRecord">
+        <id property="id" column="id"/>
+        <result property="taskId" column="task_id"/>
+        <result property="traceId" column="trace_id"/>
+        <result property="action" column="action"/>
+        <result property="beforeJson" column="before_json"/>
+        <result property="afterJson" column="after_json"/>
+        <result property="comment" column="comment_text"/>
+        <result property="reviewer" column="reviewer"/>
+        <result property="createdAt" column="created_at"/>
+    </resultMap>
+
+    <select id="selectByTaskId" resultMap="ReviewLogRecordMap">
+        select id, task_id, trace_id, action, before_json, after_json, comment_text, reviewer, created_at
+        from extract_review_log
+        where task_id = #{taskId}
+        order by created_at desc
+    </select>
+
+    <insert id="insert" parameterType="com.example.extraction.result.domain.ReviewLogRecord">
+        insert into extract_review_log (
+            id, task_id, trace_id, action, before_json, after_json, comment_text, reviewer, created_at
+        ) values (
+            #{id}, #{taskId}, #{traceId}, #{action}, #{beforeJson}, #{afterJson}, #{comment}, #{reviewer}, #{createdAt}
+        )
+    </insert>
+</mapper>

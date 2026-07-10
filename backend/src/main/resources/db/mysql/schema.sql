@@ -567,3 +567,18 @@ create table if not exists extract_result_record (
   key idx_extract_result_status (status),
   key idx_extract_result_config (config_id)
 );
+
+create table if not exists extract_review_log (
+  id varchar(64) primary key,
+  task_id varchar(128) not null,
+  trace_id varchar(128) not null,
+  action varchar(50) not null,
+  before_json longtext,
+  after_json longtext,
+  comment_text varchar(1000),
+  reviewer varchar(100),
+  created_at datetime not null,
+  key idx_extract_review_task (task_id),
+  key idx_extract_review_trace (trace_id),
+  key idx_extract_review_action (action)
+);

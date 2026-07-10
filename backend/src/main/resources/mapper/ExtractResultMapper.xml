@@ -113,4 +113,14 @@
             updated_at = #{updatedAt}
         where task_id = #{taskId}
     </update>
+
+    <update id="updateReviewState" parameterType="com.example.extraction.result.domain.ExtractResultRecord">
+        update extract_result_record
+        set result_json = #{resultJson},
+            need_review = #{needReview},
+            status = #{status},
+            field_count = #{fieldCount},
+            updated_at = #{updatedAt}
+        where task_id = #{taskId}
+    </update>
 </mapper>

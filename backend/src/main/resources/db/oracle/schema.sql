@@ -575,3 +575,19 @@ create table extract_result_record (
 create index idx_extract_result_trace on extract_result_record (trace_id);
 create index idx_extract_result_status on extract_result_record (status);
 create index idx_extract_result_config on extract_result_record (config_id);
+
+create table extract_review_log (
+  id varchar2(64) primary key,
+  task_id varchar2(128) not null,
+  trace_id varchar2(128) not null,
+  action varchar2(50) not null,
+  before_json clob,
+  after_json clob,
+  comment_text varchar2(1000),
+  reviewer varchar2(100),
+  created_at timestamp not null
+);
+
+create index idx_extract_review_task on extract_review_log (task_id);
+create index idx_extract_review_trace on extract_review_log (trace_id);
+create index idx_extract_review_action on extract_review_log (action);
