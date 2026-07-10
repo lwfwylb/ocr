@@ -424,6 +424,35 @@ create table if not exists ocr_engine_config (
   key idx_ocr_engine_default (default_engine)
 );
 
+create table if not exists model_call_log (
+  id varchar(64) primary key,
+  call_id varchar(128) not null,
+  trace_id varchar(128),
+  task_id varchar(128),
+  config_id varchar(64),
+  call_type varchar(30) not null,
+  stage_code varchar(50),
+  stage_name varchar(100),
+  provider varchar(100),
+  model_code varchar(128),
+  model_name varchar(200),
+  request_summary varchar(1000),
+  response_summary varchar(1000),
+  prompt_preview longtext,
+  input_tokens int,
+  output_tokens int,
+  duration_ms bigint,
+  status varchar(30) not null,
+  error_message varchar(1000),
+  created_at datetime not null,
+  unique key uk_model_call_log_call (call_id),
+  key idx_model_call_log_trace (trace_id),
+  key idx_model_call_log_task (task_id),
+  key idx_model_call_log_type_status (call_type, status),
+  key idx_model_call_log_model (model_code),
+  key idx_model_call_log_created (created_at)
+);
+
 create table if not exists document_access_record (
   id varchar(64) primary key,
   trace_id varchar(128) not null,

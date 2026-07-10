@@ -617,6 +617,36 @@ create index idx_storage_result_table on storage_result_record (target_table);
 create index idx_storage_result_status on storage_result_record (storage_status);
 create index idx_storage_result_config on storage_result_record (config_id);
 
+create table model_call_log (
+  id varchar(64) primary key,
+  call_id varchar(128) not null,
+  trace_id varchar(128),
+  task_id varchar(128),
+  config_id varchar(64),
+  call_type varchar(30) not null,
+  stage_code varchar(50),
+  stage_name varchar(100),
+  provider varchar(100),
+  model_code varchar(128),
+  model_name varchar(200),
+  request_summary varchar(1000),
+  response_summary varchar(1000),
+  prompt_preview clob,
+  input_tokens int,
+  output_tokens int,
+  duration_ms bigint,
+  status varchar(30) not null,
+  error_message varchar(1000),
+  created_at timestamp not null,
+  constraint uk_model_call_log_call unique (call_id)
+);
+
+create index idx_model_call_log_trace on model_call_log (trace_id);
+create index idx_model_call_log_task on model_call_log (task_id);
+create index idx_model_call_log_type_status on model_call_log (call_type, status);
+create index idx_model_call_log_model on model_call_log (model_code);
+create index idx_model_call_log_created on model_call_log (created_at);
+
 create table downstream_push_record (
   id varchar(64) primary key,
   push_id varchar(128) not null,

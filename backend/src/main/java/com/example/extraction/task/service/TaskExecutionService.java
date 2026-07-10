@@ -4,6 +4,7 @@ import com.example.extraction.common.BusinessException;
 import com.example.extraction.common.IdGenerator;
 import com.example.extraction.mapper.ExtractTaskMapper;
 import com.example.extraction.mapper.TaskStageLogMapper;
+import com.example.extraction.model.service.ModelCallLogService;
 import com.example.extraction.result.service.ExtractionResultService;
 import com.example.extraction.task.domain.ExtractTaskRecord;
 import com.example.extraction.task.domain.TaskStageLogRecord;
@@ -24,15 +25,18 @@ public class TaskExecutionService {
     private final TaskStageLogMapper taskStageLogMapper;
     private final ExtractTaskService extractTaskService;
     private final ExtractionResultService extractionResultService;
+    private final ModelCallLogService modelCallLogService;
 
     public TaskExecutionService(ExtractTaskMapper extractTaskMapper,
                                 TaskStageLogMapper taskStageLogMapper,
                                 ExtractTaskService extractTaskService,
-                                ExtractionResultService extractionResultService) {
+                                ExtractionResultService extractionResultService,
+                                ModelCallLogService modelCallLogService) {
         this.extractTaskMapper = extractTaskMapper;
         this.taskStageLogMapper = taskStageLogMapper;
         this.extractTaskService = extractTaskService;
         this.extractionResultService = extractionResultService;
+        this.modelCallLogService = modelCallLogService;
     }
 
     public List<TaskStageLogResponse> stageLogs(String taskId) {
@@ -61,18 +65,38 @@ public class TaskExecutionService {
         try {
             updateState(task, "PARSING", "\u6587\u6863\u89e3\u6790", 20, null, null);
             extractionResultService.saveParseResult(task);
+            modelCallLogService.logOcrSuccess(task,
+                    "\u6587\u4ef6\uff1a" + task.getFileName() + "\uff0c\u8f93\u51fa\u683c\u5f0f\uff1aMarkdown",
+                    "\u6a21\u62df OCR \u89e3\u6790\u6210\u529f\uff0c\u751f\u6210 Markdown \u6587\u672c",
+                    1200L);
             logSuccess(task, "PARSE", "\u6587\u6863\u89e3\u6790", "\u8bfb\u53d6\u539f\u6587\u4ef6\u5e76\u751f\u6210 Markdown", "\u6a21\u62df\u89e3\u6790\u5b8c\u6210\uff0c\u5df2\u83b7\u5f97\u6587\u6863\u6587\u672c");
 
             updateState(task, "EXTRACTING", "\u8981\u7d20\u63d0\u53d6", 55, null, null);
             boolean needReview = shouldReview(task);
             BigDecimal confidence = needReview ? new BigDecimal("0.86") : new BigDecimal("0.92");
             extractionResultService.saveExtractResult(task, confidence, needReview);
+            modelCallLogService.logLlmSuccess(task,
+                    "EXTRACT",
+                    "\u8981\u7d20\u63d0\u53d6",
+                    "\u6309\u914d\u7f6e\u5b57\u6bb5\u751f\u6210 JSON \u63d0\u53d6\u8bf7\u6c42",
+                    "\u6a21\u62df LLM \u63d0\u53d6\u6210\u529f\uff0c\u7f6e\u4fe1\u5ea6 " + confidence,
+                    "\u8bf7\u6839\u636e\u5df2\u914d\u7f6e\u7684\u63d0\u53d6\u5b57\u6bb5\u548c\u76ee\u6807\u8868\u6620\u5c04\uff0c\u8f93\u51fa JSON \u7ed3\u679c\u3002",
+                    1200,
+                    420,
+                    980L);
             logSuccess(task, "EXTRACT", "\u8981\u7d20\u63d0\u53d6", "\u6309\u751f\u6548\u914d\u7f6e\u6267\u884c AI/\u6b63\u5219\u63d0\u53d6", "\u6a21\u62df\u63d0\u53d6\u5b8c\u6210\uff0c\u7f6e\u4fe1\u5ea6 " + confidence);
 
             updateState(task, "EXTRACTING", "\u52a0\u5de5\u6821\u9a8c", 80, null, null);
             logSuccess(task, "VALIDATE", "\u52a0\u5de5\u6821\u9a8c", "\u6267\u884c\u5b57\u5178\u8f6c\u6362\u3001SQL/API \u53d6\u6570\u548c\u5fc5\u586b\u6821\u9a8c", "\u6a21\u62df\u52a0\u5de5\u6821\u9a8c\u901a\u8fc7");
 
             if (shouldFail(task)) {
+                modelCallLogService.logFailure(task,
+                        "LLM",
+                        "EXTRACT",
+                        "\u8981\u7d20\u63d0\u53d6",
+                        "\u6a21\u62df\u5931\u8d25\u6587\u4ef6\u89e6\u53d1\u7684\u63d0\u53d6\u8bf7\u6c42",
+                        "\u6a21\u62df\u6267\u884c\u5931\u8d25",
+                        650L);
                 fail(task, "SIMULATED_FAILED", "\u6a21\u62df\u6267\u884c\u5931\u8d25\uff0c\u8bf7\u5728\u5931\u8d25\u4efb\u52a1\u4e2d\u91cd\u8bd5");
             } else if (shouldReview(task)) {
                 updateState(task, "WAIT_REVIEW", "\u7b49\u5f85\u4eba\u5de5\u590d\u6838", 90, null, null);
