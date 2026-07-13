@@ -55,7 +55,6 @@ create table if not exists sys_dict_item (
   key idx_sys_dict_item_parent (dict_code, parent_value)
 );
 
-create table if not exists parse_config (
 create table if not exists sys_role (
   id varchar(64) primary key,
   role_code varchar(100) not null,
@@ -147,6 +146,7 @@ create table if not exists sys_data_policy_scope (
   key idx_sys_data_policy_scope_type (scope_type, scope_value)
 );
 
+create table if not exists parse_config (
   id varchar(64) primary key,
   extract_config_id varchar(64),
   engine_code varchar(100),

@@ -27,9 +27,14 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 
 @Service
 public class SystemAccessService {
+    private static final Set<String> BUILTIN_ROLE_CODES = Set.of(
+            "biz_user", "reviewer", "template_admin", "dept_admin", "auditor", "system_account"
+    );
+
     private final SystemAccessMapper accessMapper;
 
     public SystemAccessService(SystemAccessMapper accessMapper) {
@@ -124,6 +129,24 @@ public class SystemAccessService {
         requireRole(id);
         accessMapper.updateRoleStatus(id, status);
         return toRoleResponse(requireRole(id));
+    }
+
+    @Transactional
+    public void deleteRole(String id) {
+        SysRoleRecord role = requireRole(id);
+        if (BUILTIN_ROLE_CODES.contains(role.getRoleCode())) {
+            throw new BusinessException("ROLE_409", "系统内置角色不允许删除，可改为停用");
+        }
+        int userRefs = accessMapper.countUserRolesByRoleId(id);
+        if (userRefs > 0) {
+            throw new BusinessException("ROLE_409", "该角色已绑定用户，请先解除用户角色关系，或改为停用角色");
+        }
+        int policyRefs = accessMapper.countDataPoliciesByRoleId(id);
+        if (policyRefs > 0) {
+            throw new BusinessException("ROLE_409", "该角色已被数据权限策略引用，请先调整策略，或改为停用角色");
+        }
+        accessMapper.deleteRolePermissions(id);
+        accessMapper.deleteRole(id);
     }
 
     @Transactional

@@ -164,6 +164,10 @@
         update sys_role set status = #{status}, updated_at = current_timestamp where id = #{id}
     </update>
 
+    <delete id="deleteRole">
+        delete from sys_role where id = #{id}
+    </delete>
+
     <select id="selectUserRoles" resultMap="SysUserDepartmentRoleRecordMap">
         select ur.*, r.role_code, r.role_name
         from sys_user_department_role ur
@@ -174,6 +178,10 @@
 
     <select id="countUserRolesByRoleId" resultType="java.lang.Integer">
         select count(1) from sys_user_department_role where role_id = #{roleId}
+    </select>
+
+    <select id="countDataPoliciesByRoleId" resultType="java.lang.Integer">
+        select count(1) from sys_data_policy where subject_type = 'ROLE' and subject_id = #{roleId}
     </select>
 
     <insert id="insertUserRole" parameterType="com.example.extraction.system.domain.SysUserDepartmentRoleRecord">

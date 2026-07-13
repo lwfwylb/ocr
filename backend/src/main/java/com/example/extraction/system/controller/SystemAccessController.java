@@ -85,6 +85,12 @@ public class SystemAccessController {
         return ApiResponse.success(accessService.updateRoleStatus(id, "DISABLED"));
     }
 
+    @DeleteMapping("/roles/{id}")
+    public ApiResponse<Void> deleteRole(@PathVariable("id") String id) {
+        accessService.deleteRole(id);
+        return ApiResponse.success(null);
+    }
+
     @GetMapping("/permissions/tree")
     public ApiResponse<List<PermissionNodeResponse>> permissionTree() {
         return ApiResponse.success(accessService.permissionTree());

@@ -31,9 +31,11 @@ public interface SystemAccessMapper {
     void insertRole(SysRoleRecord record);
     int updateRole(SysRoleRecord record);
     int updateRoleStatus(@Param("id") String id, @Param("status") String status);
+    int deleteRole(@Param("id") String id);
 
     List<SysUserDepartmentRoleRecord> selectUserRoles(@Param("userId") String userId);
     int countUserRolesByRoleId(@Param("roleId") String roleId);
+    int countDataPoliciesByRoleId(@Param("roleId") String roleId);
     void insertUserRole(SysUserDepartmentRoleRecord record);
     int deleteUserRoles(@Param("userId") String userId);
 

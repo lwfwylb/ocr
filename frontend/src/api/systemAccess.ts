@@ -127,6 +127,10 @@ export function disableSystemRole(id: string) {
   return request<SystemRole>(`/api/system/access/roles/${id}/disable`, { method: 'POST' })
 }
 
+export function deleteSystemRole(id: string) {
+  return request<void>(`/api/system/access/roles/${id}`, { method: 'DELETE' })
+}
+
 export function getPermissionTree() {
   return request<PermissionNode[]>('/api/system/access/permissions/tree')
 }

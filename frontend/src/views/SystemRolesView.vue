@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, reactive, ref } from 'vue'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   createSystemRole,
+  deleteSystemRole,
   disableSystemRole,
   enableSystemRole,
   getPermissionTree,
@@ -118,6 +119,22 @@ const toggleRole = async (role: SystemRole) => {
   }
 }
 
+const removeRole = async (role: SystemRole) => {
+  try {
+    await ElMessageBox.confirm(`确认删除角色「${role.roleName}」？删除前系统会校验用户绑定和数据权限策略引用。`, '删除角色', {
+      type: 'warning',
+      confirmButtonText: '确认删除',
+      cancelButtonText: '取消'
+    })
+    await deleteSystemRole(role.id)
+    ElMessage.success('角色已删除')
+    if (activeRoleId.value === role.id) activeRoleId.value = ''
+    await loadRoles()
+  } catch (error) {
+    if (error !== 'cancel') ElMessage.error(error instanceof Error ? error.message : '删除角色失败')
+  }
+}
+
 const savePermissions = async () => {
   if (!activeRole.value) return
   saving.value = true
@@ -189,6 +206,7 @@ onMounted(async () => {
             <div>
               <el-button @click="openEdit(activeRole)">编辑角色</el-button>
               <el-button :type="activeRole.status === 'ENABLED' ? 'warning' : 'success'" @click="toggleRole(activeRole)">{{ activeRole.status === 'ENABLED' ? '停用' : '启用' }}</el-button>
+              <el-button type="danger" @click="removeRole(activeRole)">删除角色</el-button>
               <el-button type="primary" :loading="saving" @click="savePermissions">保存权限</el-button>
             </div>
           </div>
