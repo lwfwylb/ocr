@@ -166,10 +166,10 @@ public class ConfigWizardPayload {
         private String category;
         private String subCategory;
         private String templateType;
-        @NotBlank
         private String documentType;
         @NotBlank
         private String departmentId;
+        @NotBlank
         private String ownerRole;
         private String defaultPriority;
 

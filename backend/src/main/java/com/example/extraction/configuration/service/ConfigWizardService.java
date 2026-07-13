@@ -295,11 +295,14 @@ public class ConfigWizardService {
         if (!StringUtils.hasText(payload.getBaseInfo().getConfigName())) {
             throw new BusinessException("PARAM_400", "配置名称不能为空");
         }
-        if (!StringUtils.hasText(payload.getBaseInfo().getDocumentType())) {
-            throw new BusinessException("PARAM_400", "文档类型不能为空");
-        }
         if (!StringUtils.hasText(payload.getBaseInfo().getDepartmentId())) {
             throw new BusinessException("PARAM_400", "所属部门不能为空");
+        }
+        if (!StringUtils.hasText(payload.getBaseInfo().getOwnerRole())) {
+            throw new BusinessException("PARAM_400", "配置负责人角色不能为空");
+        }
+        if (payload.getVisibleRoles() == null || payload.getVisibleRoles().isEmpty()) {
+            throw new BusinessException("PARAM_400", "可见角色至少选择一个");
         }
     }
 

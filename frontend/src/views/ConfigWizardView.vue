@@ -310,14 +310,14 @@ const preprocessSteps = ref<PreprocessStep[]>([
 const previewInput = ref('100000-1000000')
 const previewOutput = ref('大额')
 const form = reactive({
-  configName: '划款指令-运营部-提取配置',
-  category: '资金业务',
-  subCategory: '划款指令',
-  templateType: '通用划款指令模板',
-  documentType: '划款指令',
-  departmentId: '运营部',
-  visibleRoles: ['模板配置员', '复核人员'],
-  ownerRole: '模板配置员',
+  configName: '',
+  category: '',
+  subCategory: '',
+  templateType: '',
+  documentType: '',
+  departmentId: '',
+  visibleRoles: [] as string[],
+  ownerRole: '',
   defaultPriority: 'HIGH',
   engineCode: 'paddleocr_vl',
   outputFormat: 'Markdown',
@@ -600,8 +600,9 @@ const validateFieldStorageStep = () => {
 const validateBaseInfoStep = () => {
   const errors: string[] = []
   if (!form.configName?.trim()) errors.push('配置名称不能为空')
-  if (!form.documentType?.trim()) errors.push('文档类型不能为空')
   if (!form.departmentId?.trim()) errors.push('所属部门不能为空')
+  if (!form.ownerRole?.trim()) errors.push('配置负责人角色不能为空')
+  if (!form.visibleRoles.length) errors.push('可见角色至少选择一个')
   return errors
 }
 
@@ -630,7 +631,9 @@ const stepIssueCount = (index: number) => stepErrors(index).length
 
 const wizardStepConfigured = (index: number) => {
   if (stepIssueCount(index)) return false
-  if (index === 0) return Boolean(form.configName?.trim() && form.documentType?.trim() && form.departmentId?.trim())
+  if (index === 0) {
+    return Boolean(form.configName?.trim() && form.departmentId?.trim() && form.ownerRole?.trim() && form.visibleRoles.length)
+  }
   if (index === 1) return Boolean(form.engineCode && form.parseMode)
   if (index === 2) return validateFieldStorageStep().length === 0
   if (index === 3) return extractStrategyStepErrors().length === 0
@@ -774,8 +777,9 @@ const buildWizardPayload = () => ({
 const saveDraft = async () => {
   if (isReadonlyVersion.value) {
     ElMessage.warning('当前版本已发布或停用，请先复制为新版本草稿后再修改')
-    return
+    return false
   }
+  if (showStepErrors(0, '请先完善基础信息')) return false
   saving.value = true
   try {
     const payload = buildWizardPayload()
@@ -787,8 +791,10 @@ const saveDraft = async () => {
     currentVersion.value = result.summary.version || currentVersion.value
     currentStatus.value = normalizeStatus(result.summary.status)
     ElMessage.success(`草稿已保存：${result.summary.configCode}`)
+    return true
   } catch (error) {
     ElMessage.error(error instanceof Error ? error.message : '草稿保存失败')
+    return false
   } finally {
     saving.value = false
   }
@@ -799,8 +805,8 @@ const validate = async () => {
     return
   }
   try {
-    await saveDraft()
-    if (!currentConfigId.value) return
+    const saved = await saveDraft()
+    if (!saved || !currentConfigId.value) return
     const result = await validateExtractConfig(currentConfigId.value)
     validationReport.value = result
     if (result.passed) {
@@ -821,8 +827,8 @@ const publish = async () => {
     return
   }
   try {
-    await saveDraft()
-    if (!currentConfigId.value) return
+    const saved = await saveDraft()
+    if (!saved || !currentConfigId.value) return
     await ElMessageBox.confirm('发布后新任务将使用该配置版本，历史任务不受影响。确认发布？', '发布配置', {
       type: 'warning'
     })
@@ -1071,14 +1077,14 @@ const applyWizardPayload = (payload: any) => {
   const firstPushRule = payload.pushRules?.[0] || {}
 
   Object.assign(form, {
-    configName: baseInfo.configName || form.configName,
-    category: baseInfo.category || form.category,
-    subCategory: baseInfo.subCategory || form.subCategory,
-    templateType: baseInfo.templateType || form.templateType,
-    documentType: baseInfo.documentType || form.documentType,
-    departmentId: baseInfo.departmentId || form.departmentId,
-    visibleRoles: payload.visibleRoles || form.visibleRoles,
-    ownerRole: baseInfo.ownerRole || form.ownerRole,
+    configName: baseInfo.configName ?? form.configName,
+    category: baseInfo.category ?? form.category,
+    subCategory: baseInfo.subCategory ?? form.subCategory,
+    templateType: baseInfo.templateType ?? form.templateType,
+    documentType: baseInfo.documentType ?? form.documentType,
+    departmentId: baseInfo.departmentId ?? form.departmentId,
+    visibleRoles: Array.isArray(payload.visibleRoles) ? payload.visibleRoles : form.visibleRoles,
+    ownerRole: baseInfo.ownerRole ?? form.ownerRole,
     defaultPriority: baseInfo.defaultPriority || form.defaultPriority,
     engineCode: parseConfig.engineCode || form.engineCode,
     outputFormat: 'Markdown',
@@ -1236,35 +1242,35 @@ onMounted(async () => {
       <template v-if="activeStep === 0">
         <h2>基础信息</h2>
         <el-form :model="form" label-width="120px" class="form-grid">
-          <el-form-item label="配置名称"><el-input v-model="form.configName" /></el-form-item>
+          <el-form-item label="配置名称" required><el-input v-model="form.configName" clearable placeholder="请输入唯一配置名称" /></el-form-item>
           <el-form-item label="业务分类">
-            <el-select v-model="form.category" filterable @change="form.subCategory = ''; form.templateType = ''">
+            <el-select v-model="form.category" filterable clearable placeholder="请选择业务分类" @change="form.subCategory = ''; form.templateType = ''">
               <el-option v-for="item in categoryOptions" :key="item.value" :label="item.label" :value="item.value" />
             </el-select>
           </el-form-item>
           <el-form-item label="业务子类">
-            <el-select v-model="form.subCategory" filterable @change="form.templateType = ''; form.documentType = form.subCategory">
+            <el-select v-model="form.subCategory" filterable clearable placeholder="请选择业务子类" @change="form.templateType = ''; form.documentType = form.subCategory">
               <el-option v-for="item in subCategoryOptions" :key="item.value" :label="item.label" :value="item.value" />
             </el-select>
           </el-form-item>
           <el-form-item label="模板/表单类型">
-            <el-select v-model="form.templateType" filterable allow-create>
+            <el-select v-model="form.templateType" filterable clearable allow-create placeholder="请选择或输入模板/表单类型">
               <el-option v-for="item in templateTypeOptions" :key="item" :label="item" :value="item" />
             </el-select>
           </el-form-item>
-          <el-form-item label="文档类型"><el-input v-model="form.documentType" /></el-form-item>
-          <el-form-item label="所属部门">
-            <el-select v-model="form.departmentId" filterable>
+          <el-form-item label="文档类型"><el-input v-model="form.documentType" clearable placeholder="可由业务子类带出，也可手工维护" /></el-form-item>
+          <el-form-item label="所属部门" required>
+            <el-select v-model="form.departmentId" filterable clearable placeholder="请选择所属部门">
               <el-option v-for="item in options.departments" :key="item.value" :label="item.label" :value="item.value" />
             </el-select>
           </el-form-item>
-          <el-form-item label="配置负责人角色">
-            <el-select v-model="form.ownerRole" filterable>
+          <el-form-item label="配置负责人角色" required>
+            <el-select v-model="form.ownerRole" filterable clearable placeholder="请选择负责维护该配置的角色">
               <el-option v-for="item in options.roles" :key="item.value" :label="item.label" :value="item.value" />
             </el-select>
           </el-form-item>
-          <el-form-item label="可见角色">
-            <el-select v-model="form.visibleRoles" multiple filterable clearable collapse-tags collapse-tags-tooltip>
+          <el-form-item label="可见角色" required>
+            <el-select v-model="form.visibleRoles" multiple filterable clearable collapse-tags collapse-tags-tooltip placeholder="请选择可查看/使用该配置的角色">
               <el-option v-for="item in options.roles" :key="item.value" :label="item.label" :value="item.value" />
             </el-select>
           </el-form-item>
