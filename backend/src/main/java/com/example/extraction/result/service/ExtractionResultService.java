@@ -879,7 +879,7 @@ public class ExtractionResultService {
             return TransformValue.failed("未维护字典明细");
         }
         String inputText = String.valueOf(inputValue).trim();
-        String matchMode = firstText(rule.getDictMatchMode(), "EQUALS");
+        String matchMode = firstText(transformRuleText(rule, "dictMatchMode"), "EQUALS");
         for (Map<String, Object> item : rule.getDictItems()) {
             String source = stringValue(item.get("source"));
             String target = stringValue(item.get("target"));
@@ -900,7 +900,7 @@ public class ExtractionResultService {
     }
 
     private Object simulatedApiValue(ConfigWizardPayload.TransformRule rule, Object inputValue) {
-        String key = (firstText(rule.getOutputField(), rule.getApiResponsePath(), rule.getRuleName()) + " " + inputValue).toLowerCase();
+        String key = (firstText(rule.getOutputField(), transformRuleText(rule, "apiResponsePath"), rule.getRuleName()) + " " + inputValue).toLowerCase();
         if (key.contains("account") || key.contains("账户") || key.contains("账号")) {
             return "模拟账户名称-" + tailDigits(String.valueOf(inputValue));
         }
@@ -914,7 +914,7 @@ public class ExtractionResultService {
     }
 
     private Object simulatedSqlValue(ConfigWizardPayload.TransformRule rule, Object inputValue) {
-        String key = (firstText(rule.getOutputField(), rule.getSqlResultColumn(), rule.getSqlText()) + " " + inputValue).toLowerCase();
+        String key = (firstText(rule.getOutputField(), transformRuleText(rule, "sqlResultColumn"), transformRuleText(rule, "sqlText")) + " " + inputValue).toLowerCase();
         if (key.contains("product_name") || key.contains("产品名称")) {
             return "模拟产品名称-" + inputValue;
         }
@@ -1193,6 +1193,42 @@ public class ExtractionResultService {
             return list.isEmpty();
         }
         return false;
+    }
+
+    private String transformRuleText(ConfigWizardPayload.TransformRule rule, String propertyName) {
+        if (rule == null || !StringUtils.hasText(propertyName)) {
+            return null;
+        }
+        Object fromGetter = readTransformRuleGetter(rule, propertyName);
+        if (fromGetter != null) {
+            return String.valueOf(fromGetter);
+        }
+        Object fromField = readTransformRuleField(rule, propertyName);
+        if (fromField != null) {
+            return String.valueOf(fromField);
+        }
+        Map<String, Object> config = rule.getRuleConfig();
+        Object fromConfig = config == null ? null : config.get(propertyName);
+        return fromConfig == null ? null : String.valueOf(fromConfig);
+    }
+
+    private Object readTransformRuleGetter(ConfigWizardPayload.TransformRule rule, String propertyName) {
+        try {
+            String methodName = "get" + propertyName.substring(0, 1).toUpperCase() + propertyName.substring(1);
+            return rule.getClass().getMethod(methodName).invoke(rule);
+        } catch (ReflectiveOperationException | RuntimeException ignored) {
+            return null;
+        }
+    }
+
+    private Object readTransformRuleField(ConfigWizardPayload.TransformRule rule, String propertyName) {
+        try {
+            java.lang.reflect.Field field = rule.getClass().getDeclaredField(propertyName);
+            field.setAccessible(true);
+            return field.get(rule);
+        } catch (ReflectiveOperationException | RuntimeException ignored) {
+            return null;
+        }
     }
 
     private String stringValue(Object value) {

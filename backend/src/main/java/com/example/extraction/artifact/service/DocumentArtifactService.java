@@ -205,7 +205,7 @@ public class DocumentArtifactService {
         if (documentArtifactMapper.selectStepByTaskIdAndCode(task.getTaskId(), stepCode) != null) {
             return;
         }
-        LocalDateTime startedAt = LocalDateTime.now().minusMillis(300);
+        LocalDateTime startedAt = LocalDateTime.now().minus(Duration.ofMillis(300));
         LocalDateTime endedAt = LocalDateTime.now();
         DocumentArtifactStepRecord step = new DocumentArtifactStepRecord();
         step.setId(IdGenerator.nextId("ASTEP"));

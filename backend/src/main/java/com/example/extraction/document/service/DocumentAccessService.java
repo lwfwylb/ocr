@@ -4,6 +4,7 @@ import com.example.extraction.common.BusinessException;
 import com.example.extraction.common.IdGenerator;
 import com.example.extraction.artifact.service.DocumentArtifactService;
 import com.example.extraction.configuration.domain.ExtractConfigRecord;
+import com.example.extraction.configuration.dto.ConfigQueryRequest;
 import com.example.extraction.document.domain.DocumentAccessRecord;
 import com.example.extraction.document.dto.DocumentAccessQueryRequest;
 import com.example.extraction.document.dto.DocumentAccessRequest;
@@ -212,13 +213,14 @@ public class DocumentAccessService {
     }
 
     private void applyMatch(DocumentAccessRecord record) {
-        List<ExtractConfigRecord> candidates = extractConfigMapper.selectPublishedCandidates(
-                record.getDepartmentId(),
-                record.getCategory(),
-                record.getSubCategory(),
-                record.getTemplateType(),
-                record.getDocumentType()
-        );
+        ConfigQueryRequest query = new ConfigQueryRequest();
+        query.setStatus("PUBLISHED");
+        query.setDepartmentId(record.getDepartmentId());
+        query.setCategory(record.getCategory());
+        query.setSubCategory(record.getSubCategory());
+        query.setTemplateType(record.getTemplateType());
+        query.setDocumentType(record.getDocumentType());
+        List<ExtractConfigRecord> candidates = extractConfigMapper.selectList(query);
         if (candidates.size() == 1) {
             ExtractConfigRecord config = candidates.get(0);
             record.setMatchedConfigId(config.getId());
