@@ -644,7 +644,7 @@ const wizardStepConfigured = (index: number) => {
 const wizardStepStatus = (index: number) => {
   if (stepIssueCount(index)) return 'error'
   if (activeStep.value === index) return 'process'
-  return wizardStepConfigured(index) ? 'success' : 'wait'
+  return wizardStepConfigured(index) ? 'finish' : 'wait'
 }
 
 const showStepErrors = (index: number, title = '请先完善配置') => {
@@ -2406,12 +2406,12 @@ onMounted(async () => {
   color: var(--el-color-danger);
 }
 
-.wizard-steps :deep(.el-step__head.is-success) {
+.wizard-steps :deep(.el-step__head.is-finish) {
   color: var(--el-color-success);
   border-color: var(--el-color-success);
 }
 
-.wizard-steps :deep(.el-step__head.is-success .el-step__line) {
+.wizard-steps :deep(.el-step__head.is-finish .el-step__line) {
   background-color: var(--el-color-success);
 }
 
