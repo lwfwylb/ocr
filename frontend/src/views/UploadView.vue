@@ -40,7 +40,7 @@ const loadConfigs = async () => {
   loadingConfigs.value = true
   try {
     const publishedConfigs = await listExtractConfigs({ status: 'PUBLISHED' })
-    configs.value = publishedConfigs.filter((config) => config.currentEffective === true)
+    configs.value = publishedConfigs.filter((config) => config.status === 'PUBLISHED' || config.currentEffective === true)
     if (!form.configId && configs.value.length) {
       form.configId = configs.value[0].id
     }
