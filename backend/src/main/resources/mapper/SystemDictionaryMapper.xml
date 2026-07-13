@@ -1,0 +1,171 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.example.extraction.mapper.SystemDictionaryMapper">
+    <resultMap id="SysDictTypeRecordMap" type="com.example.extraction.system.domain.SysDictTypeRecord">
+        <id property="id" column="id"/>
+        <result property="dictCode" column="dict_code"/>
+        <result property="dictName" column="dict_name"/>
+        <result property="usageScene" column="usage_scene"/>
+        <result property="status" column="status"/>
+        <result property="sortNo" column="sort_no"/>
+        <result property="remark" column="remark"/>
+        <result property="createdBy" column="created_by"/>
+        <result property="createdAt" column="created_at"/>
+        <result property="updatedAt" column="updated_at"/>
+    </resultMap>
+
+    <resultMap id="SysDictItemRecordMap" type="com.example.extraction.system.domain.SysDictItemRecord">
+        <id property="id" column="id"/>
+        <result property="dictCode" column="dict_code"/>
+        <result property="itemValue" column="item_value"/>
+        <result property="itemLabel" column="item_label"/>
+        <result property="parentValue" column="parent_value"/>
+        <result property="sortNo" column="sort_no"/>
+        <result property="enabled" column="enabled"/>
+        <result property="extraJson" column="extra_json"/>
+        <result property="remark" column="remark"/>
+        <result property="createdBy" column="created_by"/>
+        <result property="createdAt" column="created_at"/>
+        <result property="updatedAt" column="updated_at"/>
+    </resultMap>
+
+    <sql id="TypeColumns">
+        id, dict_code, dict_name, usage_scene, status, sort_no, remark, created_by, created_at, updated_at
+    </sql>
+
+    <sql id="ItemColumns">
+        id, dict_code, item_value, item_label, parent_value, sort_no, enabled, extra_json, remark, created_by, created_at, updated_at
+    </sql>
+
+    <select id="selectTypes" resultMap="SysDictTypeRecordMap">
+        <bind name="keywordLike" value="keyword == null ? null : '%' + keyword + '%'"/>
+        select <include refid="TypeColumns"/>
+        from sys_dict_type
+        <where>
+            <if test="keyword != null and keyword != ''">
+                and (dict_code like #{keywordLike} or dict_name like #{keywordLike} or usage_scene like #{keywordLike})
+            </if>
+            <if test="status != null and status != ''">
+                and status = #{status}
+            </if>
+        </where>
+        order by sort_no asc, updated_at desc
+    </select>
+
+    <select id="selectTypeById" resultMap="SysDictTypeRecordMap">
+        select <include refid="TypeColumns"/>
+        from sys_dict_type
+        where id = #{id}
+    </select>
+
+    <select id="selectTypeByCode" resultMap="SysDictTypeRecordMap">
+        select <include refid="TypeColumns"/>
+        from sys_dict_type
+        where dict_code = #{dictCode}
+    </select>
+
+    <select id="countTypes" resultType="java.lang.Integer">
+        select count(1) from sys_dict_type
+    </select>
+
+    <insert id="insertType" parameterType="com.example.extraction.system.domain.SysDictTypeRecord">
+        insert into sys_dict_type (
+            id, dict_code, dict_name, usage_scene, status, sort_no, remark, created_by, created_at, updated_at
+        ) values (
+            #{id}, #{dictCode}, #{dictName}, #{usageScene}, #{status}, #{sortNo}, #{remark}, #{createdBy}, #{createdAt}, #{updatedAt}
+        )
+    </insert>
+
+    <update id="updateType" parameterType="com.example.extraction.system.domain.SysDictTypeRecord">
+        update sys_dict_type
+        set dict_code = #{dictCode},
+            dict_name = #{dictName},
+            usage_scene = #{usageScene},
+            status = #{status},
+            sort_no = #{sortNo},
+            remark = #{remark},
+            updated_at = #{updatedAt}
+        where id = #{id}
+    </update>
+
+    <update id="updateTypeStatus">
+        update sys_dict_type
+        set status = #{status}, updated_at = CURRENT_TIMESTAMP
+        where id = #{id}
+    </update>
+
+    <delete id="deleteType">
+        delete from sys_dict_type where id = #{id}
+    </delete>
+
+    <select id="selectItems" resultMap="SysDictItemRecordMap">
+        <bind name="keywordLike" value="keyword == null ? null : '%' + keyword + '%'"/>
+        select <include refid="ItemColumns"/>
+        from sys_dict_item
+        <where>
+            <if test="dictCode != null and dictCode != ''">
+                and dict_code = #{dictCode}
+            </if>
+            <if test="parentValue != null and parentValue != ''">
+                and parent_value = #{parentValue}
+            </if>
+            <if test="keyword != null and keyword != ''">
+                and (item_value like #{keywordLike} or item_label like #{keywordLike} or remark like #{keywordLike})
+            </if>
+            <if test="enabled != null and enabled != ''">
+                and enabled = #{enabled}
+            </if>
+        </where>
+        order by dict_code asc, parent_value asc, sort_no asc, item_label asc
+    </select>
+
+    <select id="selectItemById" resultMap="SysDictItemRecordMap">
+        select <include refid="ItemColumns"/>
+        from sys_dict_item
+        where id = #{id}
+    </select>
+
+    <select id="selectItemByCodeValue" resultMap="SysDictItemRecordMap">
+        select <include refid="ItemColumns"/>
+        from sys_dict_item
+        where dict_code = #{dictCode}
+          and item_value = #{itemValue}
+    </select>
+
+    <select id="countItemsByDictCode" resultType="java.lang.Integer">
+        select count(1) from sys_dict_item where dict_code = #{dictCode}
+    </select>
+
+    <insert id="insertItem" parameterType="com.example.extraction.system.domain.SysDictItemRecord">
+        insert into sys_dict_item (
+            id, dict_code, item_value, item_label, parent_value, sort_no, enabled, extra_json, remark, created_by, created_at, updated_at
+        ) values (
+            #{id}, #{dictCode}, #{itemValue}, #{itemLabel}, #{parentValue}, #{sortNo}, #{enabled}, #{extraJson}, #{remark}, #{createdBy}, #{createdAt}, #{updatedAt}
+        )
+    </insert>
+
+    <update id="updateItem" parameterType="com.example.extraction.system.domain.SysDictItemRecord">
+        update sys_dict_item
+        set dict_code = #{dictCode},
+            item_value = #{itemValue},
+            item_label = #{itemLabel},
+            parent_value = #{parentValue},
+            sort_no = #{sortNo},
+            enabled = #{enabled},
+            extra_json = #{extraJson},
+            remark = #{remark},
+            updated_at = #{updatedAt}
+        where id = #{id}
+    </update>
+
+    <update id="updateItemEnabled">
+        update sys_dict_item
+        set enabled = #{enabled}, updated_at = CURRENT_TIMESTAMP
+        where id = #{id}
+    </update>
+
+    <delete id="deleteItem">
+        delete from sys_dict_item where id = #{id}
+    </delete>
+</mapper>

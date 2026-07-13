@@ -23,6 +23,41 @@ create index idx_extract_config_status on extract_config(status);
 create index idx_extract_config_department on extract_config(department_id);
 create index idx_extract_config_document_type on extract_config(document_type);
 
+create table sys_dict_type (
+  id varchar2(64) primary key,
+  dict_code varchar2(128) not null,
+  dict_name varchar2(200) not null,
+  usage_scene varchar2(200),
+  status varchar2(30) not null,
+  sort_no number(10),
+  remark varchar2(1000),
+  created_by varchar2(100),
+  created_at timestamp not null,
+  updated_at timestamp not null,
+  constraint uk_sys_dict_type_code unique (dict_code)
+);
+
+create index idx_sys_dict_type_status on sys_dict_type(status);
+
+create table sys_dict_item (
+  id varchar2(64) primary key,
+  dict_code varchar2(128) not null,
+  item_value varchar2(200) not null,
+  item_label varchar2(200) not null,
+  parent_value varchar2(200),
+  sort_no number(10),
+  enabled char(1) default '1',
+  extra_json clob,
+  remark varchar2(1000),
+  created_by varchar2(100),
+  created_at timestamp not null,
+  updated_at timestamp not null,
+  constraint uk_sys_dict_item_value unique (dict_code, item_value)
+);
+
+create index idx_sys_dict_item_dict on sys_dict_item(dict_code, enabled);
+create index idx_sys_dict_item_parent on sys_dict_item(dict_code, parent_value);
+
 create table parse_config (
   id varchar2(64) primary key,
   extract_config_id varchar2(64),

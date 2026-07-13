@@ -52,6 +52,7 @@ export interface ConfigOptions {
   departments: Array<Record<string, any>>
   roles: Array<Record<string, any>>
   categories: Array<Record<string, any>>
+  documentTypes: Array<Record<string, any>>
   ocrEngines: Array<Record<string, any>>
   resultTables: Array<Record<string, any>>
   downstreamServices: Array<Record<string, any>>

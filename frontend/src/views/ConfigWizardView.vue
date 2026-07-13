@@ -100,6 +100,7 @@ const options = ref<ConfigOptions>({
   departments: [],
   roles: [],
   categories: [],
+  documentTypes: [],
   ocrEngines: [],
   resultTables: [],
   downstreamServices: []
@@ -1244,7 +1245,11 @@ onMounted(async () => {
               <el-option v-for="item in templateTypeOptions" :key="item" :label="item" :value="item" />
             </el-select>
           </el-form-item>
-          <el-form-item label="文档类型"><el-input v-model="form.documentType" clearable placeholder="可由业务子类带出，也可手工维护" /></el-form-item>
+          <el-form-item label="文档类型">
+            <el-select v-model="form.documentType" filterable clearable allow-create placeholder="可由业务子类带出，也可手工维护">
+              <el-option v-for="item in options.documentTypes" :key="item.value" :label="item.label" :value="item.value" />
+            </el-select>
+          </el-form-item>
           <el-form-item label="所属部门" required>
             <el-select v-model="form.departmentId" filterable clearable placeholder="请选择所属部门">
               <el-option v-for="item in options.departments" :key="item.value" :label="item.label" :value="item.value" />

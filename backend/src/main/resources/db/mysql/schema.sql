@@ -22,6 +22,39 @@ create table if not exists extract_config (
   key idx_extract_config_document_type (document_type)
 );
 
+create table if not exists sys_dict_type (
+  id varchar(64) primary key,
+  dict_code varchar(128) not null,
+  dict_name varchar(200) not null,
+  usage_scene varchar(200),
+  status varchar(30) not null,
+  sort_no int,
+  remark varchar(1000),
+  created_by varchar(100),
+  created_at datetime not null,
+  updated_at datetime not null,
+  unique key uk_sys_dict_type_code (dict_code),
+  key idx_sys_dict_type_status (status)
+);
+
+create table if not exists sys_dict_item (
+  id varchar(64) primary key,
+  dict_code varchar(128) not null,
+  item_value varchar(200) not null,
+  item_label varchar(200) not null,
+  parent_value varchar(200),
+  sort_no int,
+  enabled char(1) default '1',
+  extra_json longtext,
+  remark varchar(1000),
+  created_by varchar(100),
+  created_at datetime not null,
+  updated_at datetime not null,
+  unique key uk_sys_dict_item_value (dict_code, item_value),
+  key idx_sys_dict_item_dict (dict_code, enabled),
+  key idx_sys_dict_item_parent (dict_code, parent_value)
+);
+
 create table if not exists parse_config (
   id varchar(64) primary key,
   extract_config_id varchar(64),

@@ -54,6 +54,7 @@ const options = ref<ConfigOptions>({
   departments: [],
   roles: [],
   categories: [],
+  documentTypes: [],
   ocrEngines: [],
   resultTables: [],
   downstreamServices: []
@@ -115,6 +116,7 @@ const subCategoryOptions = computed(() => {
   return (matchedCategory?.children || []) as Array<Record<string, any>>
 })
 const documentTypeOptions = computed(() => {
+  if (options.value.documentTypes?.length) return options.value.documentTypes
   const values = new Set<string>()
   categoryOptions.value.forEach((category) => {
     ;(category.children || []).forEach((child: Record<string, any>) => values.add(child.value))

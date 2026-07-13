@@ -7,6 +7,7 @@ public class ConfigOptionsResponse {
     private List<Map<String, Object>> departments;
     private List<Map<String, Object>> roles;
     private List<Map<String, Object>> categories;
+    private List<Map<String, Object>> documentTypes;
     private List<Map<String, Object>> ocrEngines;
     private List<Map<String, Object>> resultTables;
     private List<Map<String, Object>> downstreamServices;
@@ -33,6 +34,14 @@ public class ConfigOptionsResponse {
 
     public void setCategories(List<Map<String, Object>> categories) {
         this.categories = categories;
+    }
+
+    public List<Map<String, Object>> getDocumentTypes() {
+        return documentTypes;
+    }
+
+    public void setDocumentTypes(List<Map<String, Object>> documentTypes) {
+        this.documentTypes = documentTypes;
     }
 
     public List<Map<String, Object>> getOcrEngines() {

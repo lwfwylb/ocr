@@ -91,6 +91,7 @@ const go = (path: string) => router.push(path)
           <el-menu-item index="/system/users">用户管理</el-menu-item>
           <el-menu-item index="/system/roles">角色权限</el-menu-item>
           <el-menu-item index="/system/data-permissions">数据权限</el-menu-item>
+          <el-menu-item index="/system/dictionaries">数据字典</el-menu-item>
           <el-menu-item index="/system/integrations">集成管理</el-menu-item>
         </el-sub-menu>
       </el-menu>

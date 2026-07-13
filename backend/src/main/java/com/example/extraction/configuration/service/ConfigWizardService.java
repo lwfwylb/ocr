@@ -14,6 +14,7 @@ import com.example.extraction.mapper.LlmModelConfigMapper;
 import com.example.extraction.mapper.OcrEngineConfigMapper;
 import com.example.extraction.model.domain.LlmModelConfigRecord;
 import com.example.extraction.model.domain.OcrEngineConfigRecord;
+import com.example.extraction.system.service.SystemDictionaryService;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -37,17 +38,20 @@ public class ConfigWizardService {
     private final OcrEngineConfigMapper ocrEngineConfigMapper;
     private final LlmModelConfigMapper llmModelConfigMapper;
     private final DownstreamIntegrationService downstreamIntegrationService;
+    private final SystemDictionaryService dictionaryService;
     private final ObjectMapper objectMapper;
 
     public ConfigWizardService(ExtractConfigMapper extractConfigMapper,
                                OcrEngineConfigMapper ocrEngineConfigMapper,
                                LlmModelConfigMapper llmModelConfigMapper,
                                DownstreamIntegrationService downstreamIntegrationService,
+                               SystemDictionaryService dictionaryService,
                                ObjectMapper objectMapper) {
         this.extractConfigMapper = extractConfigMapper;
         this.ocrEngineConfigMapper = ocrEngineConfigMapper;
         this.llmModelConfigMapper = llmModelConfigMapper;
         this.downstreamIntegrationService = downstreamIntegrationService;
+        this.dictionaryService = dictionaryService;
         this.objectMapper = objectMapper;
     }
 
@@ -206,47 +210,23 @@ public class ConfigWizardService {
 
     public ConfigOptionsResponse options() {
         ConfigOptionsResponse response = new ConfigOptionsResponse();
-        response.setDepartments(List.of(
-                option("运营部", "运营部"),
-                option("财务部", "财务部"),
-                option("产品部", "产品部")
-        ));
-        response.setRoles(List.of(
-                option("模板配置员", "模板配置员"),
-                option("复核人员", "复核人员"),
-                option("运营复核岗", "运营复核岗"),
-                option("部门管理员", "部门管理员"),
-                option("普通业务用户", "普通业务用户")
-        ));
-        response.setCategories(List.of(
-                category("资金业务", List.of(
-                        subCategory("划款指令", List.of("通用划款指令模板", "托管行划款指令模板")),
-                        subCategory("银行回单", List.of("通用银行回单模板"))
-                )),
-                category("基金交易", List.of(
-                        subCategory("基金申购", List.of("大成基金申购单", "南方基金申购单", "华夏基金申购单")),
-                        subCategory("基金赎回", List.of("大成基金赎回单", "南方基金赎回单"))
-                )),
-                category("客户业务", List.of(
-                        subCategory("开户资料", List.of("机构客户开户资料", "产品户开户资料"))
-                ))
-        ));
-        response.setOcrEngines(List.of(
-                option("paddleocr_vl", "PaddleOCR-VL-1.6"),
-                option("mineru", "MinerU")
-        ));
+        response.setDepartments(dictionaryService.departments());
+        response.setRoles(dictionaryService.roles());
+        response.setCategories(dictionaryService.businessCategoryTree());
+        response.setDocumentTypes(dictionaryService.options("DOCUMENT_TYPE"));
+        response.setOcrEngines(ocrEngineConfigMapper.selectEnabled().stream().map(ocrEngine -> {
+            Map<String, Object> option = option(ocrEngine.getEngineCode(), ocrEngine.getEngineName());
+            option.put("engineCode", ocrEngine.getEngineCode());
+            option.put("engineName", ocrEngine.getEngineName());
+            option.put("engineType", ocrEngine.getEngineType());
+            option.put("provider", ocrEngine.getProvider());
+            option.put("defaultEngine", "1".equals(ocrEngine.getDefaultEngine()));
+            return option;
+        }).toList());
         response.setResultTables(List.of(
                 table("ext_fund_business_result", "基金业务要素结果表", "保存基金申购、赎回、划款、回单等业务场景的结构化要素结果"),
                 table("ext_payment_instruction", "划款指令结果表", "保存运营划款指令类文档的结构化识别结果"),
                 table("ext_bank_receipt", "银行回单结果表", "保存银行回单、流水回执等文档的结构化识别结果")
-        ));
-        response.setDownstreamServices(List.of(
-                service("fund_ops_result_receive", "接收提取结果服务", "fund_ops", "运营业务系统", "HTTP", "结果推送",
-                        "https://ops.example.com/api/extract-results", "POST", "httpStatus in [200,202] && body.code == 0", 3, true),
-                service("finance_result_receive", "核算结果接收服务", "finance_core", "财务核算系统", "MICROSERVICE", "结果推送",
-                        "finance-result-service.receiveExtractResult", "-", "response.accepted == true", 2, true),
-                service("dw_extract_result_topic", "结果批量同步 Topic", "data_warehouse", "数据仓库", "MQ", "批量同步",
-                        "topic.extract.result", "-", "broker ack", 5, true)
         ));
         response.setDownstreamServices(downstreamIntegrationService.serviceOptions());
         return response;

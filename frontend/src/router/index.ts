@@ -18,6 +18,7 @@ import SystemUsersView from '../views/SystemUsersView.vue'
 import SystemRolesView from '../views/SystemRolesView.vue'
 import SystemDataPermissionsView from '../views/SystemDataPermissionsView.vue'
 import SystemIntegrationsView from '../views/SystemIntegrationsView.vue'
+import SystemDictionariesView from '../views/SystemDictionariesView.vue'
 import OcrEnginesView from '../views/OcrEnginesView.vue'
 import LlmConfigsView from '../views/LlmConfigsView.vue'
 import ModelCallLogsView from '../views/ModelCallLogsView.vue'
@@ -53,6 +54,7 @@ const router = createRouter({
         { path: 'system/users', component: SystemUsersView, meta: { title: '用户管理' } },
         { path: 'system/roles', component: SystemRolesView, meta: { title: '角色权限' } },
         { path: 'system/data-permissions', component: SystemDataPermissionsView, meta: { title: '数据权限' } },
+        { path: 'system/dictionaries', component: SystemDictionariesView, meta: { title: '数据字典' } },
         { path: 'system/integrations', component: SystemIntegrationsView, meta: { title: '集成管理' } }
       ]
     }
