@@ -9,12 +9,16 @@ import { pushResultToDownstream } from '../api/push'
 type ResultStatus = 'STORED' | 'WAIT_REVIEW' | 'PUSHED' | 'FAILED'
 
 interface FieldRow {
+  fieldCode?: string
   fieldName: string
   extractField: string
   targetColumn: string
-  rawValue: string
-  finalValue: string
+  rawValue: unknown
+  finalValue: unknown
   confidence: number
+  reviewRequired?: boolean
+  sourceType?: string
+  issue?: string
   sourcePage: string
 }
 
@@ -75,26 +79,48 @@ const detailSummary = computed(() => selectedDetail.value?.summary || selectedRe
 
 const fieldRows = computed<FieldRow[]>(() => {
   const detail = selectedDetail.value
+  if (detail?.fields?.length) {
+    return detail.fields.map((field) => ({
+      fieldCode: field.fieldCode,
+      fieldName: field.fieldName,
+      extractField: field.extractField,
+      targetColumn: field.targetColumn,
+      rawValue: field.rawValue,
+      finalValue: field.finalValue,
+      confidence: Number(field.confidence || 0),
+      reviewRequired: field.reviewRequired,
+      sourceType: field.sourceType,
+      issue: field.issue,
+      sourcePage: field.sourcePage || '-'
+    }))
+  }
   const result = detail?.result || {}
   const confidence = detail?.confidence || {}
   const fallbackConfidence = Number(detail?.summary.overallConfidence || 0)
-  return Object.entries(result).map(([field, value]) => ({
+  return Object.entries(result)
+    .filter(([field]) => !field.startsWith('_'))
+    .map(([field, value]) => ({
     fieldName: field,
     extractField: field,
     targetColumn: field,
-    rawValue: formatValue(value),
-    finalValue: formatValue(value),
+    rawValue: value,
+    finalValue: value,
     confidence: Number(confidence[field] ?? fallbackConfidence),
     sourcePage: detail?.pageCount ? `1/${detail.pageCount}` : '1'
   }))
 })
 
 const storageRows = computed(() => {
+  if (selectedDetail.value?.storagePreview?.length) return selectedDetail.value.storagePreview
   const targetTable = detailSummary.value?.targetTable || '-'
   return fieldRows.value.map((row) => ({
     targetTable,
     targetColumn: row.targetColumn,
+    columnName: row.fieldName,
     value: row.finalValue,
+    required: false,
+    uniqueKey: false,
+    ready: true,
     transform: '按当前配置加工后写入'
   }))
 })
@@ -312,11 +338,22 @@ onMounted(loadResults)
               <el-table-column prop="fieldName" label="字段名称" width="140" />
               <el-table-column prop="extractField" label="提取字段" min-width="130" />
               <el-table-column prop="targetColumn" label="目标字段" min-width="150" />
-              <el-table-column prop="rawValue" label="原始值" min-width="150" show-overflow-tooltip />
-              <el-table-column prop="finalValue" label="最终值" min-width="150" show-overflow-tooltip />
+              <el-table-column label="原始值" min-width="150" show-overflow-tooltip>
+                <template #default="{ row }">{{ formatValue(row.rawValue) }}</template>
+              </el-table-column>
+              <el-table-column label="最终值" min-width="150" show-overflow-tooltip>
+                <template #default="{ row }">{{ formatValue(row.finalValue) }}</template>
+              </el-table-column>
               <el-table-column label="置信度" width="90">
                 <template #default="{ row }"><ConfidenceTag :value="row.confidence" /></template>
               </el-table-column>
+              <el-table-column prop="sourceType" label="来源" width="100" />
+              <el-table-column label="复核" width="80">
+                <template #default="{ row }">
+                  <el-tag :type="row.reviewRequired ? 'warning' : 'success'">{{ row.reviewRequired ? '需要' : '通过' }}</el-tag>
+                </template>
+              </el-table-column>
+              <el-table-column prop="issue" label="问题说明" min-width="150" show-overflow-tooltip />
               <el-table-column prop="sourcePage" label="页码" width="80" />
             </el-table>
           </el-tab-pane>
@@ -328,11 +365,28 @@ onMounted(loadResults)
             <pre class="parse-preview">{{ selectedDetail?.parseText || '暂无解析文本' }}</pre>
           </el-tab-pane>
           <el-tab-pane label="落库预览" name="storage">
-            <el-alert title="落库预览展示字段映射和加工后的最终入库值，第一版不直接写入真实业务结果表。" type="info" :closable="false" class="mb-12" />
+            <el-alert title="落库预览由后端按当前配置的目标表字段定义、字段映射、必填和唯一约束生成；第一版仍写入平台落库台账，不直接写真实业务结果表。" type="info" :closable="false" class="mb-12" />
             <el-table :data="storageRows">
               <el-table-column prop="targetTable" label="目标表" min-width="160" />
               <el-table-column prop="targetColumn" label="目标字段" min-width="150" />
-              <el-table-column prop="value" label="入库值" min-width="180" show-overflow-tooltip />
+              <el-table-column prop="columnName" label="字段名称" min-width="130" />
+              <el-table-column prop="typeDescription" label="字段类型" width="110" />
+              <el-table-column label="入库值" min-width="180" show-overflow-tooltip>
+                <template #default="{ row }">{{ formatValue(row.value) }}</template>
+              </el-table-column>
+              <el-table-column label="约束" width="120">
+                <template #default="{ row }">
+                  <el-tag v-if="row.required" size="small" type="danger">必填</el-tag>
+                  <el-tag v-if="row.uniqueKey" size="small" class="ml-4">唯一</el-tag>
+                  <span v-if="!row.required && !row.uniqueKey" class="muted">-</span>
+                </template>
+              </el-table-column>
+              <el-table-column label="状态" width="90">
+                <template #default="{ row }">
+                  <el-tag :type="row.ready ? 'success' : 'warning'">{{ row.ready ? '可入库' : '需处理' }}</el-tag>
+                </template>
+              </el-table-column>
+              <el-table-column prop="issue" label="问题说明" min-width="140" show-overflow-tooltip />
               <el-table-column prop="transform" label="加工逻辑" min-width="180" />
             </el-table>
           </el-tab-pane>

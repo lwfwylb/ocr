@@ -1,5 +1,6 @@
 package com.example.extraction.result.dto;
 
+import java.util.List;
 import java.util.Map;
 
 public class ResultDetailResponse {
@@ -9,6 +10,8 @@ public class ResultDetailResponse {
     private String engineCode;
     private Map<String, Object> result;
     private Map<String, Object> confidence;
+    private List<ResultFieldResponse> fields;
+    private List<StoragePreviewResponse> storagePreview;
 
     public ResultSummaryResponse getSummary() { return summary; }
     public void setSummary(ResultSummaryResponse summary) { this.summary = summary; }
@@ -22,4 +25,8 @@ public class ResultDetailResponse {
     public void setResult(Map<String, Object> result) { this.result = result; }
     public Map<String, Object> getConfidence() { return confidence; }
     public void setConfidence(Map<String, Object> confidence) { this.confidence = confidence; }
+    public List<ResultFieldResponse> getFields() { return fields; }
+    public void setFields(List<ResultFieldResponse> fields) { this.fields = fields; }
+    public List<StoragePreviewResponse> getStoragePreview() { return storagePreview; }
+    public void setStoragePreview(List<StoragePreviewResponse> storagePreview) { this.storagePreview = storagePreview; }
 }

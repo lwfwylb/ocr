@@ -10,8 +10,10 @@ import com.example.extraction.mapper.ExtractResultMapper;
 import com.example.extraction.result.domain.DocumentParseResultRecord;
 import com.example.extraction.result.domain.ExtractResultRecord;
 import com.example.extraction.result.dto.ResultDetailResponse;
+import com.example.extraction.result.dto.ResultFieldResponse;
 import com.example.extraction.result.dto.ResultQueryRequest;
 import com.example.extraction.result.dto.ResultSummaryResponse;
+import com.example.extraction.result.dto.StoragePreviewResponse;
 import com.example.extraction.task.domain.ExtractTaskRecord;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
@@ -26,9 +28,11 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.regex.PatternSyntaxException;
@@ -67,13 +71,18 @@ public class ExtractionResultService {
                 .findFirst()
                 .orElseGet(() -> fallbackSummary(extractResult));
         DocumentParseResultRecord parseResult = documentParseResultMapper.selectByTaskId(taskId);
+        ConfigWizardPayload payload = readConfigPayload(extractResult.getConfigId());
+        Map<String, Object> resultJson = readJson(extractResult.getResultJson());
+        Map<String, Object> confidenceJson = readJson(extractResult.getConfidenceJson());
         ResultDetailResponse response = new ResultDetailResponse();
         response.setSummary(summary);
         response.setParseText(parseResult == null ? null : parseResult.getParseText());
         response.setPageCount(parseResult == null ? null : parseResult.getPageCount());
         response.setEngineCode(parseResult == null ? null : parseResult.getEngineCode());
-        response.setResult(readJson(extractResult.getResultJson()));
-        response.setConfidence(readJson(extractResult.getConfidenceJson()));
+        response.setResult(resultJson);
+        response.setConfidence(confidenceJson);
+        response.setFields(buildResultFields(payload, resultJson, confidenceJson, extractResult, parseResult));
+        response.setStoragePreview(buildStoragePreview(payload, resultJson, extractResult));
         return response;
     }
 
@@ -166,6 +175,118 @@ public class ExtractionResultService {
         }
     }
 
+    private List<ResultFieldResponse> buildResultFields(ConfigWizardPayload payload, Map<String, Object> resultJson,
+                                                        Map<String, Object> confidenceJson, ExtractResultRecord result,
+                                                        DocumentParseResultRecord parseResult) {
+        List<ResultFieldResponse> rows = new ArrayList<>();
+        Set<String> visitedColumns = new HashSet<>();
+        Map<String, ConfigWizardPayload.ExtractField> fieldByCode = extractFieldByCode(payload);
+        Map<String, ConfigWizardPayload.ResultTableColumn> columnByName = resultColumnByName(payload);
+        String globalIssue = globalResultIssue(resultJson);
+
+        for (FieldPlan plan : buildFieldPlans(payload)) {
+            String targetColumn = firstText(plan.targetColumn(), plan.fieldCode());
+            if (!StringUtils.hasText(targetColumn)) {
+                continue;
+            }
+            visitedColumns.add(targetColumn);
+            ConfigWizardPayload.ExtractField extractField = fieldByCode.get(plan.fieldCode());
+            ConfigWizardPayload.ResultTableColumn column = columnByName.get(targetColumn);
+            Object value = resultJson.get(targetColumn);
+            BigDecimal confidence = toBigDecimal(confidenceJson.get(targetColumn), result.getOverallConfidence());
+            ResultFieldResponse row = new ResultFieldResponse();
+            row.setFieldCode(plan.fieldCode());
+            row.setFieldName(firstText(plan.fieldName(), extractField == null ? null : extractField.getFieldName(), column == null ? null : column.getColumnCnName(), targetColumn));
+            row.setExtractField(plan.fieldCode());
+            row.setTargetColumn(targetColumn);
+            row.setRawValue(value);
+            row.setFinalValue(value);
+            row.setConfidence(confidence);
+            row.setReviewRequired(confidence.compareTo(resolveConfidenceThreshold(payload)) < 0 || (Boolean.TRUE.equals(plan.requiredForStorage()) && isBlankValue(value)));
+            row.setSourceType(resolveFieldSource(targetColumn, payload, resultJson, confidence));
+            row.setIssue(resolveFieldIssue(value, confidence, plan.requiredForStorage(), globalIssue));
+            row.setSourcePage(parseResult == null || parseResult.getPageCount() == null ? "1" : "1/" + parseResult.getPageCount());
+            rows.add(row);
+        }
+
+        for (Map.Entry<String, Object> entry : resultJson.entrySet()) {
+            String key = entry.getKey();
+            if (!StringUtils.hasText(key) || key.startsWith("_") || visitedColumns.contains(key)) {
+                continue;
+            }
+            BigDecimal confidence = toBigDecimal(confidenceJson.get(key), result.getOverallConfidence());
+            ResultFieldResponse row = new ResultFieldResponse();
+            row.setFieldCode(key);
+            row.setFieldName(firstText(columnByName.get(key) == null ? null : columnByName.get(key).getColumnCnName(), key));
+            row.setExtractField("-");
+            row.setTargetColumn(key);
+            row.setRawValue(entry.getValue());
+            row.setFinalValue(entry.getValue());
+            row.setConfidence(confidence);
+            row.setReviewRequired(confidence.compareTo(resolveConfidenceThreshold(payload)) < 0);
+            row.setSourceType(resolveFieldSource(key, payload, resultJson, confidence));
+            row.setIssue(resolveFieldIssue(entry.getValue(), confidence, false, globalIssue));
+            row.setSourcePage(parseResult == null || parseResult.getPageCount() == null ? "1" : "1/" + parseResult.getPageCount());
+            rows.add(row);
+        }
+        return rows;
+    }
+
+    private List<StoragePreviewResponse> buildStoragePreview(ConfigWizardPayload payload, Map<String, Object> resultJson,
+                                                             ExtractResultRecord result) {
+        List<StoragePreviewResponse> rows = new ArrayList<>();
+        Map<String, ConfigWizardPayload.ResultTableColumn> columnByName = resultColumnByName(payload);
+        Set<String> uniqueColumns = uniqueColumns(payload);
+        String targetTable = resolveTargetTable(payload);
+        String targetTableName = payload == null || payload.getStorageConfig() == null ? null : payload.getStorageConfig().getTargetTableName();
+
+        if (!columnByName.isEmpty()) {
+            for (ConfigWizardPayload.ResultTableColumn column : columnByName.values()) {
+                rows.add(storagePreviewRow(column, resultJson.get(column.getColumnName()), targetTable, targetTableName, uniqueColumns));
+            }
+            return rows;
+        }
+
+        for (Map.Entry<String, Object> entry : resultJson.entrySet()) {
+            if (!StringUtils.hasText(entry.getKey()) || entry.getKey().startsWith("_")) {
+                continue;
+            }
+            StoragePreviewResponse row = new StoragePreviewResponse();
+            row.setTargetTable(firstText(result.getTargetTable(), targetTable));
+            row.setTargetTableName(targetTableName);
+            row.setTargetColumn(entry.getKey());
+            row.setColumnName(entry.getKey());
+            row.setDbType("unknown");
+            row.setTypeDescription("未配置字段类型");
+            row.setValue(entry.getValue());
+            row.setRequired(false);
+            row.setUniqueKey(false);
+            row.setReady(true);
+            row.setIssue(null);
+            row.setTransform("按提取结果写入");
+            rows.add(row);
+        }
+        return rows;
+    }
+
+    private StoragePreviewResponse storagePreviewRow(ConfigWizardPayload.ResultTableColumn column, Object value,
+                                                     String targetTable, String targetTableName, Set<String> uniqueColumns) {
+        StoragePreviewResponse row = new StoragePreviewResponse();
+        row.setTargetTable(targetTable);
+        row.setTargetTableName(targetTableName);
+        row.setTargetColumn(column.getColumnName());
+        row.setColumnName(firstText(column.getColumnCnName(), column.getColumnName()));
+        row.setDbType(column.getDbType());
+        row.setTypeDescription(dbTypeDescription(column));
+        row.setValue(isBlankValue(value) ? column.getDefaultValue() : value);
+        row.setRequired(Boolean.TRUE.equals(column.getRequired()));
+        row.setUniqueKey(uniqueColumns.contains(column.getColumnName()));
+        row.setReady(!(Boolean.TRUE.equals(column.getRequired()) && isBlankValue(row.getValue())));
+        row.setIssue(Boolean.TRUE.equals(row.getReady()) ? null : "必填字段无入库值");
+        row.setTransform(StringUtils.hasText(column.getValidationRule()) ? column.getValidationRule() : "按字段映射写入");
+        return row;
+    }
+
     private ConfigWizardPayload readConfigPayload(String configId) {
         if (!StringUtils.hasText(configId)) {
             return null;
@@ -179,6 +300,119 @@ public class ExtractionResultService {
         } catch (JsonProcessingException e) {
             return null;
         }
+    }
+
+    private Map<String, ConfigWizardPayload.ExtractField> extractFieldByCode(ConfigWizardPayload payload) {
+        Map<String, ConfigWizardPayload.ExtractField> result = new LinkedHashMap<>();
+        if (payload == null || payload.getExtractFields() == null) {
+            return result;
+        }
+        for (ConfigWizardPayload.ExtractField field : payload.getExtractFields()) {
+            if (StringUtils.hasText(field.getFieldCode())) {
+                result.put(field.getFieldCode(), field);
+            }
+        }
+        return result;
+    }
+
+    private Map<String, ConfigWizardPayload.ResultTableColumn> resultColumnByName(ConfigWizardPayload payload) {
+        Map<String, ConfigWizardPayload.ResultTableColumn> result = new LinkedHashMap<>();
+        if (payload == null || payload.getResultTableColumns() == null) {
+            return result;
+        }
+        for (ConfigWizardPayload.ResultTableColumn column : payload.getResultTableColumns()) {
+            if (StringUtils.hasText(column.getColumnName())) {
+                result.put(column.getColumnName(), column);
+            }
+        }
+        return result;
+    }
+
+    private Set<String> uniqueColumns(ConfigWizardPayload payload) {
+        Set<String> result = new HashSet<>();
+        if (payload == null || payload.getUniqueConstraints() == null) {
+            return result;
+        }
+        for (ConfigWizardPayload.UniqueConstraint constraint : payload.getUniqueConstraints()) {
+            if (constraint == null || Boolean.FALSE.equals(constraint.getEnabled()) || constraint.getUniqueColumns() == null) {
+                continue;
+            }
+            result.addAll(constraint.getUniqueColumns());
+        }
+        return result;
+    }
+
+    private String resolveFieldSource(String targetColumn, ConfigWizardPayload payload, Map<String, Object> resultJson, BigDecimal confidence) {
+        if (!StringUtils.hasText(targetColumn)) {
+            return "未知";
+        }
+        if (targetColumn.startsWith("_")) {
+            return "系统元数据";
+        }
+        if (isTransformOutput(targetColumn, payload)) {
+            return "加工衍生";
+        }
+        if (isRegexTarget(targetColumn, payload) && confidence != null && confidence.compareTo(new BigDecimal("0.97")) >= 0) {
+            return "字段正则";
+        }
+        String strategy = stringValue(resultJson.get("_extract_strategy"));
+        if ("REGEX_ONLY".equals(strategy)) {
+            return "字段正则";
+        }
+        return "AI提取";
+    }
+
+    private boolean isTransformOutput(String targetColumn, ConfigWizardPayload payload) {
+        if (payload == null || payload.getTransformRules() == null) {
+            return false;
+        }
+        return payload.getTransformRules().stream()
+                .filter(rule -> rule != null && !Boolean.FALSE.equals(rule.getEnabled()))
+                .map(this::resolveTransformOutputField)
+                .anyMatch(targetColumn::equals);
+    }
+
+    private boolean isRegexTarget(String targetColumn, ConfigWizardPayload payload) {
+        if (payload == null || payload.getRegexRules() == null) {
+            return false;
+        }
+        Map<String, String> targetByField = targetColumnByField(payload);
+        return payload.getRegexRules().stream()
+                .filter(rule -> rule != null && !Boolean.FALSE.equals(rule.getEnabled()))
+                .map(rule -> firstText(targetByField.get(rule.getFieldCode()), rule.getFieldCode()))
+                .anyMatch(targetColumn::equals);
+    }
+
+    private String resolveFieldIssue(Object value, BigDecimal confidence, Boolean required, String globalIssue) {
+        if (Boolean.TRUE.equals(required) && isBlankValue(value)) {
+            return "必填字段未取到值";
+        }
+        if (confidence != null && confidence.compareTo(new BigDecimal("0.90")) < 0) {
+            return "置信度低于90%";
+        }
+        return globalIssue;
+    }
+
+    private String globalResultIssue(Map<String, Object> resultJson) {
+        Object warnings = resultJson.get("_transform_warnings");
+        if (warnings instanceof List<?> list && !list.isEmpty()) {
+            return "存在加工提示：" + list.size() + "条";
+        }
+        return null;
+    }
+
+    private String dbTypeDescription(ConfigWizardPayload.ResultTableColumn column) {
+        String dbType = firstText(column.getDbType(), "unknown");
+        if ("decimal".equalsIgnoreCase(dbType) || "number".equalsIgnoreCase(dbType)) {
+            if (column.getPrecision() != null && column.getScale() != null) {
+                return dbType + "(" + column.getPrecision() + "," + column.getScale() + ")";
+            }
+            return dbType;
+        }
+        if (column.getLength() != null) {
+            return dbType + "(" + column.getLength() + ")";
+        }
+        return dbType;
     }
 
     private SimulatedExtraction buildConfiguredExtraction(ExtractTaskRecord task, ConfigWizardPayload payload,
@@ -620,6 +854,23 @@ public class ExtractionResultService {
         } catch (NumberFormatException e) {
             return null;
         }
+    }
+
+    private BigDecimal toBigDecimal(Object value, BigDecimal fallback) {
+        if (value instanceof BigDecimal decimal) {
+            return decimal;
+        }
+        if (value instanceof Number number) {
+            return BigDecimal.valueOf(number.doubleValue());
+        }
+        if (value instanceof String text && StringUtils.hasText(text)) {
+            try {
+                return new BigDecimal(text);
+            } catch (NumberFormatException ignored) {
+                return fallback == null ? BigDecimal.ZERO : fallback;
+            }
+        }
+        return fallback == null ? BigDecimal.ZERO : fallback;
     }
 
     private String tailDigits(String value) {

@@ -18,6 +18,35 @@ export interface ResultSummary {
   updatedAt?: string
 }
 
+export interface ResultField {
+  fieldCode: string
+  fieldName: string
+  extractField: string
+  targetColumn: string
+  rawValue?: unknown
+  finalValue?: unknown
+  confidence?: number
+  reviewRequired?: boolean
+  sourceType?: string
+  issue?: string
+  sourcePage?: string
+}
+
+export interface StoragePreview {
+  targetTable: string
+  targetTableName?: string
+  targetColumn: string
+  columnName?: string
+  dbType?: string
+  typeDescription?: string
+  value?: unknown
+  required?: boolean
+  uniqueKey?: boolean
+  ready?: boolean
+  issue?: string
+  transform?: string
+}
+
 export interface ResultDetail {
   summary: ResultSummary
   parseText?: string
@@ -25,6 +54,8 @@ export interface ResultDetail {
   engineCode?: string
   result?: Record<string, unknown>
   confidence?: Record<string, unknown>
+  fields?: ResultField[]
+  storagePreview?: StoragePreview[]
 }
 
 export interface ResultQuery {
