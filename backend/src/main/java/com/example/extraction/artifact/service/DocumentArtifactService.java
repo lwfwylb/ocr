@@ -295,7 +295,7 @@ public class DocumentArtifactService {
         LocalDateTime now = LocalDateTime.now();
         DocumentArtifactRecord record = new DocumentArtifactRecord();
         record.setId(IdGenerator.nextId("ART"));
-        record.setTraceId(traceId);
+        record.setTraceId(firstText(traceId, taskId, documentId, "UNKNOWN_TRACE"));
         record.setTaskId(taskId);
         record.setDocumentId(documentId);
         record.setCreatedAt(now);
@@ -520,11 +520,14 @@ public class DocumentArtifactService {
     }
 
     private Path artifactPath(ExtractTaskRecord task, String stageDir, String fileName) {
+        String traceSegment = firstText(task.getTraceId(), task.getTaskId(), "UNKNOWN_TRACE");
+        String stageSegment = firstText(stageDir, "unknown-stage");
+        String safeFileName = firstText(fileName, "artifact.bin");
         Path path = artifactRoot
                 .resolve(LocalDate.now().format(DATE_PATH_FORMATTER))
-                .resolve(task.getTraceId())
-                .resolve(stageDir)
-                .resolve(fileName)
+                .resolve(traceSegment)
+                .resolve(stageSegment)
+                .resolve(safeFileName)
                 .normalize();
         if (!path.startsWith(artifactRoot)) {
             throw new BusinessException("ARTIFACT_400", "Invalid artifact path");

@@ -146,6 +146,11 @@ public class ExtractionResultService {
 
     public void markFailed(ExtractTaskRecord task, String errorCode, String errorMessage) {
         ExtractResultRecord existing = extractResultMapper.selectByTaskId(task.getTaskId());
+        String safeErrorCode = firstText(errorCode, "EXECUTION_ERROR");
+        String safeErrorMessage = firstText(errorMessage, "执行失败，未返回具体错误信息");
+        Map<String, Object> failedResult = new LinkedHashMap<>();
+        failedResult.put("error_code", safeErrorCode);
+        failedResult.put("error_message", safeErrorMessage);
         if (existing == null) {
             ExtractResultRecord record = new ExtractResultRecord();
             record.setId(IdGenerator.nextId("ERR"));
@@ -153,7 +158,7 @@ public class ExtractionResultService {
             record.setTraceId(task.getTraceId());
             record.setDocumentId(task.getDocumentId());
             record.setConfigId(task.getConfigId());
-            record.setResultJson(writeJson(Map.of("error_code", errorCode, "error_message", errorMessage)));
+            record.setResultJson(writeJson(failedResult));
             record.setConfidenceJson(writeJson(Map.of()));
             record.setOverallConfidence(BigDecimal.ZERO);
             record.setNeedReview("0");
@@ -166,7 +171,7 @@ public class ExtractionResultService {
             extractResultMapper.insert(record);
         } else {
             existing.setStatus("FAILED");
-            existing.setResultJson(writeJson(Map.of("error_code", errorCode, "error_message", errorMessage)));
+            existing.setResultJson(writeJson(failedResult));
             existing.setConfidenceJson(writeJson(Map.of()));
             existing.setOverallConfidence(BigDecimal.ZERO);
             existing.setNeedReview("0");
