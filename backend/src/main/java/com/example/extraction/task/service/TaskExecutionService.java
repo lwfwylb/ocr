@@ -13,7 +13,6 @@ import com.example.extraction.task.domain.TaskStageLogRecord;
 import com.example.extraction.task.dto.TaskResponse;
 import com.example.extraction.task.dto.TaskStageLogResponse;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
 import java.math.BigDecimal;
@@ -48,7 +47,6 @@ public class TaskExecutionService {
         return taskStageLogMapper.selectByTaskId(taskId).stream().map(this::toResponse).toList();
     }
 
-    @Transactional
     public TaskResponse executeNext() {
         List<ExtractTaskRecord> queuedTasks = extractTaskMapper.selectNextQueued();
         if (queuedTasks.isEmpty()) {
@@ -57,7 +55,6 @@ public class TaskExecutionService {
         return execute(queuedTasks.get(0).getTaskId());
     }
 
-    @Transactional
     public TaskResponse execute(String taskId) {
         ExtractTaskRecord task = extractTaskMapper.selectByTaskId(taskId);
         if (task == null) {
@@ -117,7 +114,10 @@ public class TaskExecutionService {
             fail(task, e.getCode(), e.getMessage());
             return extractTaskService.detail(taskId);
         } catch (RuntimeException e) {
-            fail(task, "EXECUTION_ERROR", e.getMessage());
+            fail(task, "EXECUTION_ERROR", firstText(e.getMessage(), e.getClass().getSimpleName()));
+            return extractTaskService.detail(taskId);
+        } catch (LinkageError e) {
+            fail(task, "EXECUTION_LINKAGE_ERROR", firstText(e.getMessage(), e.getClass().getSimpleName()));
             return extractTaskService.detail(taskId);
         }
     }

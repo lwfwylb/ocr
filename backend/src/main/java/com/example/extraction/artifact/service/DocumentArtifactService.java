@@ -92,13 +92,13 @@ public class DocumentArtifactService {
         if (task == null || !StringUtils.hasText(task.getTaskId())) {
             return null;
         }
+        DocumentArtifactRecord original = documentArtifactMapper.selectFirstByTraceIdAndType(task.getTraceId(), "ORIGINAL");
+        ConfigWizardPayload payload = readConfigPayload(task.getConfigId());
+        PdfPreprocessResult preprocessResult = executePdfPreprocess(task, payload, original);
         DocumentArtifactRecord existing = documentArtifactMapper.selectFirstByTaskIdAndType(task.getTaskId(), "OCR_INPUT_MANIFEST");
         if (existing != null) {
             return existing;
         }
-        DocumentArtifactRecord original = documentArtifactMapper.selectFirstByTraceIdAndType(task.getTraceId(), "ORIGINAL");
-        ConfigWizardPayload payload = readConfigPayload(task.getConfigId());
-        PdfPreprocessResult preprocessResult = executePdfPreprocess(task, payload, original);
         DocumentArtifactRecord ocrInput = preprocessResult == null ? original : preprocessResult.artifact();
         Path manifestPath = artifactPath(task, "ocr-input", "030_ocr_input_manifest.json");
         Map<String, Object> manifest = Map.of(
@@ -345,10 +345,10 @@ public class DocumentArtifactService {
     }
 
     private boolean preprocessEnabled(ConfigWizardPayload payload) {
-        return payload != null
-                && payload.getParseConfig() != null
-                && Boolean.TRUE.equals(payload.getParseConfig().getPreprocessEnabled())
-                && !enabledPreprocessSteps(payload).isEmpty();
+        if (payload == null || enabledPreprocessSteps(payload).isEmpty()) {
+            return false;
+        }
+        return payload.getParseConfig() == null || !Boolean.FALSE.equals(payload.getParseConfig().getPreprocessEnabled());
     }
 
     private List<ConfigWizardPayload.PreprocessStep> enabledPreprocessSteps(ConfigWizardPayload payload) {

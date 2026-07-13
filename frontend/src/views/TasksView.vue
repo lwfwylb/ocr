@@ -137,8 +137,12 @@ const retry = async (task: ExtractTask) => {
 
 const execute = async (task: ExtractTask) => {
   try {
-    await executeTask(task.taskId)
-    ElMessage.success('模拟执行完成')
+    const result = await executeTask(task.taskId)
+    if (result.status === 'FAILED') {
+      ElMessage.error(result.errorMessage || '模拟执行失败，请查看任务详情')
+    } else {
+      ElMessage.success('模拟执行完成')
+    }
     await loadTasks()
   } catch (error) {
     ElMessage.error(error instanceof Error ? error.message : '模拟执行失败')
@@ -148,7 +152,11 @@ const execute = async (task: ExtractTask) => {
 const executeNext = async () => {
   try {
     const result = await executeNextTask()
-    ElMessage.success(`已执行任务 ${result.taskId}`)
+    if (result.status === 'FAILED') {
+      ElMessage.error(result.errorMessage || `任务 ${result.taskId} 执行失败，请查看任务详情`)
+    } else {
+      ElMessage.success(`已执行任务 ${result.taskId}`)
+    }
     await loadTasks()
   } catch (error) {
     ElMessage.error(error instanceof Error ? error.message : '执行下一条失败')
