@@ -597,7 +597,62 @@ const validateFieldStorageStep = () => {
   return errors
 }
 
+const validateBaseInfoStep = () => {
+  const errors: string[] = []
+  if (!form.configName?.trim()) errors.push('配置名称不能为空')
+  if (!form.documentType?.trim()) errors.push('文档类型不能为空')
+  if (!form.departmentId?.trim()) errors.push('所属部门不能为空')
+  return errors
+}
+
+const extractStrategyStepErrors = () => {
+  const errors: string[] = []
+  const hasEnabledRegex = fields.value.some((field: any) => field.extractByRegex && field.regexPattern?.trim())
+  if (!aiEnabled.value && !hasEnabledRegex) errors.push('未启用 AI，也未配置可执行的字段正则')
+  if (aiEnabled.value && !form.llmModelCode) errors.push('请选择 LLM 模型')
+  return errors
+}
+
+const pushStepErrors = () => {
+  if (!form.pushEnabled) return []
+  return form.targetServices.length ? [] : ['已启用推送，但未选择目标接口服务']
+}
+
+const stepErrors = (index: number) => {
+  if (index === 0) return validateBaseInfoStep()
+  if (index === 2) return validateFieldStorageStep()
+  if (index === 3) return extractStrategyStepErrors()
+  if (index === 6) return pushStepErrors()
+  return []
+}
+
+const stepIssueCount = (index: number) => stepErrors(index).length
+
+const wizardStepStatus = (index: number) => {
+  if (activeStep.value === index) return 'process'
+  if (stepIssueCount(index)) return 'error'
+  return index < activeStep.value ? 'finish' : 'wait'
+}
+
+const showStepErrors = (index: number, title = '请先完善配置') => {
+  const errors = stepErrors(index)
+  if (!errors.length) return false
+  ElMessageBox.alert(errors.map((error, errorIndex) => `${errorIndex + 1}. ${error}`).join('<br />'), title, {
+    dangerouslyUseHTMLString: true,
+    confirmButtonText: '我知道了'
+  })
+  return true
+}
+
+const goToStep = (index: number) => {
+  if (index === activeStep.value) return
+  if (!currentConfigId.value && index > 0 && showStepErrors(0, '请先完善基础信息')) return
+  activeStep.value = index
+}
+
 const next = () => {
+  if (activeStep.value === 0 && showStepErrors(0, '请先完善基础信息')) return
+  if (activeStep.value === 2 && showStepErrors(2, '请完善字段与落库配置')) return
   if (activeStep.value === 2) {
     const errors = validateFieldStorageStep()
     if (errors.length) {
@@ -1136,8 +1191,24 @@ onMounted(async () => {
           </div>
         </div>
       </template>
-      <el-steps :active="activeStep" finish-status="success" align-center>
-        <el-step v-for="step in steps" :key="step" :title="step" />
+      <el-steps :active="activeStep" finish-status="success" align-center class="wizard-steps">
+        <el-step
+          v-for="(step, index) in steps"
+          :key="step"
+          :status="wizardStepStatus(index)"
+        >
+          <template #title>
+            <button
+              type="button"
+              class="wizard-step-title"
+              :class="{ active: activeStep === index, 'has-issue': stepIssueCount(index) > 0 }"
+              @click.stop="goToStep(index)"
+            >
+              <span>{{ index + 1 }} {{ step }}</span>
+              <small v-if="stepIssueCount(index) > 0">需完善 {{ stepIssueCount(index) }}</small>
+            </button>
+          </template>
+        </el-step>
       </el-steps>
       <el-alert
         v-if="currentConfigId"
@@ -2257,13 +2328,62 @@ onMounted(async () => {
       <div class="wizard-actions">
         <el-button :disabled="activeStep === 0" @click="prev">上一步</el-button>
         <el-button v-if="activeStep < steps.length - 1" type="primary" @click="next">下一步</el-button>
-        <template v-else>
           <el-button v-if="isReadonlyVersion" type="primary" @click="copyCurrentVersion">复制为新版本</el-button>
           <el-button :disabled="isReadonlyVersion" :loading="saving" @click="saveDraft">保存草稿</el-button>
           <el-button type="primary" :disabled="isReadonlyVersion" :loading="saving" @click="validate">验证</el-button>
           <el-button type="success" :disabled="isReadonlyVersion" :loading="saving" @click="publish">发布配置</el-button>
-        </template>
       </div>
     </el-card>
   </div>
 </template>
+
+<style scoped>
+.wizard-steps {
+  margin-top: 4px;
+}
+
+.wizard-step-title {
+  display: inline-flex;
+  min-height: 30px;
+  max-width: 150px;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  border: 0;
+  background: transparent;
+  color: var(--el-text-color-regular);
+  cursor: pointer;
+  font: inherit;
+  line-height: 1.2;
+}
+
+.wizard-step-title span {
+  overflow: hidden;
+  width: 100%;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.wizard-step-title small {
+  color: var(--el-color-danger);
+  font-size: 11px;
+  line-height: 1;
+}
+
+.wizard-step-title.active {
+  color: var(--el-color-primary);
+  font-weight: 600;
+}
+
+.wizard-step-title:hover {
+  color: var(--el-color-primary);
+}
+
+.wizard-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 14px;
+}
+</style>
