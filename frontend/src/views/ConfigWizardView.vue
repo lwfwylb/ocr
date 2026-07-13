@@ -628,10 +628,23 @@ const stepErrors = (index: number) => {
 
 const stepIssueCount = (index: number) => stepErrors(index).length
 
+const wizardStepConfigured = (index: number) => {
+  if (stepIssueCount(index)) return false
+  if (index === 0) return Boolean(form.configName?.trim() && form.documentType?.trim() && form.departmentId?.trim())
+  if (index === 1) return Boolean(form.engineCode && form.parseMode)
+  if (index === 2) return validateFieldStorageStep().length === 0
+  if (index === 3) return extractStrategyStepErrors().length === 0
+  if (index === 4) return transformRules.value.some((rule) => rule.enabled) || validationRules.value.some((rule) => rule.enabled)
+  if (index === 5) return Boolean(form.confidenceThreshold !== undefined && form.confidenceThreshold !== null && form.reviewerRole)
+  if (index === 6) return !form.pushEnabled || form.targetServices.length > 0
+  if (index === 7) return Boolean(validationReport.value || ['TESTING', 'PUBLISHED'].includes(normalizeStatus(currentStatus.value)))
+  return false
+}
+
 const wizardStepStatus = (index: number) => {
-  if (activeStep.value === index) return 'process'
   if (stepIssueCount(index)) return 'error'
-  return index < activeStep.value ? 'finish' : 'wait'
+  if (activeStep.value === index) return 'process'
+  return wizardStepConfigured(index) ? 'finish' : 'wait'
 }
 
 const showStepErrors = (index: number, title = '请先完善配置') => {
@@ -1201,10 +1214,10 @@ onMounted(async () => {
             <button
               type="button"
               class="wizard-step-title"
-              :class="{ active: activeStep === index, 'has-issue': stepIssueCount(index) > 0 }"
+              :class="{ active: activeStep === index, configured: wizardStepConfigured(index), 'has-issue': stepIssueCount(index) > 0 }"
               @click.stop="goToStep(index)"
             >
-              <span>{{ index + 1 }} {{ step }}</span>
+              <span>{{ step }}</span>
               <small v-if="stepIssueCount(index) > 0">需完善 {{ stepIssueCount(index) }}</small>
             </button>
           </template>
@@ -2371,6 +2384,15 @@ onMounted(async () => {
   line-height: 1;
 }
 
+.wizard-step-title.configured {
+  color: var(--el-color-success);
+  font-weight: 600;
+}
+
+.wizard-step-title.has-issue {
+  color: var(--el-color-danger);
+}
+
 .wizard-step-title.active {
   color: var(--el-color-primary);
   font-weight: 600;
@@ -2378,6 +2400,10 @@ onMounted(async () => {
 
 .wizard-step-title:hover {
   color: var(--el-color-primary);
+}
+
+.wizard-step-title.has-issue:hover {
+  color: var(--el-color-danger);
 }
 
 .wizard-actions {
