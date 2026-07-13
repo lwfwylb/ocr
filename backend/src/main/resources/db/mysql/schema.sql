@@ -575,6 +575,55 @@ create table if not exists document_parse_result (
   key idx_document_parse_trace (trace_id)
 );
 
+create table if not exists document_artifact (
+  id varchar(64) primary key,
+  trace_id varchar(128) not null,
+  task_id varchar(128),
+  document_id varchar(128),
+  parent_id varchar(64),
+  artifact_type varchar(32) not null,
+  stage_code varchar(32) not null,
+  file_name varchar(255),
+  file_ext varchar(32),
+  mime_type varchar(128),
+  storage_path varchar(1000),
+  preview_path varchar(1000),
+  file_size bigint,
+  checksum varchar(128),
+  page_no int,
+  page_range varchar(128),
+  sort_no int,
+  status varchar(32),
+  metadata_json longtext,
+  created_at datetime not null,
+  updated_at datetime not null,
+  key idx_document_artifact_trace (trace_id),
+  key idx_document_artifact_task (task_id),
+  key idx_document_artifact_parent (parent_id),
+  key idx_document_artifact_type (artifact_type, stage_code)
+);
+
+create table if not exists document_artifact_step (
+  id varchar(64) primary key,
+  trace_id varchar(128) not null,
+  task_id varchar(128),
+  step_code varchar(64),
+  step_name varchar(128),
+  step_type varchar(64),
+  input_artifact_ids longtext,
+  output_artifact_ids longtext,
+  config_json longtext,
+  status varchar(32),
+  error_message varchar(1000),
+  started_at datetime,
+  ended_at datetime,
+  duration_ms bigint,
+  created_at datetime not null,
+  key idx_artifact_step_trace (trace_id),
+  key idx_artifact_step_task (task_id),
+  key idx_artifact_step_code (step_code)
+);
+
 create table if not exists extract_result_record (
   id varchar(64) primary key,
   task_id varchar(128) not null,

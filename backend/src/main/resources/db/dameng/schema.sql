@@ -553,6 +553,57 @@ create table document_parse_result (
 
 create index idx_document_parse_trace on document_parse_result (trace_id);
 
+create table document_artifact (
+  id varchar(64) primary key,
+  trace_id varchar(128) not null,
+  task_id varchar(128),
+  document_id varchar(128),
+  parent_id varchar(64),
+  artifact_type varchar(32) not null,
+  stage_code varchar(32) not null,
+  file_name varchar(255),
+  file_ext varchar(32),
+  mime_type varchar(128),
+  storage_path varchar(1000),
+  preview_path varchar(1000),
+  file_size bigint,
+  checksum varchar(128),
+  page_no int,
+  page_range varchar(128),
+  sort_no int,
+  status varchar(32),
+  metadata_json clob,
+  created_at timestamp not null,
+  updated_at timestamp not null
+);
+
+create index idx_document_artifact_trace on document_artifact (trace_id);
+create index idx_document_artifact_task on document_artifact (task_id);
+create index idx_document_artifact_parent on document_artifact (parent_id);
+create index idx_document_artifact_type on document_artifact (artifact_type, stage_code);
+
+create table document_artifact_step (
+  id varchar(64) primary key,
+  trace_id varchar(128) not null,
+  task_id varchar(128),
+  step_code varchar(64),
+  step_name varchar(128),
+  step_type varchar(64),
+  input_artifact_ids clob,
+  output_artifact_ids clob,
+  config_json clob,
+  status varchar(32),
+  error_message varchar(1000),
+  started_at timestamp,
+  ended_at timestamp,
+  duration_ms bigint,
+  created_at timestamp not null
+);
+
+create index idx_artifact_step_trace on document_artifact_step (trace_id);
+create index idx_artifact_step_task on document_artifact_step (task_id);
+create index idx_artifact_step_code on document_artifact_step (step_code);
+
 create table extract_result_record (
   id varchar(64) primary key,
   task_id varchar(128) not null,

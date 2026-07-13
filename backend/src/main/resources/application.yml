@@ -28,3 +28,4 @@ app:
       - http://localhost:5170
   storage:
     upload-dir: data/uploads
+    artifact-dir: data/artifacts

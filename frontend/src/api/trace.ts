@@ -34,6 +34,46 @@ export interface TraceStage {
   endedAt?: string
 }
 
+export interface DocumentArtifact {
+  id: string
+  traceId: string
+  taskId?: string
+  documentId?: string
+  parentId?: string
+  artifactType: string
+  stageCode: string
+  fileName?: string
+  fileExt?: string
+  mimeType?: string
+  fileSize?: number
+  checksum?: string
+  pageNo?: number
+  pageRange?: string
+  sortNo?: number
+  status?: string
+  metadataJson?: string
+  createdAt?: string
+  updatedAt?: string
+}
+
+export interface DocumentArtifactStep {
+  id: string
+  traceId: string
+  taskId?: string
+  stepCode?: string
+  stepName?: string
+  stepType?: string
+  inputArtifactIds?: string
+  outputArtifactIds?: string
+  configJson?: string
+  status?: string
+  errorMessage?: string
+  startedAt?: string
+  endedAt?: string
+  durationMs?: number
+  createdAt?: string
+}
+
 export interface TraceDetail {
   summary: TraceSummary
   accessRecord?: Record<string, unknown>
@@ -42,6 +82,8 @@ export interface TraceDetail {
   storageRecord?: StorageRecord
   pushRecords: PushRecord[]
   stages: TraceStage[]
+  artifacts: DocumentArtifact[]
+  artifactSteps: DocumentArtifactStep[]
   reviewLogs: ReviewLog[]
   suggestions: string[]
 }

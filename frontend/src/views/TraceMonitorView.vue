@@ -1,7 +1,16 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
-import { getTraceDetail, listTraces, type TraceDetail, type TraceStage, type TraceSummary } from '../api/trace'
+import { API_BASE_URL } from '../api/http'
+import {
+  getTraceDetail,
+  listTraces,
+  type DocumentArtifact,
+  type DocumentArtifactStep,
+  type TraceDetail,
+  type TraceStage,
+  type TraceSummary
+} from '../api/trace'
 
 type TagType = 'success' | 'warning' | 'danger' | 'info' | 'primary'
 
@@ -62,6 +71,8 @@ const activeStep = computed(() => {
 const resultFields = computed(() => Object.entries(detail.value?.result?.result || {}).map(([field, value]) => ({ field, value })))
 const storageFields = computed(() => Object.entries(detail.value?.storageRecord?.storageData || {}).map(([field, value]) => ({ field, value })))
 const latestPush = computed(() => detail.value?.pushRecords?.[0])
+const artifactRows = computed(() => detail.value?.artifacts || [])
+const artifactStepRows = computed(() => detail.value?.artifactSteps || [])
 
 const loadList = async (preferredTraceId?: string) => {
   loadingList.value = true
@@ -108,11 +119,39 @@ const formatValue = (value: unknown) => {
   if (typeof value === 'object') return JSON.stringify(value)
   return String(value)
 }
+const formatFileSize = (value?: number) => {
+  if (!value) return '-'
+  if (value < 1024) return `${value}B`
+  if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)}KB`
+  return `${(value / 1024 / 1024).toFixed(1)}MB`
+}
+const artifactTypeMap: Record<string, string> = {
+  ORIGINAL: '原始文件',
+  PREPROCESSED: '预处理文件',
+  PAGE_IMAGE: '页图片',
+  OCR_INPUT_MANIFEST: 'OCR输入清单',
+  OCR_OUTPUT_MARKDOWN: 'OCR输出文本'
+}
+const artifactTypeLabel = (type?: string) => (type ? artifactTypeMap[type] || type : '-')
+const artifactUrl = (row: DocumentArtifact, action: 'preview' | 'download') => `${API_BASE_URL}/api/artifacts/${row.id}/${action}`
+const stepArtifactLabel = (ids?: string) => {
+  if (!ids) return '-'
+  const idList = ids.split(',').map((item) => item.trim()).filter(Boolean)
+  if (!idList.length) return '-'
+  return idList
+    .map((id) => artifactRows.value.find((artifact) => artifact.id === id)?.fileName || id)
+    .join('、')
+}
 const stepStatus = (stage: TraceStage) => {
   if (stage.status === 'FAILED') return 'error'
   if (stage.status === 'PENDING') return 'wait'
   if (['WAITING', 'WARNING'].includes(stage.status)) return 'process'
   return 'success'
+}
+const artifactStepStatus = (step: DocumentArtifactStep) => {
+  if (step.status === 'FAILED') return 'danger'
+  if (step.status === 'SUCCESS') return 'success'
+  return 'info'
 }
 
 onMounted(() => loadList())
@@ -224,6 +263,65 @@ onMounted(() => loadList())
           <el-table-column prop="outputSummary" label="输出摘要" min-width="240" show-overflow-tooltip />
           <el-table-column prop="errorMessage" label="异常信息" min-width="220" show-overflow-tooltip />
         </el-table>
+      </el-card>
+
+      <el-card shadow="never">
+        <template #header>
+          <div class="card-header">
+            <span>文件工件链路</span>
+            <span class="muted">原始文件、中间产物、OCR输入与最终解析输出</span>
+          </div>
+        </template>
+        <el-table :data="artifactRows" stripe>
+          <el-table-column prop="sortNo" label="序号" width="70" />
+          <el-table-column label="工件类型" min-width="130">
+            <template #default="{ row }">{{ artifactTypeLabel(row.artifactType) }}</template>
+          </el-table-column>
+          <el-table-column prop="stageCode" label="环节" width="110" />
+          <el-table-column prop="fileName" label="文件名称" min-width="220" show-overflow-tooltip />
+          <el-table-column label="页范围" width="110">
+            <template #default="{ row }">{{ row.pageRange || row.pageNo || '-' }}</template>
+          </el-table-column>
+          <el-table-column label="大小" width="100">
+            <template #default="{ row }">{{ formatFileSize(row.fileSize) }}</template>
+          </el-table-column>
+          <el-table-column label="状态" width="90">
+            <template #default="{ row }">
+              <el-tag :type="getStatus(row.status).type">{{ getStatus(row.status).label }}</el-tag>
+            </template>
+          </el-table-column>
+          <el-table-column prop="createdAt" label="生成时间" min-width="160" />
+          <el-table-column label="操作" width="130" fixed="right">
+            <template #default="{ row }">
+              <el-link type="primary" :href="artifactUrl(row, 'preview')" target="_blank">预览</el-link>
+              <el-divider direction="vertical" />
+              <el-link type="primary" :href="artifactUrl(row, 'download')" target="_blank">下载</el-link>
+            </template>
+          </el-table-column>
+        </el-table>
+        <el-empty v-if="!artifactRows.length" description="暂无文件工件" />
+
+        <el-table :data="artifactStepRows" stripe class="mt-12">
+          <el-table-column prop="stepName" label="处理步骤" min-width="150" />
+          <el-table-column prop="stepType" label="处理类型" width="140" />
+          <el-table-column label="状态" width="90">
+            <template #default="{ row }">
+              <el-tag :type="artifactStepStatus(row)">{{ getStatus(row.status).label }}</el-tag>
+            </template>
+          </el-table-column>
+          <el-table-column label="输入工件" min-width="180" show-overflow-tooltip>
+            <template #default="{ row }">{{ stepArtifactLabel(row.inputArtifactIds) }}</template>
+          </el-table-column>
+          <el-table-column label="输出工件" min-width="180" show-overflow-tooltip>
+            <template #default="{ row }">{{ stepArtifactLabel(row.outputArtifactIds) }}</template>
+          </el-table-column>
+          <el-table-column label="耗时" width="90">
+            <template #default="{ row }">{{ row.durationMs ? `${row.durationMs}ms` : '-' }}</template>
+          </el-table-column>
+          <el-table-column prop="endedAt" label="完成时间" min-width="160" />
+          <el-table-column prop="errorMessage" label="异常信息" min-width="180" show-overflow-tooltip />
+        </el-table>
+        <el-empty v-if="!artifactStepRows.length" description="暂无处理步骤" />
       </el-card>
 
       <div class="trace-detail-grid">

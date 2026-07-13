@@ -2,9 +2,11 @@ package com.example.extraction.task.service;
 
 import com.example.extraction.common.BusinessException;
 import com.example.extraction.common.IdGenerator;
+import com.example.extraction.artifact.service.DocumentArtifactService;
 import com.example.extraction.mapper.ExtractTaskMapper;
 import com.example.extraction.mapper.TaskStageLogMapper;
 import com.example.extraction.model.service.ModelCallLogService;
+import com.example.extraction.result.domain.DocumentParseResultRecord;
 import com.example.extraction.result.service.ExtractionResultService;
 import com.example.extraction.task.domain.ExtractTaskRecord;
 import com.example.extraction.task.domain.TaskStageLogRecord;
@@ -26,17 +28,20 @@ public class TaskExecutionService {
     private final ExtractTaskService extractTaskService;
     private final ExtractionResultService extractionResultService;
     private final ModelCallLogService modelCallLogService;
+    private final DocumentArtifactService documentArtifactService;
 
     public TaskExecutionService(ExtractTaskMapper extractTaskMapper,
                                 TaskStageLogMapper taskStageLogMapper,
                                 ExtractTaskService extractTaskService,
                                 ExtractionResultService extractionResultService,
-                                ModelCallLogService modelCallLogService) {
+                                ModelCallLogService modelCallLogService,
+                                DocumentArtifactService documentArtifactService) {
         this.extractTaskMapper = extractTaskMapper;
         this.taskStageLogMapper = taskStageLogMapper;
         this.extractTaskService = extractTaskService;
         this.extractionResultService = extractionResultService;
         this.modelCallLogService = modelCallLogService;
+        this.documentArtifactService = documentArtifactService;
     }
 
     public List<TaskStageLogResponse> stageLogs(String taskId) {
@@ -64,7 +69,9 @@ public class TaskExecutionService {
 
         try {
             updateState(task, "PARSING", "\u6587\u6863\u89e3\u6790", 20, null, null);
-            extractionResultService.saveParseResult(task);
+            documentArtifactService.recordPreprocessPlan(task);
+            DocumentParseResultRecord parseResult = extractionResultService.saveParseResult(task);
+            documentArtifactService.recordOcrOutput(task, parseResult);
             modelCallLogService.logOcrSuccess(task,
                     "\u6587\u4ef6\uff1a" + task.getFileName() + "\uff0c\u8f93\u51fa\u683c\u5f0f\uff1aMarkdown",
                     "\u6a21\u62df OCR \u89e3\u6790\u6210\u529f\uff0c\u751f\u6210 Markdown \u6587\u672c",

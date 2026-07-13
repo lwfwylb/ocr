@@ -2,6 +2,7 @@ package com.example.extraction.document.service;
 
 import com.example.extraction.common.BusinessException;
 import com.example.extraction.common.IdGenerator;
+import com.example.extraction.artifact.service.DocumentArtifactService;
 import com.example.extraction.configuration.domain.ExtractConfigRecord;
 import com.example.extraction.document.domain.DocumentAccessRecord;
 import com.example.extraction.document.dto.DocumentAccessQueryRequest;
@@ -25,15 +26,18 @@ public class DocumentAccessService {
     private final ExtractConfigMapper extractConfigMapper;
     private final DocumentFileStorageService documentFileStorageService;
     private final ExtractTaskService extractTaskService;
+    private final DocumentArtifactService documentArtifactService;
 
     public DocumentAccessService(DocumentAccessMapper documentAccessMapper,
                                  ExtractConfigMapper extractConfigMapper,
                                  DocumentFileStorageService documentFileStorageService,
-                                 ExtractTaskService extractTaskService) {
+                                 ExtractTaskService extractTaskService,
+                                 DocumentArtifactService documentArtifactService) {
         this.documentAccessMapper = documentAccessMapper;
         this.extractConfigMapper = extractConfigMapper;
         this.documentFileStorageService = documentFileStorageService;
         this.extractTaskService = extractTaskService;
+        this.documentArtifactService = documentArtifactService;
     }
 
     public List<DocumentAccessResponse> list(DocumentAccessQueryRequest query) {
@@ -168,6 +172,7 @@ public class DocumentAccessService {
             applyMatch(record);
         }
         documentAccessMapper.insert(record);
+        documentArtifactService.recordOriginal(record);
         extractTaskService.createFromAccessRecord(record);
         return detail(record.getId());
     }

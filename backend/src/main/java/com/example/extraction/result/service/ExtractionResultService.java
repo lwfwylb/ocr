@@ -86,7 +86,7 @@ public class ExtractionResultService {
         return response;
     }
 
-    public void saveParseResult(ExtractTaskRecord task) {
+    public DocumentParseResultRecord saveParseResult(ExtractTaskRecord task) {
         DocumentParseResultRecord record = new DocumentParseResultRecord();
         record.setId(IdGenerator.nextId("DPR"));
         record.setTaskId(task.getTaskId());
@@ -104,6 +104,7 @@ public class ExtractionResultService {
         } else {
             documentParseResultMapper.update(record);
         }
+        return record;
     }
 
     public void saveExtractResult(ExtractTaskRecord task, BigDecimal confidence, boolean needReview) {

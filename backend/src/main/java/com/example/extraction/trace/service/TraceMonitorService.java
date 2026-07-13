@@ -1,5 +1,6 @@
 package com.example.extraction.trace.service;
 
+import com.example.extraction.artifact.service.DocumentArtifactService;
 import com.example.extraction.common.BusinessException;
 import com.example.extraction.document.domain.DocumentAccessRecord;
 import com.example.extraction.document.dto.DocumentAccessQueryRequest;
@@ -50,6 +51,7 @@ public class TraceMonitorService {
     private final ReviewLogMapper reviewLogMapper;
     private final StorageResultMapper storageResultMapper;
     private final DownstreamPushService downstreamPushService;
+    private final DocumentArtifactService documentArtifactService;
     private final ObjectMapper objectMapper;
 
     public TraceMonitorService(DocumentAccessMapper documentAccessMapper,
@@ -60,6 +62,7 @@ public class TraceMonitorService {
                                ReviewLogMapper reviewLogMapper,
                                StorageResultMapper storageResultMapper,
                                DownstreamPushService downstreamPushService,
+                               DocumentArtifactService documentArtifactService,
                                ObjectMapper objectMapper) {
         this.documentAccessMapper = documentAccessMapper;
         this.extractTaskMapper = extractTaskMapper;
@@ -69,6 +72,7 @@ public class TraceMonitorService {
         this.reviewLogMapper = reviewLogMapper;
         this.storageResultMapper = storageResultMapper;
         this.downstreamPushService = downstreamPushService;
+        this.documentArtifactService = documentArtifactService;
         this.objectMapper = objectMapper;
     }
 
@@ -104,6 +108,8 @@ public class TraceMonitorService {
         response.setPushRecords(pushRecords);
         response.setReviewLogs(reviewLogs.stream().map(this::toReviewLogResponse).toList());
         response.setStages(buildStages(access, task, result, storage, pushRecords, reviewLogs));
+        response.setArtifacts(documentArtifactService.listByTraceId(traceId));
+        response.setArtifactSteps(documentArtifactService.stepsByTraceId(traceId));
         response.setSuggestions(buildSuggestions(access, task, result, storage, pushRecords, reviewLogs));
         return response;
     }
