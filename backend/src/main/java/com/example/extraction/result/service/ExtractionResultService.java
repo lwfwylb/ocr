@@ -359,8 +359,8 @@ public class ExtractionResultService {
             return "字段正则";
         }
         String strategy = stringValue(resultJson.get("_extract_strategy"));
-        if ("REGEX_ONLY".equals(strategy)) {
-            return "字段正则";
+        if ("REGEX_ONLY".equals(strategy) || "RULE_FIRST_NO_FALLBACK".equals(strategy)) {
+            return regexMissed(targetColumn, resultJson) ? "字段正则未命中" : "字段正则";
         }
         return "AI提取";
     }
@@ -368,6 +368,14 @@ public class ExtractionResultService {
     private boolean regexMatched(String targetColumn, Map<String, Object> resultJson) {
         Object matched = resultJson.get("_regex_matched_fields");
         if (matched instanceof List<?> list) {
+            return list.stream().map(String::valueOf).anyMatch(targetColumn::equals);
+        }
+        return false;
+    }
+
+    private boolean regexMissed(String targetColumn, Map<String, Object> resultJson) {
+        Object missed = resultJson.get("_regex_missed_fields");
+        if (missed instanceof List<?> list) {
             return list.stream().map(String::valueOf).anyMatch(targetColumn::equals);
         }
         return false;
@@ -405,6 +413,14 @@ public class ExtractionResultService {
     }
 
     private String globalResultIssue(Map<String, Object> resultJson) {
+        Object primaryError = resultJson.get("_primary_extract_error");
+        if (primaryError != null) {
+            return "主提取策略异常：" + primaryError;
+        }
+        Object fallbackError = resultJson.get("_fallback_extract_error");
+        if (fallbackError != null) {
+            return "兜底提取策略异常：" + fallbackError;
+        }
         Object warnings = resultJson.get("_transform_warnings");
         if (warnings instanceof List<?> list && !list.isEmpty()) {
             return "存在加工提示：" + list.size() + "条";
@@ -432,41 +448,86 @@ public class ExtractionResultService {
 
     private SimulatedExtraction buildConfiguredExtraction(ExtractTaskRecord task, ConfigWizardPayload payload,
                                                           BigDecimal baseConfidence, String parseText) {
-        SimulatedExtraction aiExtraction = Boolean.FALSE.equals(payload == null || payload.getExtractStrategy() == null
-                ? null : payload.getExtractStrategy().getAiEnabled())
-                ? emptyExtraction()
-                : buildSimulatedExtraction(task, payload, baseConfidence);
         String strategy = payload == null || payload.getExtractStrategy() == null
                 ? "AI_FIRST_RULE_FALLBACK"
                 : firstText(payload.getExtractStrategy().getDefaultStrategy(), "AI_FIRST_RULE_FALLBACK");
-        SimulatedExtraction regexExtraction = buildRegexExtraction(payload, parseText, strategy);
         boolean aiEnabled = payload == null || payload.getExtractStrategy() == null
                 || !Boolean.FALSE.equals(payload.getExtractStrategy().getAiEnabled());
 
         Map<String, Object> result = new LinkedHashMap<>();
         Map<String, Object> confidenceJson = new LinkedHashMap<>();
+        SimulatedExtraction regexExtraction = emptyExtraction();
+        SimulatedExtraction aiExtraction = emptyExtraction();
+        ExtractionAttempt primaryAttempt;
+        ExtractionAttempt fallbackAttempt = ExtractionAttempt.success(emptyExtraction());
+        boolean regexAttempted = false;
+
         if (!aiEnabled) {
+            primaryAttempt = tryRegexExtraction(payload, parseText, strategy);
+            regexExtraction = primaryAttempt.extraction();
+            regexAttempted = true;
             result.putAll(regexExtraction.result());
             confidenceJson.putAll(regexExtraction.confidence());
             fillMissingRequiredFields(payload, result, confidenceJson);
             result.put("_extract_strategy", "REGEX_ONLY");
         } else if ("RULE_FIRST_AI_FALLBACK".equals(strategy)) {
-            mergeResult(result, confidenceJson, regexExtraction, true);
-            mergeResult(result, confidenceJson, aiExtraction, false);
-            result.put("_extract_strategy", "RULE_FIRST_AI_FALLBACK");
+            primaryAttempt = tryRegexExtraction(payload, parseText, strategy);
+            regexExtraction = primaryAttempt.extraction();
+            regexAttempted = true;
+            if (primaryAttempt.failed()) {
+                fallbackAttempt = tryAiExtraction(task, payload, baseConfidence);
+                aiExtraction = fallbackAttempt.extraction();
+                mergeResult(result, confidenceJson, aiExtraction, true);
+                result.put("_extract_strategy", "RULE_FIRST_AI_FALLBACK_TO_AI_ON_ERROR");
+                result.put("_extract_fallback_reason", primaryAttempt.errorMessage());
+            } else {
+                mergeResult(result, confidenceJson, regexExtraction, true);
+                result.put("_extract_strategy", "RULE_FIRST_NO_FALLBACK");
+            }
         } else {
-            mergeResult(result, confidenceJson, aiExtraction, true);
-            mergeResult(result, confidenceJson, regexExtraction, false);
-            result.put("_extract_strategy", "AI_FIRST_RULE_FALLBACK");
+            primaryAttempt = tryAiExtraction(task, payload, baseConfidence);
+            aiExtraction = primaryAttempt.extraction();
+            if (primaryAttempt.failed()) {
+                fallbackAttempt = tryRegexExtraction(payload, parseText, strategy);
+                regexExtraction = fallbackAttempt.extraction();
+                regexAttempted = true;
+                mergeResult(result, confidenceJson, regexExtraction, true);
+                result.put("_extract_strategy", "AI_FIRST_FALLBACK_TO_RULE_ON_ERROR");
+                result.put("_extract_fallback_reason", primaryAttempt.errorMessage());
+            } else {
+                mergeResult(result, confidenceJson, aiExtraction, true);
+                result.put("_extract_strategy", "AI_FIRST_NO_FALLBACK");
+            }
         }
-        attachRegexDiagnostics(result, payload, regexExtraction);
+        if (regexAttempted) {
+            attachRegexDiagnostics(result, payload, regexExtraction);
+        }
+        attachExtractionFailure(result, primaryAttempt, fallbackAttempt);
 
         if (countBusinessFields(result) == 0) {
-            return buildFallbackExtraction(task, baseConfidence);
+            fillMissingRequiredFields(payload, result, confidenceJson);
         }
         BigDecimal overall = overallConfidence(confidenceJson, aiExtraction.overallConfidence());
         BigDecimal min = minConfidence(confidenceJson, aiExtraction.minConfidence());
         return new SimulatedExtraction(result, confidenceJson, overall, min);
+    }
+
+    private ExtractionAttempt tryAiExtraction(ExtractTaskRecord task, ConfigWizardPayload payload, BigDecimal baseConfidence) {
+        try {
+            return ExtractionAttempt.success(buildSimulatedExtraction(task, payload, baseConfidence));
+        } catch (RuntimeException e) {
+            return ExtractionAttempt.failed("AI提取执行异常：" + firstText(e.getMessage(), e.getClass().getSimpleName()));
+        }
+    }
+
+    private ExtractionAttempt tryRegexExtraction(ConfigWizardPayload payload, String parseText, String strategy) {
+        SimulatedExtraction extraction = buildRegexExtraction(payload, parseText, strategy);
+        String error = extraction.result().entrySet().stream()
+                .filter(entry -> entry.getKey().startsWith("_regex_error_"))
+                .map(entry -> String.valueOf(entry.getValue()))
+                .findFirst()
+                .orElse(null);
+        return StringUtils.hasText(error) ? ExtractionAttempt.failed(extraction, error) : ExtractionAttempt.success(extraction);
     }
 
     private SimulatedExtraction buildRegexExtraction(ConfigWizardPayload payload, String parseText, String strategy) {
@@ -528,6 +589,15 @@ public class ExtractionResultService {
         List<String> missedFields = configuredFields.stream().filter(field -> !matchedFields.contains(field)).toList();
         if (!missedFields.isEmpty()) {
             result.put("_regex_missed_fields", missedFields);
+        }
+    }
+
+    private void attachExtractionFailure(Map<String, Object> result, ExtractionAttempt primaryAttempt, ExtractionAttempt fallbackAttempt) {
+        if (primaryAttempt != null && primaryAttempt.failed()) {
+            result.put("_primary_extract_error", primaryAttempt.errorMessage());
+        }
+        if (fallbackAttempt != null && fallbackAttempt.failed()) {
+            result.put("_fallback_extract_error", fallbackAttempt.errorMessage());
         }
     }
 
@@ -1155,6 +1225,20 @@ public class ExtractionResultService {
 
     private record SimulatedExtraction(Map<String, Object> result, Map<String, Object> confidence,
                                        BigDecimal overallConfidence, BigDecimal minConfidence) {
+    }
+
+    private record ExtractionAttempt(SimulatedExtraction extraction, boolean failed, String errorMessage) {
+        static ExtractionAttempt success(SimulatedExtraction extraction) {
+            return new ExtractionAttempt(extraction, false, null);
+        }
+
+        static ExtractionAttempt failed(String errorMessage) {
+            return new ExtractionAttempt(new SimulatedExtraction(new LinkedHashMap<>(), new LinkedHashMap<>(), BigDecimal.ZERO, BigDecimal.ZERO), true, errorMessage);
+        }
+
+        static ExtractionAttempt failed(SimulatedExtraction extraction, String errorMessage) {
+            return new ExtractionAttempt(extraction, true, errorMessage);
+        }
     }
 
     private record TransformOutcome(Map<String, Object> result, Map<String, Object> confidence,
