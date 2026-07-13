@@ -104,6 +104,30 @@
         )
     </insert>
 
+    <update id="updateArtifact" parameterType="com.example.extraction.artifact.domain.DocumentArtifactRecord">
+        update document_artifact
+        set trace_id = #{traceId},
+            task_id = #{taskId},
+            document_id = #{documentId},
+            parent_id = #{parentId},
+            artifact_type = #{artifactType},
+            stage_code = #{stageCode},
+            file_name = #{fileName},
+            file_ext = #{fileExt},
+            mime_type = #{mimeType},
+            storage_path = #{storagePath},
+            preview_path = #{previewPath},
+            file_size = #{fileSize},
+            checksum = #{checksum},
+            page_no = #{pageNo},
+            page_range = #{pageRange},
+            sort_no = #{sortNo},
+            status = #{status},
+            metadata_json = #{metadataJson},
+            updated_at = #{updatedAt}
+        where id = #{id}
+    </update>
+
     <select id="selectStepsByTaskId" resultMap="DocumentArtifactStepRecordMap">
         select <include refid="StepColumns"/>
         from document_artifact_step

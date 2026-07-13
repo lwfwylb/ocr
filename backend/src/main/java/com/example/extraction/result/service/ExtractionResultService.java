@@ -2,8 +2,10 @@ package com.example.extraction.result.service;
 
 import com.example.extraction.common.BusinessException;
 import com.example.extraction.common.IdGenerator;
+import com.example.extraction.artifact.domain.DocumentArtifactRecord;
 import com.example.extraction.configuration.domain.ExtractConfigRecord;
 import com.example.extraction.configuration.dto.ConfigWizardPayload;
+import com.example.extraction.mapper.DocumentArtifactMapper;
 import com.example.extraction.mapper.DocumentParseResultMapper;
 import com.example.extraction.mapper.ExtractConfigMapper;
 import com.example.extraction.mapper.ExtractResultMapper;
@@ -42,15 +44,18 @@ public class ExtractionResultService {
     private final DocumentParseResultMapper documentParseResultMapper;
     private final ExtractResultMapper extractResultMapper;
     private final ExtractConfigMapper extractConfigMapper;
+    private final DocumentArtifactMapper documentArtifactMapper;
     private final ObjectMapper objectMapper;
 
     public ExtractionResultService(DocumentParseResultMapper documentParseResultMapper,
                                    ExtractResultMapper extractResultMapper,
                                    ExtractConfigMapper extractConfigMapper,
+                                   DocumentArtifactMapper documentArtifactMapper,
                                    ObjectMapper objectMapper) {
         this.documentParseResultMapper = documentParseResultMapper;
         this.extractResultMapper = extractResultMapper;
         this.extractConfigMapper = extractConfigMapper;
+        this.documentArtifactMapper = documentArtifactMapper;
         this.objectMapper = objectMapper;
     }
 
@@ -93,9 +98,10 @@ public class ExtractionResultService {
         record.setTraceId(task.getTraceId());
         record.setDocumentId(task.getDocumentId());
         record.setEngineCode("SIMULATED_PARSE_ENGINE");
-        record.setParseText(buildParseText(task));
+        DocumentArtifactRecord preprocessed = documentArtifactMapper.selectFirstByTaskIdAndType(task.getTaskId(), "PREPROCESSED");
+        record.setParseText(buildParseText(task, preprocessed));
         record.setParseMarkdownPath("mock://parse-result/" + task.getTraceId() + ".md");
-        record.setPageCount(1);
+        record.setPageCount(resolveParsedPageCount(preprocessed));
         record.setStatus("SUCCESS");
         record.setCreatedAt(LocalDateTime.now());
         record.setUpdatedAt(record.getCreatedAt());
@@ -1119,6 +1125,10 @@ public class ExtractionResultService {
     }
 
     private String buildParseText(ExtractTaskRecord task) {
+        return buildParseText(task, null);
+    }
+
+    private String buildParseText(ExtractTaskRecord task, DocumentArtifactRecord preprocessed) {
         String textContent = readTextFile(task);
         if (StringUtils.hasText(textContent)) {
             return "# 文本文件解析结果\n\n"
@@ -1127,11 +1137,60 @@ public class ExtractionResultService {
                     + "- 文档类型: " + nullToDash(task.getDocumentType()) + "\n\n"
                     + textContent;
         }
+        if (preprocessed != null) {
+            return "# 模拟解析结果\n\n"
+                    + "- 任务编号: " + task.getTaskId() + "\n"
+                    + "- 文件名: " + task.getFileName() + "\n"
+                    + "- 文档类型: " + nullToDash(task.getDocumentType()) + "\n"
+                    + "- 预处理输入: " + preprocessed.getFileName() + "\n"
+                    + "- 已选页码: " + firstText(preprocessed.getPageRange(), "ALL") + "\n"
+                    + "- 预处理页数: " + resolveParsedPageCount(preprocessed) + "\n\n"
+                    + "已根据配置向导中的文档预处理规则生成 PDF 预处理文件，真实 OCR 接入后将以该预处理文件作为识别输入。";
+        }
         return "# 模拟解析结果\n\n"
                 + "- 任务编号: " + task.getTaskId() + "\n"
                 + "- 文件名: " + task.getFileName() + "\n"
                 + "- 文档类型: " + nullToDash(task.getDocumentType()) + "\n\n"
                 + "这是第一版模拟解析文本，后续由 OCR/MinerU 真实结果替换。";
+    }
+
+    private Integer resolveParsedPageCount(DocumentArtifactRecord preprocessed) {
+        if (preprocessed == null) {
+            return 1;
+        }
+        String pageRange = preprocessed.getPageRange();
+        if (!StringUtils.hasText(pageRange) || "ALL".equalsIgnoreCase(pageRange)) {
+            return 1;
+        }
+        int count = 0;
+        for (String part : pageRange.split(",")) {
+            if (!StringUtils.hasText(part)) {
+                continue;
+            }
+            String trimmed = part.trim();
+            if (trimmed.contains("-")) {
+                String[] bounds = trimmed.split("-", 2);
+                Integer start = parseInt(bounds[0]);
+                Integer end = parseInt(bounds[1]);
+                if (start != null && end != null) {
+                    count += Math.abs(end - start) + 1;
+                }
+            } else if (parseInt(trimmed) != null) {
+                count++;
+            }
+        }
+        return Math.max(count, 1);
+    }
+
+    private Integer parseInt(String value) {
+        if (!StringUtils.hasText(value)) {
+            return null;
+        }
+        try {
+            return Integer.parseInt(value.trim());
+        } catch (NumberFormatException ignored) {
+            return null;
+        }
     }
 
     private String readTextFile(ExtractTaskRecord task) {

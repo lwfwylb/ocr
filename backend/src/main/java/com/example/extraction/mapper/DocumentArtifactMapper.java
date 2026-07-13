@@ -21,6 +21,8 @@ public interface DocumentArtifactMapper {
 
     void insertArtifact(DocumentArtifactRecord record);
 
+    int updateArtifact(DocumentArtifactRecord record);
+
     List<DocumentArtifactStepRecord> selectStepsByTaskId(@Param("taskId") String taskId);
 
     List<DocumentArtifactStepRecord> selectStepsByTraceId(@Param("traceId") String traceId);

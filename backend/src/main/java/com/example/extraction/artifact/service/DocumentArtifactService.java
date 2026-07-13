@@ -36,6 +36,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
@@ -96,9 +97,6 @@ public class DocumentArtifactService {
         ConfigWizardPayload payload = readConfigPayload(task.getConfigId());
         PdfPreprocessResult preprocessResult = executePdfPreprocess(task, payload, original);
         DocumentArtifactRecord existing = documentArtifactMapper.selectFirstByTaskIdAndType(task.getTaskId(), "OCR_INPUT_MANIFEST");
-        if (existing != null) {
-            return existing;
-        }
         DocumentArtifactRecord ocrInput = preprocessResult == null ? original : preprocessResult.artifact();
         Path manifestPath = artifactPath(task, "ocr-input", "030_ocr_input_manifest.json");
         Map<String, Object> manifest = Map.of(
@@ -116,7 +114,9 @@ public class DocumentArtifactService {
         );
         writeFile(manifestPath, writeJson(manifest));
 
-        DocumentArtifactRecord artifact = baseArtifact(task.getTraceId(), task.getTaskId(), task.getDocumentId());
+        DocumentArtifactRecord artifact = existing == null
+                ? baseArtifact(task.getTraceId(), task.getTaskId(), task.getDocumentId())
+                : reuseArtifact(existing, task);
         artifact.setParentId(ocrInput == null ? null : ocrInput.getId());
         artifact.setArtifactType("OCR_INPUT_MANIFEST");
         artifact.setStageCode("PREPROCESS");
@@ -135,7 +135,7 @@ public class DocumentArtifactService {
                 "ocrInput", true,
                 "inputArtifactId", ocrInput == null ? "-" : nullToDash(ocrInput.getId())
         )));
-        documentArtifactMapper.insertArtifact(artifact);
+        saveArtifact(artifact, existing);
 
         insertStep(task, "PREPROCESS_PLAN", "Preprocess plan", "PASS_THROUGH",
                 ocrInput == null ? null : ocrInput.getId(), artifact.getId(),
@@ -151,14 +151,14 @@ public class DocumentArtifactService {
         if (task == null || parseResult == null || !StringUtils.hasText(task.getTaskId())) {
             return;
         }
-        if (documentArtifactMapper.selectFirstByTaskIdAndType(task.getTaskId(), "OCR_OUTPUT_MARKDOWN") != null) {
-            return;
-        }
+        DocumentArtifactRecord existing = documentArtifactMapper.selectFirstByTaskIdAndType(task.getTaskId(), "OCR_OUTPUT_MARKDOWN");
         DocumentArtifactRecord input = documentArtifactMapper.selectFirstByTaskIdAndType(task.getTaskId(), "OCR_INPUT_MANIFEST");
         Path outputPath = artifactPath(task, "ocr-output", "040_ocr_output.md");
         writeFile(outputPath, firstText(parseResult.getParseText(), ""));
 
-        DocumentArtifactRecord artifact = baseArtifact(task.getTraceId(), task.getTaskId(), task.getDocumentId());
+        DocumentArtifactRecord artifact = existing == null
+                ? baseArtifact(task.getTraceId(), task.getTaskId(), task.getDocumentId())
+                : reuseArtifact(existing, task);
         artifact.setParentId(input == null ? null : input.getId());
         artifact.setArtifactType("OCR_OUTPUT_MARKDOWN");
         artifact.setStageCode("PARSE");
@@ -176,7 +176,7 @@ public class DocumentArtifactService {
                 "engineCode", nullToDash(parseResult.getEngineCode()),
                 "pageCount", parseResult.getPageCount() == null ? 0 : parseResult.getPageCount()
         )));
-        documentArtifactMapper.insertArtifact(artifact);
+        saveArtifact(artifact, existing);
 
         insertStep(task, "OCR_PARSE", "OCR parse output", "SIMULATED_OCR",
                 input == null ? null : input.getId(), artifact.getId(),
@@ -192,9 +192,6 @@ public class DocumentArtifactService {
             throw new BusinessException("PREPROCESS_404", "PDF source file not found");
         }
         DocumentArtifactRecord existing = documentArtifactMapper.selectFirstByTaskIdAndType(task.getTaskId(), "PREPROCESSED");
-        if (existing != null) {
-            return new PdfPreprocessResult(existing, firstText(existing.getPageRange(), "ALL"));
-        }
         try (PDDocument source = PDDocument.load(sourcePath.toFile())) {
             int pageCount = source.getNumberOfPages();
             if (pageCount <= 0) {
@@ -225,7 +222,9 @@ public class DocumentArtifactService {
             }
 
             String pageRange = compactPageRanges(selectedPages);
-            DocumentArtifactRecord artifact = baseArtifact(task.getTraceId(), task.getTaskId(), task.getDocumentId());
+            DocumentArtifactRecord artifact = existing == null
+                    ? baseArtifact(task.getTraceId(), task.getTaskId(), task.getDocumentId())
+                    : reuseArtifact(existing, task);
             artifact.setParentId(original == null ? null : original.getId());
             artifact.setArtifactType("PREPROCESSED");
             artifact.setStageCode("PREPROCESS");
@@ -245,7 +244,7 @@ public class DocumentArtifactService {
                     "selectedPages", selectedPages,
                     "rules", pdfPreprocessRuleSummary(enabledSteps)
             )));
-            documentArtifactMapper.insertArtifact(artifact);
+            saveArtifact(artifact, existing);
             insertStep(task, "PDF_PREPROCESS", "PDF preprocess", "PAGE_RANGE_KEYWORD_FILTER",
                     original == null ? null : original.getId(), artifact.getId(),
                     artifact.getMetadataJson(), null);
@@ -301,6 +300,21 @@ public class DocumentArtifactService {
         record.setCreatedAt(now);
         record.setUpdatedAt(now);
         return record;
+    }
+
+    private DocumentArtifactRecord reuseArtifact(DocumentArtifactRecord existing, ExtractTaskRecord task) {
+        DocumentArtifactRecord record = baseArtifact(task.getTraceId(), task.getTaskId(), task.getDocumentId());
+        record.setId(existing.getId());
+        record.setCreatedAt(existing.getCreatedAt() == null ? record.getCreatedAt() : existing.getCreatedAt());
+        return record;
+    }
+
+    private void saveArtifact(DocumentArtifactRecord artifact, DocumentArtifactRecord existing) {
+        if (existing == null) {
+            documentArtifactMapper.insertArtifact(artifact);
+        } else {
+            documentArtifactMapper.updateArtifact(artifact);
+        }
     }
 
     private void insertStep(ExtractTaskRecord task, String stepCode, String stepName, String stepType,
@@ -367,7 +381,7 @@ public class DocumentArtifactService {
                 return true;
             }
             if ("KEYWORD_FILTER".equals(stepType)
-                    && (!safeList(step.getIncludeKeywords()).isEmpty() || !safeList(step.getExcludeKeywords()).isEmpty())) {
+                    && (!normalizedKeywords(step.getIncludeKeywords()).isEmpty() || !normalizedKeywords(step.getExcludeKeywords()).isEmpty())) {
                 return true;
             }
         }
@@ -456,8 +470,8 @@ public class DocumentArtifactService {
             stripper.setStartPage(pageNo);
             stripper.setEndPage(pageNo);
             String pageText = firstText(stripper.getText(source), "");
-            boolean includeMatched = includes.isEmpty() || includes.stream().anyMatch(pageText::contains);
-            boolean excludeMatched = excludes.stream().anyMatch(pageText::contains);
+            boolean includeMatched = includes.isEmpty() || includes.stream().anyMatch(keyword -> pageText.contains(keyword));
+            boolean excludeMatched = excludes.stream().anyMatch(keyword -> pageText.contains(keyword));
             if (includeMatched && !excludeMatched) {
                 result.add(pageNo);
             }
@@ -467,7 +481,7 @@ public class DocumentArtifactService {
 
     private List<String> normalizedKeywords(List<String> keywords) {
         return safeList(keywords).stream()
-                .filter(StringUtils::hasText)
+                .filter(Objects::nonNull)
                 .map(String::trim)
                 .filter(StringUtils::hasText)
                 .toList();
