@@ -198,4 +198,13 @@ public class TaskExecutionService {
         response.setCreatedAt(record.getCreatedAt());
         return response;
     }
+
+    private String firstText(String... values) {
+        for (String value : values) {
+            if (StringUtils.hasText(value)) {
+                return value;
+            }
+        }
+        return null;
+    }
 }
