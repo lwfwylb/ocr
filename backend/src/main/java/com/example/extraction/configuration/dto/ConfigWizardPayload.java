@@ -891,6 +891,20 @@ public class ConfigWizardPayload {
         private String onFail;
         private Map<String, Object> ruleConfig;
         private List<Map<String, Object>> dictItems = new ArrayList<>();
+        private String dictMatchMode;
+        private String apiEndpoint;
+        private String apiMethod;
+        private String apiParamName;
+        private String apiResponsePath;
+        private Integer apiTimeout;
+        private Integer apiRetryCount;
+        private String apiAuthMode;
+        private String apiSuccessRule;
+        private String sqlDatasource;
+        private String sqlText;
+        private String sqlResultColumn;
+        private Integer sqlMaxRows;
+        private Boolean sqlReadonlyChecked;
 
         public String getId() {
             return id;
@@ -1002,6 +1016,118 @@ public class ConfigWizardPayload {
 
         public void setDictItems(List<Map<String, Object>> dictItems) {
             this.dictItems = dictItems;
+        }
+
+        public String getDictMatchMode() {
+            return dictMatchMode;
+        }
+
+        public void setDictMatchMode(String dictMatchMode) {
+            this.dictMatchMode = dictMatchMode;
+        }
+
+        public String getApiEndpoint() {
+            return apiEndpoint;
+        }
+
+        public void setApiEndpoint(String apiEndpoint) {
+            this.apiEndpoint = apiEndpoint;
+        }
+
+        public String getApiMethod() {
+            return apiMethod;
+        }
+
+        public void setApiMethod(String apiMethod) {
+            this.apiMethod = apiMethod;
+        }
+
+        public String getApiParamName() {
+            return apiParamName;
+        }
+
+        public void setApiParamName(String apiParamName) {
+            this.apiParamName = apiParamName;
+        }
+
+        public String getApiResponsePath() {
+            return apiResponsePath;
+        }
+
+        public void setApiResponsePath(String apiResponsePath) {
+            this.apiResponsePath = apiResponsePath;
+        }
+
+        public Integer getApiTimeout() {
+            return apiTimeout;
+        }
+
+        public void setApiTimeout(Integer apiTimeout) {
+            this.apiTimeout = apiTimeout;
+        }
+
+        public Integer getApiRetryCount() {
+            return apiRetryCount;
+        }
+
+        public void setApiRetryCount(Integer apiRetryCount) {
+            this.apiRetryCount = apiRetryCount;
+        }
+
+        public String getApiAuthMode() {
+            return apiAuthMode;
+        }
+
+        public void setApiAuthMode(String apiAuthMode) {
+            this.apiAuthMode = apiAuthMode;
+        }
+
+        public String getApiSuccessRule() {
+            return apiSuccessRule;
+        }
+
+        public void setApiSuccessRule(String apiSuccessRule) {
+            this.apiSuccessRule = apiSuccessRule;
+        }
+
+        public String getSqlDatasource() {
+            return sqlDatasource;
+        }
+
+        public void setSqlDatasource(String sqlDatasource) {
+            this.sqlDatasource = sqlDatasource;
+        }
+
+        public String getSqlText() {
+            return sqlText;
+        }
+
+        public void setSqlText(String sqlText) {
+            this.sqlText = sqlText;
+        }
+
+        public String getSqlResultColumn() {
+            return sqlResultColumn;
+        }
+
+        public void setSqlResultColumn(String sqlResultColumn) {
+            this.sqlResultColumn = sqlResultColumn;
+        }
+
+        public Integer getSqlMaxRows() {
+            return sqlMaxRows;
+        }
+
+        public void setSqlMaxRows(Integer sqlMaxRows) {
+            this.sqlMaxRows = sqlMaxRows;
+        }
+
+        public Boolean getSqlReadonlyChecked() {
+            return sqlReadonlyChecked;
+        }
+
+        public void setSqlReadonlyChecked(Boolean sqlReadonlyChecked) {
+            this.sqlReadonlyChecked = sqlReadonlyChecked;
         }
     }
 
