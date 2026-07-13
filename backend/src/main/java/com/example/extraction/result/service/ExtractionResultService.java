@@ -131,7 +131,7 @@ public class ExtractionResultService {
         record.setOverallConfidence(overallConfidence);
         record.setNeedReview(finalNeedReview ? "1" : "0");
         record.setStatus(finalNeedReview ? "WAIT_REVIEW" : "STORED");
-        record.setFieldCount(transformOutcome.result().size());
+        record.setFieldCount(countBusinessFields(transformOutcome.result()));
         record.setTargetTable(resolveTargetTable(payload));
         record.setMappingProfile(resolveMappingProfile(payload, task));
         record.setCreatedAt(LocalDateTime.now());
@@ -352,6 +352,9 @@ public class ExtractionResultService {
         if (isTransformOutput(targetColumn, payload)) {
             return "加工衍生";
         }
+        if (regexMatched(targetColumn, resultJson)) {
+            return "字段正则";
+        }
         if (isRegexTarget(targetColumn, payload) && confidence != null && confidence.compareTo(new BigDecimal("0.97")) >= 0) {
             return "字段正则";
         }
@@ -360,6 +363,14 @@ public class ExtractionResultService {
             return "字段正则";
         }
         return "AI提取";
+    }
+
+    private boolean regexMatched(String targetColumn, Map<String, Object> resultJson) {
+        Object matched = resultJson.get("_regex_matched_fields");
+        if (matched instanceof List<?> list) {
+            return list.stream().map(String::valueOf).anyMatch(targetColumn::equals);
+        }
+        return false;
     }
 
     private boolean isTransformOutput(String targetColumn, ConfigWizardPayload payload) {
@@ -398,6 +409,10 @@ public class ExtractionResultService {
         if (warnings instanceof List<?> list && !list.isEmpty()) {
             return "存在加工提示：" + list.size() + "条";
         }
+        Object missed = resultJson.get("_regex_missed_fields");
+        if (missed instanceof List<?> list && !list.isEmpty()) {
+            return "存在正则未命中字段：" + list.size() + "个";
+        }
         return null;
     }
 
@@ -421,10 +436,10 @@ public class ExtractionResultService {
                 ? null : payload.getExtractStrategy().getAiEnabled())
                 ? emptyExtraction()
                 : buildSimulatedExtraction(task, payload, baseConfidence);
-        SimulatedExtraction regexExtraction = buildRegexExtraction(payload, parseText);
         String strategy = payload == null || payload.getExtractStrategy() == null
                 ? "AI_FIRST_RULE_FALLBACK"
                 : firstText(payload.getExtractStrategy().getDefaultStrategy(), "AI_FIRST_RULE_FALLBACK");
+        SimulatedExtraction regexExtraction = buildRegexExtraction(payload, parseText, strategy);
         boolean aiEnabled = payload == null || payload.getExtractStrategy() == null
                 || !Boolean.FALSE.equals(payload.getExtractStrategy().getAiEnabled());
 
@@ -444,8 +459,9 @@ public class ExtractionResultService {
             mergeResult(result, confidenceJson, regexExtraction, false);
             result.put("_extract_strategy", "AI_FIRST_RULE_FALLBACK");
         }
+        attachRegexDiagnostics(result, payload, regexExtraction);
 
-        if (result.isEmpty() || (result.size() == 1 && result.containsKey("_extract_strategy"))) {
+        if (countBusinessFields(result) == 0) {
             return buildFallbackExtraction(task, baseConfidence);
         }
         BigDecimal overall = overallConfidence(confidenceJson, aiExtraction.overallConfidence());
@@ -453,7 +469,7 @@ public class ExtractionResultService {
         return new SimulatedExtraction(result, confidenceJson, overall, min);
     }
 
-    private SimulatedExtraction buildRegexExtraction(ConfigWizardPayload payload, String parseText) {
+    private SimulatedExtraction buildRegexExtraction(ConfigWizardPayload payload, String parseText, String strategy) {
         Map<String, Object> result = new LinkedHashMap<>();
         Map<String, Object> confidenceJson = new LinkedHashMap<>();
         if (payload == null || payload.getRegexRules() == null || !StringUtils.hasText(parseText)) {
@@ -461,7 +477,7 @@ public class ExtractionResultService {
         }
         Map<String, String> targetByField = targetColumnByField(payload);
         for (ConfigWizardPayload.RegexRule rule : payload.getRegexRules()) {
-            if (rule == null || Boolean.FALSE.equals(rule.getEnabled()) || !StringUtils.hasText(rule.getFieldCode())
+            if (rule == null || !regexRuleExecutable(rule, strategy) || !StringUtils.hasText(rule.getFieldCode())
                     || !StringUtils.hasText(rule.getRegexPattern())) {
                 continue;
             }
@@ -489,6 +505,42 @@ public class ExtractionResultService {
         BigDecimal overall = overallConfidence(confidenceJson, new BigDecimal("0.98"));
         BigDecimal min = minConfidence(confidenceJson, overall);
         return new SimulatedExtraction(result, confidenceJson, overall, min);
+    }
+
+    private boolean regexRuleExecutable(ConfigWizardPayload.RegexRule rule, String strategy) {
+        if (Boolean.TRUE.equals(rule.getEnabled())) {
+            return true;
+        }
+        return "RULE_FIRST_AI_FALLBACK".equals(strategy) && StringUtils.hasText(rule.getRegexPattern());
+    }
+
+    private void attachRegexDiagnostics(Map<String, Object> result, ConfigWizardPayload payload, SimulatedExtraction regexExtraction) {
+        List<String> configuredFields = configuredRegexTargetFields(payload);
+        List<String> matchedFields = regexExtraction.result().keySet().stream()
+                .filter(key -> StringUtils.hasText(key) && !key.startsWith("_"))
+                .toList();
+        if (!configuredFields.isEmpty()) {
+            result.put("_regex_configured_fields", configuredFields);
+        }
+        if (!matchedFields.isEmpty()) {
+            result.put("_regex_matched_fields", matchedFields);
+        }
+        List<String> missedFields = configuredFields.stream().filter(field -> !matchedFields.contains(field)).toList();
+        if (!missedFields.isEmpty()) {
+            result.put("_regex_missed_fields", missedFields);
+        }
+    }
+
+    private List<String> configuredRegexTargetFields(ConfigWizardPayload payload) {
+        if (payload == null || payload.getRegexRules() == null) {
+            return List.of();
+        }
+        Map<String, String> targetByField = targetColumnByField(payload);
+        return payload.getRegexRules().stream()
+                .filter(rule -> rule != null && StringUtils.hasText(rule.getRegexPattern()) && StringUtils.hasText(rule.getFieldCode()))
+                .map(rule -> firstText(targetByField.get(rule.getFieldCode()), rule.getFieldCode()))
+                .distinct()
+                .toList();
     }
 
     private int regexFlags(String flags) {
@@ -926,6 +978,15 @@ public class ExtractionResultService {
             return BigDecimal.ZERO;
         }
         return value;
+    }
+
+    private int countBusinessFields(Map<String, Object> result) {
+        if (result == null) {
+            return 0;
+        }
+        return (int) result.keySet().stream()
+                .filter(key -> StringUtils.hasText(key) && !key.startsWith("_"))
+                .count();
     }
 
     private BigDecimal min(List<BigDecimal> values, BigDecimal fallback) {
