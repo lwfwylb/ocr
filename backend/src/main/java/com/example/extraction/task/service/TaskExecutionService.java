@@ -114,7 +114,8 @@ public class TaskExecutionService {
             }
             return extractTaskService.detail(taskId);
         } catch (BusinessException e) {
-            throw e;
+            fail(task, e.getCode(), e.getMessage());
+            return extractTaskService.detail(taskId);
         } catch (RuntimeException e) {
             fail(task, "EXECUTION_ERROR", e.getMessage());
             return extractTaskService.detail(taskId);
