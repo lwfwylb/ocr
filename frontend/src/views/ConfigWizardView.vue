@@ -16,7 +16,7 @@ import {
 import { listLlmModelOptions, listOcrEngineOptions, type LlmModelOption, type OcrEngineOption } from '../api/model'
 
 type TransformRuleType = 'DICT' | 'API' | 'SQL'
-type PreprocessStepType = 'PAGE_RANGE' | 'KEYWORD_FILTER' | 'PDF_TO_IMAGE' | 'SPLIT_MERGE'
+type PreprocessStepType = 'PAGE_RANGE' | 'KEYWORD_FILTER' | 'PDF_TO_IMAGE'
 type ImageQuality = 'FAST_150' | 'STANDARD_300' | 'HIGH_450'
 type TransformOutputMode = 'OVERWRITE_INPUT' | 'WRITE_TARGET' | 'DERIVE_FIELD'
 type DictMatchMode = 'EQUALS' | 'CONTAINS' | 'REGEX' | 'RANGE'
@@ -78,7 +78,6 @@ interface PreprocessStep {
   imageQuality: ImageQuality
   dpi: number
   imageFormat: 'PNG' | 'JPEG'
-  splitPageCount: number
 }
 
 type OptionItem = Record<string, any>
@@ -256,55 +255,40 @@ const regexFailedCount = computed(() =>
     return result === '未匹配' || result === '正则错误'
   }).length
 )
-const preprocessEnabled = ref(true)
+const preprocessEnabled = ref(false)
 const preprocessSteps = ref<PreprocessStep[]>([
   {
     id: 'pre-page',
     stepType: 'PAGE_RANGE',
-    enabled: true,
-    pageRanges: '1,3,5-8',
-    includeKeywords: [],
-    excludeKeywords: [],
-    imageQuality: 'STANDARD_300',
-    dpi: 300,
-    imageFormat: 'PNG',
-    splitPageCount: 10
-  },
-  {
-    id: 'pre-keyword',
-    stepType: 'KEYWORD_FILTER',
-    enabled: true,
-    pageRanges: '',
-    includeKeywords: ['划款指令', '付款申请'],
-    excludeKeywords: ['附件', '说明页'],
-    imageQuality: 'STANDARD_300',
-    dpi: 300,
-    imageFormat: 'PNG',
-    splitPageCount: 10
-  },
-  {
-    id: 'pre-image',
-    stepType: 'PDF_TO_IMAGE',
-    enabled: true,
-    pageRanges: '',
-    includeKeywords: [],
-    excludeKeywords: [],
-    imageQuality: 'STANDARD_300',
-    dpi: 300,
-    imageFormat: 'PNG',
-    splitPageCount: 10
-  },
-  {
-    id: 'pre-split',
-    stepType: 'SPLIT_MERGE',
     enabled: false,
     pageRanges: '',
     includeKeywords: [],
     excludeKeywords: [],
     imageQuality: 'STANDARD_300',
     dpi: 300,
-    imageFormat: 'PNG',
-    splitPageCount: 10
+    imageFormat: 'PNG'
+  },
+  {
+    id: 'pre-keyword',
+    stepType: 'KEYWORD_FILTER',
+    enabled: false,
+    pageRanges: '',
+    includeKeywords: [],
+    excludeKeywords: [],
+    imageQuality: 'STANDARD_300',
+    dpi: 300,
+    imageFormat: 'PNG'
+  },
+  {
+    id: 'pre-image',
+    stepType: 'PDF_TO_IMAGE',
+    enabled: false,
+    pageRanges: '',
+    includeKeywords: [],
+    excludeKeywords: [],
+    imageQuality: 'STANDARD_300',
+    dpi: 300,
+    imageFormat: 'PNG'
   }
 ])
 const previewInput = ref('100000-1000000')
@@ -319,7 +303,7 @@ const form = reactive({
   visibleRoles: [] as string[],
   ownerRole: '',
   defaultPriority: 'HIGH',
-  engineCode: 'paddleocr_vl',
+  engineCode: '',
   outputFormat: 'Markdown',
   parseMode: 'FULL',
   pageBatchSize: 10,
@@ -362,8 +346,7 @@ const templateTypeOptions = computed<string[]>(() => {
 const preprocessStepTypeLabel: Record<PreprocessStepType, string> = {
   PAGE_RANGE: '指定页码/页范围',
   KEYWORD_FILTER: '包含/排除关键字',
-  PDF_TO_IMAGE: 'PDF 转图片',
-  SPLIT_MERGE: '大文件拆分与拼接'
+  PDF_TO_IMAGE: 'PDF 转图片'
 }
 const imageQualityOptions: Array<{ label: string; value: ImageQuality; dpi: number }> = [
   { label: '快速（150 DPI）', value: 'FAST_150', dpi: 150 },
@@ -382,11 +365,12 @@ const preprocessPipelinePreview = computed(() => {
       const stepName = preprocessStepTypeLabel[step.stepType]
       if (step.stepType === 'PAGE_RANGE') return `${index + 1}. ${stepName}: 解析页 ${step.pageRanges || '全文'}`
       if (step.stepType === 'KEYWORD_FILTER') return `${index + 1}. ${stepName}: 包含「${step.includeKeywords.join('、') || '未配置'}」，排除「${step.excludeKeywords.join('、') || '未配置'}」`
-      if (step.stepType === 'PDF_TO_IMAGE') return `${index + 1}. ${stepName}: ${imageQualityOptions.find((option) => option.value === step.imageQuality)?.label || `${step.dpi} DPI`}，${step.imageFormat}`
-      return `${index + 1}. ${stepName}: 每 ${step.splitPageCount} 页拆分，按原页码顺序拼接`
+      return `${index + 1}. ${stepName}: ${imageQualityOptions.find((option) => option.value === step.imageQuality)?.label || `${step.dpi} DPI`}，${step.imageFormat}`
     })
     .join('\n')
 })
+const supportedPreprocessSteps = (steps: any[] = []) =>
+  steps.filter((step) => ['PAGE_RANGE', 'KEYWORD_FILTER', 'PDF_TO_IMAGE'].includes(step?.stepType))
 const targetTableColumns = ref([
   { columnName: 'biz_no', columnCnName: '业务编号', dbType: 'varchar', length: 64, precision: undefined, scale: undefined, required: false, defaultValue: '', validationRule: '唯一性校验' },
   { columnName: 'source_system', columnCnName: '来源系统', dbType: 'varchar', length: 32, precision: undefined, scale: undefined, required: true, defaultValue: 'OCR', validationRule: '非空' },
@@ -702,7 +686,7 @@ const buildWizardPayload = () => ({
     pageBatchSize: form.parseMode === 'PAGE_BATCH_MERGE' ? form.pageBatchSize : null,
     preprocessEnabled: preprocessEnabled.value
   },
-  preprocessSteps: preprocessSteps.value,
+  preprocessSteps: supportedPreprocessSteps(preprocessSteps.value),
   storageConfig: {
     storageMode: form.storageMode,
     mappingProfileName: form.mappingProfileName,
@@ -1110,8 +1094,9 @@ const applyWizardPayload = (payload: any) => {
     pushFailStrategy: firstPushRule.failStrategy || form.pushFailStrategy
   })
 
-  preprocessEnabled.value = parseConfig.preprocessEnabled ?? preprocessEnabled.value
-  if (payload.preprocessSteps?.length) preprocessSteps.value = payload.preprocessSteps
+  const payloadPreprocessSteps = supportedPreprocessSteps(payload.preprocessSteps)
+  preprocessEnabled.value = parseConfig.preprocessEnabled ?? payloadPreprocessSteps.some((step: any) => step.enabled)
+  if (payloadPreprocessSteps.length) preprocessSteps.value = payloadPreprocessSteps
   if (payload.resultTableColumns?.length) targetTableColumns.value = payload.resultTableColumns
   if (payload.uniqueConstraints?.length) uniqueConstraints.value = payload.uniqueConstraints
   if (payload.extractFields?.length) {
@@ -1179,8 +1164,9 @@ const loadWizardOptions = async () => {
     options.value = await getConfigOptions()
     llmModelOptions.value = await listLlmModelOptions()
     ocrEngineOptions.value = await listOcrEngineOptions()
-    if (!form.engineCode && ocrEngineOptions.value.length) {
-      form.engineCode = ocrEngineOptions.value.find((item) => item.defaultEngine)?.engineCode || ocrEngineOptions.value[0].engineCode
+    const isCreateMode = !route.query.id
+    if (isCreateMode && !form.engineCode) {
+      form.engineCode = ocrEngineOptions.value.find((item) => item.defaultEngine)?.engineCode || ''
     }
     if (!form.llmModelCode && llmModelOptions.value.length) {
       form.llmModelCode = llmModelOptions.value.find((item) => item.defaultModel)?.modelCode || llmModelOptions.value[0].modelCode
@@ -1293,7 +1279,7 @@ onMounted(async () => {
         <div class="card-header">
           <div>
             <h2>解析配置</h2>
-            <p class="muted">先对原始文件做页码、关键字、转换和拆分处理，再交给 OCR/文档解析引擎。</p>
+            <p class="muted">默认全文进入 OCR/文档解析引擎；仅在需要裁剪页码、按关键字筛选或 PDF 转图片时启用预处理。</p>
           </div>
         </div>
 
@@ -1302,7 +1288,7 @@ onMounted(async () => {
             <div class="card-header">
               <div>
                 <span>文档预处理</span>
-                <p class="muted">用于配置解析前的文件加工流水线，影响 OCR 输入对象、子任务拆分和结果拼接。</p>
+                <p class="muted">默认不启用，全文直接解析；启用后可选择具体预处理动作。</p>
               </div>
               <div class="header-actions">
                 <el-switch v-model="preprocessEnabled" active-text="启用预处理" inactive-text="全文解析" />
@@ -1364,11 +1350,6 @@ onMounted(async () => {
                     <el-option label="PNG（推荐，清晰度高）" value="PNG" />
                     <el-option label="JPEG（文件更小）" value="JPEG" />
                   </el-select>
-                </div>
-                <div v-else class="inline-fields">
-                  <span class="muted">每个子文件页数</span>
-                  <el-input-number v-model="row.splitPageCount" :disabled="!preprocessEnabled" :min="1" :controls="false" />
-                  <el-tag type="info">按原页码顺序拼接</el-tag>
                 </div>
               </template>
             </el-table-column>
