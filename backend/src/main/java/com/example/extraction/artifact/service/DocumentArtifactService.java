@@ -470,10 +470,14 @@ public class DocumentArtifactService {
             stripper.setStartPage(pageNo);
             stripper.setEndPage(pageNo);
             String pageText = firstText(stripper.getText(source), "");
-            boolean includeMatched = includes.isEmpty() || includes.stream().anyMatch(keyword -> pageText.contains(keyword));
-            boolean excludeMatched = excludes.stream().anyMatch(keyword -> pageText.contains(keyword));
-            if (includeMatched && !excludeMatched) {
-                result.add(pageNo);
+            if(pageText == null || pageText.isBlank()) {
+                 result.add(pageNo);
+            } else {
+                 boolean includeMatched = includes.isEmpty() || includes.stream().anyMatch(keyword -> pageText.contains(keyword));
+                 boolean excludeMatched = excludes.stream().anyMatch(keyword -> pageText.contains(keyword));
+                 if (includeMatched && !excludeMatched) {
+                     result.add(pageNo);
+                 }
             }
         }
         return result;
