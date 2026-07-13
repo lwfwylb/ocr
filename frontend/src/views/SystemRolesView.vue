@@ -1,69 +1,148 @@
 <script setup lang="ts">
-import { computed, reactive, ref } from 'vue'
+import { computed, nextTick, onMounted, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
+import {
+  createSystemRole,
+  disableSystemRole,
+  enableSystemRole,
+  getPermissionTree,
+  getRolePermissions,
+  listSystemRoles,
+  saveRolePermissions,
+  updateSystemRole,
+  type PermissionNode,
+  type SystemRole,
+  type SystemRolePayload
+} from '../api/systemAccess'
 
-interface RoleItem {
-  roleCode: string
-  roleName: string
-  description: string
-  userCount: number
-  status: 'ENABLED' | 'DISABLED'
-}
+const loading = ref(false)
+const saving = ref(false)
+const dialogVisible = ref(false)
+const editingRoleId = ref('')
+const activeRoleId = ref('')
+const treeRef = ref<any>()
+const roles = ref<SystemRole[]>([])
+const permissionTree = ref<PermissionNode[]>([])
+const checkedPermissions = ref<string[]>([])
+const query = reactive({ keyword: '', status: '' })
 
-const activeRoleCode = ref('reviewer')
-const query = reactive({ keyword: '', statuses: [] as string[] })
-const roles = ref<RoleItem[]>([
-  { roleCode: 'biz_user', roleName: '普通业务用户', description: '上传文档、查看本人或本部门任务', userCount: 28, status: 'ENABLED' },
-  { roleCode: 'reviewer', roleName: '复核人员', description: '处理低置信度和高风险字段复核', userCount: 9, status: 'ENABLED' },
-  { roleCode: 'template_admin', roleName: '模板配置员', description: '维护文档类型、解析配置、提取配置', userCount: 6, status: 'ENABLED' },
-  { roleCode: 'dept_admin', roleName: '部门管理员', description: '管理本部门用户、配置和任务', userCount: 5, status: 'ENABLED' },
-  { roleCode: 'auditor', roleName: '审计人员', description: '查看审计日志和处理链路', userCount: 2, status: 'DISABLED' }
-])
-
-const permissionTree = ref([
-  {
-    id: 'dashboard',
-    label: '工作台',
-    children: [{ id: 'dashboard:view', label: '查看工作台' }]
-  },
-  {
-    id: 'document',
-    label: '文档接入',
-    children: [
-      { id: 'document:upload', label: '手工上传' },
-      { id: 'document:records', label: '接入记录' }
-    ]
-  },
-  {
-    id: 'config',
-    label: '配置中心',
-    children: [
-      { id: 'config:view', label: '查看配置' },
-      { id: 'config:create', label: '新建配置' },
-      { id: 'config:publish', label: '发布配置' }
-    ]
-  },
-  {
-    id: 'review',
-    label: '复核中心',
-    children: [
-      { id: 'review:view', label: '查看复核任务' },
-      { id: 'review:submit', label: '提交复核' }
-    ]
-  }
-])
-
-const checkedPermissions = ref(['dashboard:view', 'document:upload', 'review:view', 'review:submit'])
-const activeRole = computed(() => roles.value.find((role) => role.roleCode === activeRoleCode.value) || roles.value[0])
-const filteredRoles = computed(() => {
-  return roles.value.filter((role) => {
-    const keywordMatched = !query.keyword || role.roleName.includes(query.keyword) || role.description.includes(query.keyword)
-    const statusMatched = query.statuses.length === 0 || query.statuses.includes(role.status)
-    return keywordMatched && statusMatched
-  })
+const form = reactive<SystemRolePayload>({
+  roleCode: '',
+  roleName: '',
+  description: '',
+  status: 'ENABLED',
+  sortNo: 100
 })
 
-const savePermissions = () => ElMessage.success('已模拟保存角色权限')
+const activeRole = computed(() => roles.value.find((role) => role.id === activeRoleId.value) || roles.value[0])
+const enabledRoleCount = computed(() => roles.value.filter((role) => role.status === 'ENABLED').length)
+const userCount = computed(() => roles.value.reduce((sum, role) => sum + Number(role.userCount || 0), 0))
+
+const loadRoles = async () => {
+  loading.value = true
+  try {
+    roles.value = await listSystemRoles(query)
+    if (!activeRoleId.value || !roles.value.some((role) => role.id === activeRoleId.value)) {
+      activeRoleId.value = roles.value[0]?.id || ''
+    }
+    await loadRolePermissions()
+  } catch (error) {
+    ElMessage.error(error instanceof Error ? error.message : '角色加载失败')
+  } finally {
+    loading.value = false
+  }
+}
+
+const loadRolePermissions = async () => {
+  if (!activeRoleId.value) {
+    checkedPermissions.value = []
+    return
+  }
+  checkedPermissions.value = await getRolePermissions(activeRoleId.value)
+  await nextTick()
+  treeRef.value?.setCheckedKeys(checkedPermissions.value)
+}
+
+const selectRole = async (role: SystemRole) => {
+  activeRoleId.value = role.id
+  await loadRolePermissions()
+}
+
+const resetQuery = () => {
+  query.keyword = ''
+  query.status = ''
+  loadRoles()
+}
+
+const openCreate = () => {
+  editingRoleId.value = ''
+  Object.assign(form, { roleCode: '', roleName: '', description: '', status: 'ENABLED', sortNo: 100 })
+  dialogVisible.value = true
+}
+
+const openEdit = (role: SystemRole) => {
+  editingRoleId.value = role.id
+  Object.assign(form, {
+    roleCode: role.roleCode,
+    roleName: role.roleName,
+    description: role.description || '',
+    status: role.status,
+    sortNo: role.sortNo || 100
+  })
+  dialogVisible.value = true
+}
+
+const saveRole = async () => {
+  try {
+    if (!form.roleCode || !form.roleName) {
+      ElMessage.warning('请填写角色编码和角色名称')
+      return
+    }
+    const saved = editingRoleId.value ? await updateSystemRole(editingRoleId.value, form) : await createSystemRole(form)
+    activeRoleId.value = saved.id
+    dialogVisible.value = false
+    ElMessage.success(editingRoleId.value ? '角色已更新' : '角色已新增')
+    await loadRoles()
+  } catch (error) {
+    ElMessage.error(error instanceof Error ? error.message : '保存角色失败')
+  }
+}
+
+const toggleRole = async (role: SystemRole) => {
+  try {
+    const saved = role.status === 'ENABLED' ? await disableSystemRole(role.id) : await enableSystemRole(role.id)
+    Object.assign(role, saved)
+    ElMessage.success(saved.status === 'ENABLED' ? '角色已启用' : '角色已停用')
+  } catch (error) {
+    ElMessage.error(error instanceof Error ? error.message : '更新角色状态失败')
+  }
+}
+
+const savePermissions = async () => {
+  if (!activeRole.value) return
+  saving.value = true
+  try {
+    const checked = treeRef.value?.getCheckedKeys(false) || []
+    const halfChecked = treeRef.value?.getHalfCheckedKeys?.() || []
+    checkedPermissions.value = await saveRolePermissions(activeRole.value.id, Array.from(new Set([...checked, ...halfChecked])))
+    await nextTick()
+    treeRef.value?.setCheckedKeys(checkedPermissions.value)
+    ElMessage.success('角色权限已保存')
+  } catch (error) {
+    ElMessage.error(error instanceof Error ? error.message : '保存角色权限失败')
+  } finally {
+    saving.value = false
+  }
+}
+
+onMounted(async () => {
+  try {
+    permissionTree.value = await getPermissionTree()
+    await loadRoles()
+  } catch (error) {
+    ElMessage.error(error instanceof Error ? error.message : '角色权限基础数据加载失败')
+  }
+})
 </script>
 
 <template>
@@ -72,34 +151,51 @@ const savePermissions = () => ElMessage.success('已模拟保存角色权限')
       <template #header>
         <div class="card-header">
           <span>角色列表</span>
-          <el-button type="primary">新增</el-button>
+          <el-button type="primary" @click="openCreate">新增</el-button>
         </div>
       </template>
-      <el-input v-model="query.keyword" class="mb-12" clearable placeholder="搜索角色" />
-      <div
-        v-for="role in filteredRoles"
-        :key="role.roleCode"
-        class="role-item"
-        :class="{ active: role.roleCode === activeRoleCode }"
-        @click="activeRoleCode = role.roleCode"
-      >
-        <strong>{{ role.roleName }}</strong>
-        <span>{{ role.description }}</span>
-        <em>{{ role.userCount }} 人</em>
+      <el-input v-model="query.keyword" class="mb-12" clearable placeholder="搜索角色" @keyup.enter="loadRoles" />
+      <el-select v-model="query.status" class="mb-12" clearable placeholder="全部状态" @change="loadRoles">
+        <el-option label="启用" value="ENABLED" />
+        <el-option label="停用" value="DISABLED" />
+      </el-select>
+      <div class="mb-12"><el-button type="primary" @click="loadRoles">查询</el-button><el-button @click="resetQuery">重置</el-button></div>
+      <div v-loading="loading">
+        <div
+          v-for="role in roles"
+          :key="role.id"
+          class="role-item"
+          :class="{ active: role.id === activeRoleId }"
+          @click="selectRole(role)"
+        >
+          <strong>{{ role.roleName }}</strong>
+          <span>{{ role.description || '-' }}</span>
+          <em>{{ role.userCount || 0 }} 人</em>
+        </div>
       </div>
     </el-card>
 
     <div class="page-stack">
-      <el-card shadow="never">
+      <section class="metric-grid config-summary">
+        <el-card shadow="never" class="metric-card"><span>角色数</span><strong>{{ roles.length }}</strong><em>当前查询</em></el-card>
+        <el-card shadow="never" class="metric-card"><span>启用角色</span><strong>{{ enabledRoleCount }}</strong><em>可授权</em></el-card>
+        <el-card shadow="never" class="metric-card"><span>绑定用户</span><strong>{{ userCount }}</strong><em>按角色统计</em></el-card>
+      </section>
+
+      <el-card shadow="never" v-if="activeRole">
         <template #header>
           <div class="card-header">
             <span>{{ activeRole.roleName }}</span>
-            <div><el-button>复制角色</el-button><el-button type="primary" @click="savePermissions">保存权限</el-button></div>
+            <div>
+              <el-button @click="openEdit(activeRole)">编辑角色</el-button>
+              <el-button :type="activeRole.status === 'ENABLED' ? 'warning' : 'success'" @click="toggleRole(activeRole)">{{ activeRole.status === 'ENABLED' ? '停用' : '启用' }}</el-button>
+              <el-button type="primary" :loading="saving" @click="savePermissions">保存权限</el-button>
+            </div>
           </div>
         </template>
         <el-descriptions :column="3" border>
           <el-descriptions-item label="角色编码">{{ activeRole.roleCode }}</el-descriptions-item>
-          <el-descriptions-item label="用户数">{{ activeRole.userCount }}</el-descriptions-item>
+          <el-descriptions-item label="用户数">{{ activeRole.userCount || 0 }}</el-descriptions-item>
           <el-descriptions-item label="状态">
             <el-tag :type="activeRole.status === 'ENABLED' ? 'success' : 'danger'">{{ activeRole.status === 'ENABLED' ? '启用' : '停用' }}</el-tag>
           </el-descriptions-item>
@@ -108,30 +204,27 @@ const savePermissions = () => ElMessage.success('已模拟保存角色权限')
 
       <el-card shadow="never">
         <template #header>菜单与按钮权限</template>
+        <el-alert title="当前版本只维护权限数据，不会影响其他页面菜单和按钮显示。" type="info" :closable="false" class="mb-12" />
         <el-tree
+          ref="treeRef"
           :data="permissionTree"
           show-checkbox
           node-key="id"
           default-expand-all
-          :default-checked-keys="checkedPermissions"
           :props="{ label: 'label', children: 'children' }"
         />
       </el-card>
-
-      <el-card shadow="never">
-        <template #header>接口权限摘要</template>
-        <el-table
-          :data="[
-            { api: '/api/review-tasks', method: 'GET', permission: 'review:view' },
-            { api: '/api/review-tasks/{id}/submit', method: 'POST', permission: 'review:submit' },
-            { api: '/api/tasks', method: 'GET', permission: 'task:view' }
-          ]"
-        >
-          <el-table-column prop="api" label="接口" />
-          <el-table-column prop="method" label="方法" width="90" />
-          <el-table-column prop="permission" label="权限点" />
-        </el-table>
-      </el-card>
     </div>
+
+    <el-dialog v-model="dialogVisible" :title="editingRoleId ? '编辑角色' : '新增角色'" width="620px">
+      <el-form :model="form" label-width="100px" class="form-grid">
+        <el-form-item label="角色编码" required><el-input v-model="form.roleCode" placeholder="如 reviewer" /></el-form-item>
+        <el-form-item label="角色名称" required><el-input v-model="form.roleName" placeholder="如 复核人员" /></el-form-item>
+        <el-form-item label="状态"><el-select v-model="form.status"><el-option label="启用" value="ENABLED" /><el-option label="停用" value="DISABLED" /></el-select></el-form-item>
+        <el-form-item label="排序"><el-input-number v-model="form.sortNo" :min="0" :max="9999" /></el-form-item>
+        <el-form-item label="描述" class="wide"><el-input v-model="form.description" type="textarea" :rows="3" /></el-form-item>
+      </el-form>
+      <template #footer><el-button @click="dialogVisible = false">取消</el-button><el-button type="primary" @click="saveRole">保存</el-button></template>
+    </el-dialog>
   </div>
 </template>

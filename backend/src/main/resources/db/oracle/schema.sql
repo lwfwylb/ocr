@@ -58,6 +58,97 @@ create table sys_dict_item (
 create index idx_sys_dict_item_dict on sys_dict_item(dict_code, enabled);
 create index idx_sys_dict_item_parent on sys_dict_item(dict_code, parent_value);
 
+create table sys_role (
+  id varchar2(64) primary key,
+  role_code varchar2(100) not null,
+  role_name varchar2(200) not null,
+  description varchar2(500),
+  status varchar2(30) default 'ENABLED',
+  sort_no number(10) default 100,
+  created_at timestamp,
+  updated_at timestamp,
+  constraint uk_sys_role_code unique (role_code)
+);
+create index idx_sys_role_status on sys_role(status);
+
+create table sys_user (
+  id varchar2(64) primary key,
+  user_code varchar2(100),
+  user_name varchar2(200) not null,
+  account varchar2(120) not null,
+  department_id varchar2(120),
+  auth_mode varchar2(30) default 'LOCAL',
+  status varchar2(30) default 'ENABLED',
+  email varchar2(200),
+  mobile varchar2(60),
+  last_login timestamp,
+  created_at timestamp,
+  updated_at timestamp,
+  constraint uk_sys_user_account unique (account)
+);
+create index idx_sys_user_department on sys_user(department_id);
+create index idx_sys_user_status on sys_user(status);
+
+create table sys_user_department_role (
+  id varchar2(64) primary key,
+  user_id varchar2(64) not null,
+  department_id varchar2(120),
+  role_id varchar2(64) not null,
+  created_at timestamp,
+  constraint uk_sys_user_dept_role unique (user_id, department_id, role_id)
+);
+create index idx_sys_user_role_user on sys_user_department_role(user_id);
+create index idx_sys_user_role_role on sys_user_department_role(role_id);
+
+create table sys_permission (
+  id varchar2(64) primary key,
+  permission_code varchar2(120) not null,
+  permission_name varchar2(200) not null,
+  permission_type varchar2(30) not null,
+  parent_code varchar2(120),
+  route_path varchar2(300),
+  sort_no number(10) default 100,
+  status varchar2(30) default 'ENABLED',
+  created_at timestamp,
+  updated_at timestamp,
+  constraint uk_sys_permission_code unique (permission_code)
+);
+create index idx_sys_permission_parent on sys_permission(parent_code);
+
+create table sys_role_permission (
+  id varchar2(64) primary key,
+  role_id varchar2(64) not null,
+  permission_code varchar2(120) not null,
+  created_at timestamp,
+  constraint uk_sys_role_permission unique (role_id, permission_code)
+);
+create index idx_sys_role_permission_role on sys_role_permission(role_id);
+
+create table sys_data_policy (
+  id varchar2(64) primary key,
+  policy_name varchar2(200) not null,
+  subject_type varchar2(30) not null,
+  subject_id varchar2(64),
+  subject_name varchar2(200),
+  data_scope varchar2(60) not null,
+  allow_export char(1) default '0',
+  status varchar2(30) default 'ENABLED',
+  created_at timestamp,
+  updated_at timestamp
+);
+create index idx_sys_data_policy_subject on sys_data_policy(subject_type, subject_id);
+create index idx_sys_data_policy_status on sys_data_policy(status);
+
+create table sys_data_policy_scope (
+  id varchar2(64) primary key,
+  policy_id varchar2(64) not null,
+  scope_type varchar2(60) not null,
+  scope_value varchar2(300) not null,
+  scope_label varchar2(300)
+);
+create index idx_sys_data_policy_scope_policy on sys_data_policy_scope(policy_id);
+create index idx_sys_data_policy_scope_type on sys_data_policy_scope(scope_type, scope_value);
+
 create table parse_config (
   id varchar2(64) primary key,
   extract_config_id varchar2(64),

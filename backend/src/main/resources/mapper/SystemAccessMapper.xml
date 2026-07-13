@@ -1,0 +1,263 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.example.extraction.mapper.SystemAccessMapper">
+    <resultMap id="SysUserRecordMap" type="com.example.extraction.system.domain.SysUserRecord">
+        <id property="id" column="id"/>
+        <result property="userCode" column="user_code"/>
+        <result property="userName" column="user_name"/>
+        <result property="account" column="account"/>
+        <result property="departmentId" column="department_id"/>
+        <result property="authMode" column="auth_mode"/>
+        <result property="status" column="status"/>
+        <result property="email" column="email"/>
+        <result property="mobile" column="mobile"/>
+        <result property="lastLogin" column="last_login"/>
+        <result property="createdAt" column="created_at"/>
+        <result property="updatedAt" column="updated_at"/>
+    </resultMap>
+
+    <resultMap id="SysRoleRecordMap" type="com.example.extraction.system.domain.SysRoleRecord">
+        <id property="id" column="id"/>
+        <result property="roleCode" column="role_code"/>
+        <result property="roleName" column="role_name"/>
+        <result property="description" column="description"/>
+        <result property="status" column="status"/>
+        <result property="sortNo" column="sort_no"/>
+        <result property="createdAt" column="created_at"/>
+        <result property="updatedAt" column="updated_at"/>
+        <result property="userCount" column="user_count"/>
+    </resultMap>
+
+    <resultMap id="SysPermissionRecordMap" type="com.example.extraction.system.domain.SysPermissionRecord">
+        <id property="id" column="id"/>
+        <result property="permissionCode" column="permission_code"/>
+        <result property="permissionName" column="permission_name"/>
+        <result property="permissionType" column="permission_type"/>
+        <result property="parentCode" column="parent_code"/>
+        <result property="routePath" column="route_path"/>
+        <result property="sortNo" column="sort_no"/>
+        <result property="status" column="status"/>
+    </resultMap>
+
+    <resultMap id="SysDataPolicyRecordMap" type="com.example.extraction.system.domain.SysDataPolicyRecord">
+        <id property="id" column="id"/>
+        <result property="policyName" column="policy_name"/>
+        <result property="subjectType" column="subject_type"/>
+        <result property="subjectId" column="subject_id"/>
+        <result property="subjectName" column="subject_name"/>
+        <result property="dataScope" column="data_scope"/>
+        <result property="allowExport" column="allow_export"/>
+        <result property="status" column="status"/>
+        <result property="createdAt" column="created_at"/>
+        <result property="updatedAt" column="updated_at"/>
+    </resultMap>
+
+    <resultMap id="SysDataPolicyScopeRecordMap" type="com.example.extraction.system.domain.SysDataPolicyScopeRecord">
+        <id property="id" column="id"/>
+        <result property="policyId" column="policy_id"/>
+        <result property="scopeType" column="scope_type"/>
+        <result property="scopeValue" column="scope_value"/>
+        <result property="scopeLabel" column="scope_label"/>
+    </resultMap>
+
+    <resultMap id="SysUserDepartmentRoleRecordMap" type="com.example.extraction.system.domain.SysUserDepartmentRoleRecord">
+        <id property="id" column="id"/>
+        <result property="userId" column="user_id"/>
+        <result property="roleId" column="role_id"/>
+        <result property="roleCode" column="role_code"/>
+        <result property="roleName" column="role_name"/>
+        <result property="departmentId" column="department_id"/>
+    </resultMap>
+
+    <select id="countUsers" resultType="java.lang.Integer">select count(1) from sys_user</select>
+    <select id="countRoles" resultType="java.lang.Integer">select count(1) from sys_role</select>
+    <select id="countPermissions" resultType="java.lang.Integer">select count(1) from sys_permission</select>
+    <select id="countDataPolicies" resultType="java.lang.Integer">select count(1) from sys_data_policy</select>
+
+    <select id="selectUsers" resultMap="SysUserRecordMap">
+        <bind name="keywordLike" value="keyword == null ? null : '%' + keyword + '%'"/>
+        select u.*
+        from sys_user u
+        <where>
+            <if test="keyword != null and keyword != ''">
+                and (u.user_code like #{keywordLike} or u.user_name like #{keywordLike} or u.account like #{keywordLike})
+            </if>
+            <if test="departmentId != null and departmentId != ''">
+                and u.department_id = #{departmentId}
+            </if>
+            <if test="status != null and status != ''">
+                and u.status = #{status}
+            </if>
+        </where>
+        order by u.status desc, u.updated_at desc
+    </select>
+
+    <select id="selectUserById" resultMap="SysUserRecordMap">
+        select u.*
+        from sys_user u
+        where u.id = #{id}
+    </select>
+
+    <select id="selectUserByAccount" resultMap="SysUserRecordMap">
+        select * from sys_user where account = #{account}
+    </select>
+
+    <insert id="insertUser" parameterType="com.example.extraction.system.domain.SysUserRecord">
+        insert into sys_user (id, user_code, user_name, account, department_id, auth_mode, status, email, mobile, last_login, created_at, updated_at)
+        values (#{id}, #{userCode}, #{userName}, #{account}, #{departmentId}, #{authMode}, #{status}, #{email}, #{mobile}, #{lastLogin}, #{createdAt}, #{updatedAt})
+    </insert>
+
+    <update id="updateUser" parameterType="com.example.extraction.system.domain.SysUserRecord">
+        update sys_user
+        set user_code = #{userCode}, user_name = #{userName}, account = #{account}, department_id = #{departmentId},
+            auth_mode = #{authMode}, status = #{status}, email = #{email}, mobile = #{mobile}, updated_at = #{updatedAt}
+        where id = #{id}
+    </update>
+
+    <update id="updateUserStatus">
+        update sys_user set status = #{status}, updated_at = current_timestamp where id = #{id}
+    </update>
+
+    <select id="selectRoles" resultMap="SysRoleRecordMap">
+        <bind name="keywordLike" value="keyword == null ? null : '%' + keyword + '%'"/>
+        select r.*, count(ur.id) as user_count
+        from sys_role r
+        left join sys_user_department_role ur on r.id = ur.role_id
+        <where>
+            <if test="keyword != null and keyword != ''">
+                and (r.role_code like #{keywordLike} or r.role_name like #{keywordLike} or r.description like #{keywordLike})
+            </if>
+            <if test="status != null and status != ''">
+                and r.status = #{status}
+            </if>
+        </where>
+        group by r.id, r.role_code, r.role_name, r.description, r.status, r.sort_no, r.created_at, r.updated_at
+        order by r.sort_no asc, r.updated_at desc
+    </select>
+
+    <select id="selectRoleById" resultMap="SysRoleRecordMap">
+        select r.*, count(ur.id) as user_count
+        from sys_role r
+        left join sys_user_department_role ur on r.id = ur.role_id
+        where r.id = #{id}
+        group by r.id, r.role_code, r.role_name, r.description, r.status, r.sort_no, r.created_at, r.updated_at
+    </select>
+
+    <select id="selectRoleByCode" resultMap="SysRoleRecordMap">
+        select r.*, 0 as user_count from sys_role r where r.role_code = #{roleCode}
+    </select>
+
+    <insert id="insertRole" parameterType="com.example.extraction.system.domain.SysRoleRecord">
+        insert into sys_role (id, role_code, role_name, description, status, sort_no, created_at, updated_at)
+        values (#{id}, #{roleCode}, #{roleName}, #{description}, #{status}, #{sortNo}, #{createdAt}, #{updatedAt})
+    </insert>
+
+    <update id="updateRole" parameterType="com.example.extraction.system.domain.SysRoleRecord">
+        update sys_role
+        set role_code = #{roleCode}, role_name = #{roleName}, description = #{description},
+            status = #{status}, sort_no = #{sortNo}, updated_at = #{updatedAt}
+        where id = #{id}
+    </update>
+
+    <update id="updateRoleStatus">
+        update sys_role set status = #{status}, updated_at = current_timestamp where id = #{id}
+    </update>
+
+    <select id="selectUserRoles" resultMap="SysUserDepartmentRoleRecordMap">
+        select ur.*, r.role_code, r.role_name
+        from sys_user_department_role ur
+        join sys_role r on ur.role_id = r.id
+        where ur.user_id = #{userId}
+        order by r.sort_no
+    </select>
+
+    <select id="countUserRolesByRoleId" resultType="java.lang.Integer">
+        select count(1) from sys_user_department_role where role_id = #{roleId}
+    </select>
+
+    <insert id="insertUserRole" parameterType="com.example.extraction.system.domain.SysUserDepartmentRoleRecord">
+        insert into sys_user_department_role (id, user_id, department_id, role_id, created_at)
+        values (#{id}, #{userId}, #{departmentId}, #{roleId}, current_timestamp)
+    </insert>
+
+    <delete id="deleteUserRoles">
+        delete from sys_user_department_role where user_id = #{userId}
+    </delete>
+
+    <select id="selectPermissions" resultMap="SysPermissionRecordMap">
+        select * from sys_permission where status = 'ENABLED' order by sort_no asc
+    </select>
+
+    <select id="selectPermissionByCode" resultMap="SysPermissionRecordMap">
+        select * from sys_permission where permission_code = #{permissionCode}
+    </select>
+
+    <insert id="insertPermission" parameterType="com.example.extraction.system.domain.SysPermissionRecord">
+        insert into sys_permission (id, permission_code, permission_name, permission_type, parent_code, route_path, sort_no, status, created_at, updated_at)
+        values (#{id}, #{permissionCode}, #{permissionName}, #{permissionType}, #{parentCode}, #{routePath}, #{sortNo}, #{status}, current_timestamp, current_timestamp)
+    </insert>
+
+    <select id="selectRolePermissionCodes" resultType="java.lang.String">
+        select permission_code from sys_role_permission where role_id = #{roleId}
+    </select>
+
+    <delete id="deleteRolePermissions">
+        delete from sys_role_permission where role_id = #{roleId}
+    </delete>
+
+    <insert id="insertRolePermission">
+        insert into sys_role_permission (id, role_id, permission_code, created_at)
+        values (#{id}, #{roleId}, #{permissionCode}, current_timestamp)
+    </insert>
+
+    <select id="selectDataPolicies" resultMap="SysDataPolicyRecordMap">
+        <bind name="keywordLike" value="keyword == null ? null : '%' + keyword + '%'"/>
+        select * from sys_data_policy
+        <where>
+            <if test="keyword != null and keyword != ''">
+                and (policy_name like #{keywordLike} or subject_name like #{keywordLike})
+            </if>
+            <if test="subjectType != null and subjectType != ''">
+                and subject_type = #{subjectType}
+            </if>
+            <if test="status != null and status != ''">
+                and status = #{status}
+            </if>
+        </where>
+        order by updated_at desc
+    </select>
+
+    <select id="selectDataPolicyById" resultMap="SysDataPolicyRecordMap">
+        select * from sys_data_policy where id = #{id}
+    </select>
+
+    <insert id="insertDataPolicy" parameterType="com.example.extraction.system.domain.SysDataPolicyRecord">
+        insert into sys_data_policy (id, policy_name, subject_type, subject_id, subject_name, data_scope, allow_export, status, created_at, updated_at)
+        values (#{id}, #{policyName}, #{subjectType}, #{subjectId}, #{subjectName}, #{dataScope}, #{allowExport}, #{status}, #{createdAt}, #{updatedAt})
+    </insert>
+
+    <update id="updateDataPolicy" parameterType="com.example.extraction.system.domain.SysDataPolicyRecord">
+        update sys_data_policy
+        set policy_name = #{policyName}, subject_type = #{subjectType}, subject_id = #{subjectId}, subject_name = #{subjectName},
+            data_scope = #{dataScope}, allow_export = #{allowExport}, status = #{status}, updated_at = #{updatedAt}
+        where id = #{id}
+    </update>
+
+    <delete id="deleteDataPolicy">
+        delete from sys_data_policy where id = #{id}
+    </delete>
+
+    <select id="selectDataPolicyScopes" resultMap="SysDataPolicyScopeRecordMap">
+        select * from sys_data_policy_scope where policy_id = #{policyId} order by scope_type, id
+    </select>
+
+    <insert id="insertDataPolicyScope" parameterType="com.example.extraction.system.domain.SysDataPolicyScopeRecord">
+        insert into sys_data_policy_scope (id, policy_id, scope_type, scope_value, scope_label)
+        values (#{id}, #{policyId}, #{scopeType}, #{scopeValue}, #{scopeLabel})
+    </insert>
+
+    <delete id="deleteDataPolicyScopes">
+        delete from sys_data_policy_scope where policy_id = #{policyId}
+    </delete>
+</mapper>
