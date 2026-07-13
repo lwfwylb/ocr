@@ -16,6 +16,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.util.List;
 
@@ -54,11 +55,15 @@ public class DocumentArtifactController {
         FileSystemResource resource = new FileSystemResource(path);
         String fileName = artifact.getFileName() == null ? path.getFileName().toString() : artifact.getFileName();
         MediaType mediaType = MediaType.APPLICATION_OCTET_STREAM;
-        if (artifact.getMimeType() != null && !artifact.getMimeType().contains(";")) {
-            mediaType = MediaType.parseMediaType(artifact.getMimeType());
+        if (artifact.getMimeType() != null && !artifact.getMimeType().isBlank()) {
+            try {
+                mediaType = MediaType.parseMediaType(artifact.getMimeType());
+            } catch (IllegalArgumentException ignored) {
+                mediaType = MediaType.APPLICATION_OCTET_STREAM;
+            }
         }
         ContentDisposition disposition = (attachment ? ContentDisposition.attachment() : ContentDisposition.inline())
-                .filename(fileName)
+                .filename(fileName, StandardCharsets.UTF_8)
                 .build();
         return ResponseEntity.ok()
                 .contentType(mediaType)

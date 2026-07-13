@@ -20,6 +20,8 @@ public class DocumentArtifactResponse {
     private Integer sortNo;
     private String status;
     private String metadataJson;
+    private String previewUrl;
+    private String downloadUrl;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
 
@@ -57,6 +59,10 @@ public class DocumentArtifactResponse {
     public void setStatus(String status) { this.status = status; }
     public String getMetadataJson() { return metadataJson; }
     public void setMetadataJson(String metadataJson) { this.metadataJson = metadataJson; }
+    public String getPreviewUrl() { return previewUrl; }
+    public void setPreviewUrl(String previewUrl) { this.previewUrl = previewUrl; }
+    public String getDownloadUrl() { return downloadUrl; }
+    public void setDownloadUrl(String downloadUrl) { this.downloadUrl = downloadUrl; }
     public LocalDateTime getCreatedAt() { return createdAt; }
     public void setCreatedAt(LocalDateTime createdAt) { this.createdAt = createdAt; }
     public LocalDateTime getUpdatedAt() { return updatedAt; }

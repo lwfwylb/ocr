@@ -2,6 +2,8 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
+import { API_BASE_URL } from '../api/http'
+import { listTaskArtifacts, type DocumentArtifact } from '../api/artifact'
 import {
   dispatchTask,
   executeNextTask,
@@ -23,6 +25,7 @@ const selectedTask = ref<ExtractTask | null>(null)
 const dispatchTarget = ref<ExtractTask | null>(null)
 const tasks = ref<ExtractTask[]>([])
 const stageLogs = ref<TaskStageLog[]>([])
+const taskArtifacts = ref<DocumentArtifact[]>([])
 
 const query = reactive({
   keyword: '',
@@ -88,9 +91,16 @@ const openDetail = async (task: ExtractTask) => {
   drawerVisible.value = true
   selectedTask.value = task
   stageLogs.value = []
+  taskArtifacts.value = []
   try {
-    selectedTask.value = await getTaskDetail(task.taskId)
-    stageLogs.value = await listTaskStageLogs(task.taskId)
+    const [taskDetail, logs, artifacts] = await Promise.all([
+      getTaskDetail(task.taskId),
+      listTaskStageLogs(task.taskId),
+      listTaskArtifacts(task.taskId)
+    ])
+    selectedTask.value = taskDetail
+    stageLogs.value = logs
+    taskArtifacts.value = artifacts
   } catch (error) {
     ElMessage.error(error instanceof Error ? error.message : '任务详情加载失败')
   }
@@ -168,6 +178,25 @@ const statusType = (status?: string) => statusMap[status || '']?.type || 'info'
 const priorityText = (priority?: string) => priorityMap[priority || '']?.label || priority || '-'
 const priorityType = (priority?: string) => priorityMap[priority || '']?.type || 'info'
 const logType = (status?: string) => status === 'FAILED' ? 'danger' : 'success'
+const artifactTypeMap: Record<string, string> = {
+  ORIGINAL: '原始文件',
+  PREPROCESSED: '预处理文件',
+  PAGE_IMAGE: '页面图片',
+  OCR_INPUT_MANIFEST: 'OCR输入清单',
+  OCR_OUTPUT_MARKDOWN: 'OCR输出文本'
+}
+const artifactTypeText = (type?: string) => (type ? artifactTypeMap[type] || type : '-')
+const formatFileSize = (value?: number) => {
+  if (!value) return '-'
+  if (value < 1024) return `${value}B`
+  if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)}KB`
+  return `${(value / 1024 / 1024).toFixed(1)}MB`
+}
+const artifactUrl = (row: DocumentArtifact, action: 'preview' | 'download') => {
+  const url = action === 'preview' ? row.previewUrl : row.downloadUrl
+  if (url?.startsWith('http')) return url
+  return `${API_BASE_URL}${url || `/api/artifacts/${row.id}/${action}`}`
+}
 
 onMounted(loadTasks)
 </script>
@@ -275,7 +304,7 @@ onMounted(loadTasks)
       </el-table>
     </el-card>
 
-    <el-drawer v-model="drawerVisible" title="任务详情" size="680px">
+    <el-drawer v-model="drawerVisible" title="任务详情" size="760px">
       <template v-if="selectedTask">
         <el-descriptions :column="1" border>
           <el-descriptions-item label="任务编号">{{ selectedTask.taskId }}</el-descriptions-item>
@@ -291,6 +320,28 @@ onMounted(loadTasks)
           <el-descriptions-item v-if="selectedTask.dispatchReason" label="插队原因">{{ selectedTask.dispatchReason }}</el-descriptions-item>
           <el-descriptions-item v-if="selectedTask.errorMessage" label="错误信息">{{ selectedTask.errorMessage }}</el-descriptions-item>
         </el-descriptions>
+        <h3 class="section-title">过程文件</h3>
+        <el-table v-if="taskArtifacts.length" :data="taskArtifacts" stripe size="small">
+          <el-table-column label="类型" width="112">
+            <template #default="{ row }">{{ artifactTypeText(row.artifactType) }}</template>
+          </el-table-column>
+          <el-table-column prop="fileName" label="文件名称" min-width="190" show-overflow-tooltip />
+          <el-table-column label="页码" width="92">
+            <template #default="{ row }">{{ row.pageRange || row.pageNo || '-' }}</template>
+          </el-table-column>
+          <el-table-column label="大小" width="92">
+            <template #default="{ row }">{{ formatFileSize(row.fileSize) }}</template>
+          </el-table-column>
+          <el-table-column prop="createdAt" label="生成时间" min-width="150" show-overflow-tooltip />
+          <el-table-column label="操作" width="112" fixed="right">
+            <template #default="{ row }">
+              <el-link type="primary" :href="artifactUrl(row, 'preview')" target="_blank">预览</el-link>
+              <el-divider direction="vertical" />
+              <el-link type="primary" :href="artifactUrl(row, 'download')" target="_blank">下载</el-link>
+            </template>
+          </el-table-column>
+        </el-table>
+        <el-empty v-else description="暂无过程文件" />
         <h3 class="section-title">阶段日志</h3>
         <el-timeline v-if="stageLogs.length">
           <el-timeline-item

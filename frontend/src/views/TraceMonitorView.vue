@@ -133,7 +133,11 @@ const artifactTypeMap: Record<string, string> = {
   OCR_OUTPUT_MARKDOWN: 'OCR输出文本'
 }
 const artifactTypeLabel = (type?: string) => (type ? artifactTypeMap[type] || type : '-')
-const artifactUrl = (row: DocumentArtifact, action: 'preview' | 'download') => `${API_BASE_URL}/api/artifacts/${row.id}/${action}`
+const artifactUrl = (row: DocumentArtifact, action: 'preview' | 'download') => {
+  const url = action === 'preview' ? row.previewUrl : row.downloadUrl
+  if (url?.startsWith('http')) return url
+  return `${API_BASE_URL}${url || `/api/artifacts/${row.id}/${action}`}`
+}
 const stepArtifactLabel = (ids?: string) => {
   if (!ids) return '-'
   const idList = ids.split(',').map((item) => item.trim()).filter(Boolean)

@@ -627,6 +627,8 @@ public class DocumentArtifactService {
         response.setSortNo(record.getSortNo());
         response.setStatus(record.getStatus());
         response.setMetadataJson(record.getMetadataJson());
+        response.setPreviewUrl("/api/artifacts/" + record.getId() + "/preview");
+        response.setDownloadUrl("/api/artifacts/" + record.getId() + "/download");
         response.setCreatedAt(record.getCreatedAt());
         response.setUpdatedAt(record.getUpdatedAt());
         return response;

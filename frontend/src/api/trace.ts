@@ -52,6 +52,8 @@ export interface DocumentArtifact {
   sortNo?: number
   status?: string
   metadataJson?: string
+  previewUrl?: string
+  downloadUrl?: string
   createdAt?: string
   updatedAt?: string
 }
