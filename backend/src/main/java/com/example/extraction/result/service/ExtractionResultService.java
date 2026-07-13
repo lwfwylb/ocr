@@ -62,7 +62,7 @@ public class ExtractionResultService {
     public ResultDetailResponse detail(String taskId) {
         ExtractResultRecord extractResult = extractResultMapper.selectByTaskId(taskId);
         if (extractResult == null) {
-            throw new BusinessException("RESULT_404", "\u63d0\u53d6\u7ed3\u679c\u4e0d\u5b58\u5728");
+            throw new BusinessException("RESULT_404", "提取结果不存在");
         }
         ResultQueryRequest query = new ResultQueryRequest();
         query.setKeyword(taskId);
@@ -160,7 +160,7 @@ public class ExtractionResultService {
             record.setStatus("FAILED");
             record.setFieldCount(0);
             record.setTargetTable("SIMULATED_TARGET_TABLE");
-            record.setMappingProfile(firstText(task.getConfigName(), "\u9ed8\u8ba4\u6620\u5c04\u65b9\u6848"));
+            record.setMappingProfile(firstText(task.getConfigName(), "默认映射方案"));
             record.setCreatedAt(LocalDateTime.now());
             record.setUpdatedAt(record.getCreatedAt());
             extractResultMapper.insert(record);
@@ -725,7 +725,7 @@ public class ExtractionResultService {
         result.put("business_no", nullToDash(task.getBusinessNo()));
         result.put("amount", "100000.00");
         result.put("business_date", LocalDateTime.now().toLocalDate().toString());
-        result.put("counterparty_name", "\u6a21\u62df\u4ea4\u6613\u5bf9\u624b");
+        result.put("counterparty_name", "模拟交易对手");
 
         Map<String, Object> confidenceJson = new LinkedHashMap<>();
         confidenceJson.put("document_type", confidence);
@@ -791,34 +791,34 @@ public class ExtractionResultService {
     }
 
     private Object simulatedSingleValue(ExtractTaskRecord task, String key, FieldPlan fieldPlan, int index) {
-        if (key.contains("amount") || key.contains("amt") || key.contains("\u91d1\u989d")) {
+        if (key.contains("amount") || key.contains("amt") || key.contains("金额")) {
             return index == 1 ? "100000.00" : "200000.00";
         }
-        if (key.contains("date") || key.contains("\u65e5\u671f") || key.contains("\u65f6\u95f4")) {
+        if (key.contains("date") || key.contains("日期") || key.contains("时间")) {
             return LocalDateTime.now().toLocalDate().toString();
         }
-        if (key.contains("product_code") || key.contains("prod_code") || key.contains("\u4ea7\u54c1\u4ee3\u7801")) {
+        if (key.contains("product_code") || key.contains("prod_code") || key.contains("产品代码")) {
             return index == 1 ? "PRD001" : "PRD002";
         }
-        if (key.contains("product") || key.contains("\u4ea7\u54c1")) {
-            return index == 1 ? "\u6a21\u62df\u4ea7\u54c1\u4e00\u53f7" : "\u6a21\u62df\u4ea7\u54c1\u4e8c\u53f7";
+        if (key.contains("product") || key.contains("产品")) {
+            return index == 1 ? "模拟产品一号" : "模拟产品二号";
         }
-        if (key.contains("account") || key.contains("acct") || key.contains("\u8d26\u53f7") || key.contains("\u8d26\u6237")) {
+        if (key.contains("account") || key.contains("acct") || key.contains("账号") || key.contains("账户")) {
             return index == 1 ? "6222 **** 8910" : "4333 **** 1188";
         }
-        if (key.contains("code") || key.contains("no") || key.contains("\u7f16\u53f7") || key.contains("\u5355\u53f7")) {
+        if (key.contains("code") || key.contains("no") || key.contains("编号") || key.contains("单号")) {
             return firstText(task.getBusinessNo(), task.getTaskId()) + (index == 1 ? "" : "-" + index);
         }
-        if (key.contains("file") || key.contains("\u6587\u4ef6")) {
+        if (key.contains("file") || key.contains("文件")) {
             return task.getFileName();
         }
-        if (key.contains("type") || key.contains("\u7c7b\u578b")) {
+        if (key.contains("type") || key.contains("类型")) {
             return nullToDash(task.getDocumentType());
         }
-        if (key.contains("name") || key.contains("\u540d\u79f0") || key.contains("\u5bf9\u624b") || key.contains("\u4e3b\u4f53")) {
-            return "\u6a21\u62df" + firstText(fieldPlan.fieldName(), fieldPlan.fieldCode());
+        if (key.contains("name") || key.contains("名称") || key.contains("对手") || key.contains("主体")) {
+            return "模拟" + firstText(fieldPlan.fieldName(), fieldPlan.fieldCode());
         }
-        return "\u6a21\u62df" + firstText(fieldPlan.fieldName(), fieldPlan.fieldCode(), fieldPlan.targetColumn());
+        return "模拟" + firstText(fieldPlan.fieldName(), fieldPlan.fieldCode(), fieldPlan.targetColumn());
     }
 
     private TransformOutcome applyTransformRules(ConfigWizardPayload payload, Map<String, Object> originalResult,
@@ -1033,9 +1033,9 @@ public class ExtractionResultService {
 
     private String resolveMappingProfile(ConfigWizardPayload payload, ExtractTaskRecord task) {
         if (payload != null && payload.getStorageConfig() != null) {
-            return firstText(payload.getStorageConfig().getMappingProfileName(), task.getConfigName(), "\u9ed8\u8ba4\u6620\u5c04\u65b9\u6848");
+            return firstText(payload.getStorageConfig().getMappingProfileName(), task.getConfigName(), "默认映射方案");
         }
-        return firstText(task.getConfigName(), "\u9ed8\u8ba4\u6620\u5c04\u65b9\u6848");
+        return firstText(task.getConfigName(), "默认映射方案");
     }
 
     private BigDecimal normalizeConfidence(BigDecimal value) {
@@ -1106,9 +1106,9 @@ public class ExtractionResultService {
             return value;
         }
         return switch (key) {
-            case "OPS" -> "\u8fd0\u8425\u90e8";
-            case "FINANCE" -> "\u8d22\u52a1\u90e8";
-            case "PRODUCT" -> "\u4ea7\u54c1\u90e8";
+            case "OPS" -> "运营部";
+            case "FINANCE" -> "财务部";
+            case "PRODUCT" -> "产品部";
             default -> value;
         };
     }
@@ -1122,11 +1122,11 @@ public class ExtractionResultService {
                     + "- 文档类型: " + nullToDash(task.getDocumentType()) + "\n\n"
                     + textContent;
         }
-        return "# \u6a21\u62df\u89e3\u6790\u7ed3\u679c\n\n"
-                + "- \u4efb\u52a1\u7f16\u53f7: " + task.getTaskId() + "\n"
-                + "- \u6587\u4ef6\u540d: " + task.getFileName() + "\n"
-                + "- \u6587\u6863\u7c7b\u578b: " + nullToDash(task.getDocumentType()) + "\n\n"
-                + "\u8fd9\u662f\u7b2c\u4e00\u7248\u6a21\u62df\u89e3\u6790\u6587\u672c\uff0c\u540e\u7eed\u7531 OCR/MinerU \u771f\u5b9e\u7ed3\u679c\u66ff\u6362\u3002";
+        return "# 模拟解析结果\n\n"
+                + "- 任务编号: " + task.getTaskId() + "\n"
+                + "- 文件名: " + task.getFileName() + "\n"
+                + "- 文档类型: " + nullToDash(task.getDocumentType()) + "\n\n"
+                + "这是第一版模拟解析文本，后续由 OCR/MinerU 真实结果替换。";
     }
 
     private String readTextFile(ExtractTaskRecord task) {
@@ -1160,7 +1160,7 @@ public class ExtractionResultService {
         summary.setTraceId(record.getTraceId());
         summary.setDocumentId(record.getDocumentId());
         summary.setResultStatus(record.getStatus());
-        summary.setReviewStatus("1".equals(record.getNeedReview()) ? "\u5f85\u590d\u6838" : "\u81ea\u52a8\u901a\u8fc7");
+        summary.setReviewStatus("1".equals(record.getNeedReview()) ? "待复核" : "自动通过");
         summary.setTargetTable(record.getTargetTable());
         summary.setMappingProfile(record.getMappingProfile());
         summary.setFieldCount(record.getFieldCount());
@@ -1239,7 +1239,7 @@ public class ExtractionResultService {
         try {
             return objectMapper.writeValueAsString(value);
         } catch (JsonProcessingException e) {
-            throw new BusinessException("JSON_400", "\u7ed3\u679c\u65e0\u6cd5\u5e8f\u5217\u5316");
+            throw new BusinessException("JSON_400", "结果无法序列化");
         }
     }
 

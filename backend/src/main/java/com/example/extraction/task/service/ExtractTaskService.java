@@ -71,7 +71,7 @@ public class ExtractTaskService {
         task.setDocumentType(accessRecord.getDocumentType());
         task.setPriority(firstText(accessRecord.getPriority(), "MEDIUM"));
         task.setStatus("QUEUED");
-        task.setCurrentStage("\u7b49\u5f85\u89e3\u6790");
+        task.setCurrentStage("等待解析");
         task.setProgress(0);
         fillQueue(task, task.getPriority(), null);
         task.setManualAccelerated("0");
@@ -86,14 +86,14 @@ public class ExtractTaskService {
     public TaskResponse dispatch(String taskId, TaskDispatchRequest request) {
         ExtractTaskRecord task = requireTask(taskId);
         if (request == null || !StringUtils.hasText(request.getReason())) {
-            throw new BusinessException("TASK_400", "\u8c03\u5ea6\u539f\u56e0\u4e0d\u80fd\u4e3a\u7a7a");
+            throw new BusinessException("TASK_400", "调度原因不能为空");
         }
         String targetPriority = firstText(request.getTargetPriority(), task.getPriority(), "HIGH");
         Integer targetPosition = "PROMOTE_HIGH_TOP".equals(request.getMode()) ? 1 : request.getPosition();
         fillQueue(task, targetPriority, targetPosition);
         task.setPriority(targetPriority);
         task.setWaitingMinutes(0);
-        task.setEstimatedStartAt("\u5c3d\u5feb\u6267\u884c");
+        task.setEstimatedStartAt("尽快执行");
         task.setManualAccelerated("1");
         task.setDispatchReason(request.getReason());
         task.setUpdatedAt(LocalDateTime.now());
@@ -105,12 +105,12 @@ public class ExtractTaskService {
     public TaskResponse retry(String taskId, TaskRetryRequest request) {
         ExtractTaskRecord task = requireTask(taskId);
         if (!"FAILED".equals(task.getStatus())) {
-            throw new BusinessException("TASK_409", "\u4ec5\u5931\u8d25\u4efb\u52a1\u5141\u8bb8\u91cd\u8bd5");
+            throw new BusinessException("TASK_409", "仅失败任务允许重试");
         }
         int retryCount = task.getRetryCount() == null ? 0 : task.getRetryCount();
         int maxRetry = task.getMaxRetry() == null ? 3 : task.getMaxRetry();
         if (retryCount >= maxRetry) {
-            throw new BusinessException("TASK_409", "\u4efb\u52a1\u5df2\u8fbe\u5230\u6700\u5927\u91cd\u8bd5\u6b21\u6570");
+            throw new BusinessException("TASK_409", "任务已达到最大重试次数");
         }
         String priority = firstText(request == null ? null : request.getPriority(), task.getPriority(), "MEDIUM");
         task.setStatus("QUEUED");
@@ -119,12 +119,12 @@ public class ExtractTaskService {
         task.setPriority(priority);
         fillQueue(task, priority, null);
         task.setWaitingMinutes(0);
-        task.setEstimatedStartAt("\u7b49\u5f85\u8c03\u5ea6");
+        task.setEstimatedStartAt("等待调度");
         task.setRetryCount(retryCount + 1);
         task.setUpdatedAt(LocalDateTime.now());
         int updated = extractTaskMapper.updateRetry(task);
         if (updated == 0) {
-            throw new BusinessException("TASK_409", "\u4efb\u52a1\u72b6\u6001\u5df2\u53d8\u5316\uff0c\u8bf7\u5237\u65b0\u540e\u91cd\u8bd5");
+            throw new BusinessException("TASK_409", "任务状态已变化，请刷新后重试");
         }
         return detail(taskId);
     }
@@ -133,7 +133,7 @@ public class ExtractTaskService {
         String queueLevel = firstText(priority, "MEDIUM");
         task.setQueueLevel(queueLevel);
         task.setQueueCapacity(capacityOf(task.getDepartmentId()));
-        task.setQueueName(task.getDepartmentId() + "-" + priorityLabel(queueLevel) + "\u961f\u5217");
+        task.setQueueName(task.getDepartmentId() + "-" + priorityLabel(queueLevel) + "队列");
         if (targetPosition != null && targetPosition > 0) {
             task.setQueuePosition(targetPosition);
         } else {
@@ -144,7 +144,7 @@ public class ExtractTaskService {
     private ExtractTaskRecord requireTask(String taskId) {
         ExtractTaskRecord task = extractTaskMapper.selectByTaskId(taskId);
         if (task == null) {
-            throw new BusinessException("TASK_404", "\u4efb\u52a1\u4e0d\u5b58\u5728");
+            throw new BusinessException("TASK_404", "任务不存在");
         }
         return task;
     }
@@ -162,21 +162,21 @@ public class ExtractTaskService {
             return value;
         }
         return switch (key) {
-            case "OPS" -> "\u8fd0\u8425\u90e8";
-            case "FINANCE" -> "\u8d22\u52a1\u90e8";
-            case "PRODUCT" -> "\u4ea7\u54c1\u90e8";
+            case "OPS" -> "运营部";
+            case "FINANCE" -> "财务部";
+            case "PRODUCT" -> "产品部";
             default -> value;
         };
     }
 
     private int capacityOf(String departmentId) {
-        if ("\u8fd0\u8425\u90e8".equals(departmentId)) {
+        if ("运营部".equals(departmentId)) {
             return 60;
         }
-        if ("\u8d22\u52a1\u90e8".equals(departmentId)) {
+        if ("财务部".equals(departmentId)) {
             return 10;
         }
-        if ("\u4ea7\u54c1\u90e8".equals(departmentId)) {
+        if ("产品部".equals(departmentId)) {
             return 20;
         }
         return 10;
@@ -184,23 +184,23 @@ public class ExtractTaskService {
 
     private String priorityLabel(String priority) {
         return switch (priority) {
-            case "HIGH" -> "\u9ad8\u4f18\u5148\u7ea7";
-            case "LOW" -> "\u4f4e\u4f18\u5148\u7ea7";
-            default -> "\u4e2d\u4f18\u5148\u7ea7";
+            case "HIGH" -> "高优先级";
+            case "LOW" -> "低优先级";
+            default -> "中优先级";
         };
     }
 
     private String resolveRetryStage(String retryMode) {
         if ("REPARSE".equals(retryMode)) {
-            return "\u7b49\u5f85\u91cd\u65b0\u89e3\u6790";
+            return "等待重新解析";
         }
         if ("REEXTRACT".equals(retryMode)) {
-            return "\u7b49\u5f85\u91cd\u65b0\u63d0\u53d6";
+            return "等待重新提取";
         }
         if ("FULL_RETRY".equals(retryMode)) {
-            return "\u7b49\u5f85\u5168\u6d41\u7a0b\u91cd\u8bd5";
+            return "等待全流程重试";
         }
-        return "\u7b49\u5f85\u5931\u8d25\u9636\u6bb5\u91cd\u8bd5";
+        return "等待失败阶段重试";
     }
 
     private String firstText(String... values) {

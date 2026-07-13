@@ -59,7 +59,7 @@ public class DocumentAccessService {
     public DocumentAccessResponse manualUpload(DocumentAccessRequest request) {
         request.setSourceType("MANUAL_UPLOAD");
         if (!StringUtils.hasText(request.getSourceSystem())) {
-            request.setSourceSystem("\u624b\u5de5\u4e0a\u4f20");
+            request.setSourceSystem("手工上传");
         }
         return createAccess(request, true);
     }
@@ -75,7 +75,7 @@ public class DocumentAccessService {
         request.setTraceId(traceId);
         request.setConfigId(configId);
         request.setSourceType("MANUAL_UPLOAD");
-        request.setSourceSystem("\u624b\u5de5\u4e0a\u4f20");
+        request.setSourceSystem("手工上传");
         request.setBusinessNo(businessNo);
         request.setPriority(priority);
         request.setFileName(storedFile.fileName());
@@ -90,7 +90,7 @@ public class DocumentAccessService {
             request.setSourceType("BUSINESS_API");
         }
         if (!StringUtils.hasText(request.getSourceSystem())) {
-            request.setSourceSystem("\u4e1a\u52a1\u7cfb\u7edfAPI");
+            request.setSourceSystem("业务系统API");
         }
         return createAccess(request, false);
     }
@@ -130,7 +130,7 @@ public class DocumentAccessService {
         record.setMatchStatus("MATCHED");
         record.setAccessStatus("CREATED_TASK");
         record.setTaskId(nextTaskId());
-        record.setMatchMessage("\u4eba\u5de5\u786e\u8ba4\u5339\u914d\u914d\u7f6e\uff1a" + config.getConfigName() + " V" + config.getVersion());
+        record.setMatchMessage("人工确认匹配配置：" + config.getConfigName() + " V" + config.getVersion());
         record.setConfirmComment(request.getComment());
         record.setConfirmedAt(LocalDateTime.now());
         record.setUpdatedAt(record.getConfirmedAt());
@@ -230,7 +230,7 @@ public class DocumentAccessService {
             record.setMatchStatus("MATCHED");
             record.setAccessStatus("CREATED_TASK");
             record.setTaskId(nextTaskId());
-            record.setMatchMessage("\u81ea\u52a8\u5339\u914d\u5230\u751f\u6548\u914d\u7f6e\uff1a" + config.getConfigName() + " V" + config.getVersion());
+            record.setMatchMessage("自动匹配到生效配置：" + config.getConfigName() + " V" + config.getVersion());
             return;
         }
         record.setMatchedConfigId(null);
@@ -241,10 +241,10 @@ public class DocumentAccessService {
         record.setPriority(firstText(record.getPriority(), "MEDIUM"));
         if (candidates.isEmpty()) {
             record.setMatchStatus("UNMATCHED");
-            record.setMatchMessage("\u672a\u5339\u914d\u5230\u5df2\u53d1\u5e03\u914d\u7f6e\uff0c\u9700\u8981\u4eba\u5de5\u786e\u8ba4");
+            record.setMatchMessage("未匹配到已发布配置，需要人工确认");
         } else {
             record.setMatchStatus("MULTIPLE");
-            record.setMatchMessage("\u547d\u4e2d\u591a\u4e2a\u5df2\u53d1\u5e03\u914d\u7f6e\uff0c\u8bf7\u4eba\u5de5\u9009\u62e9\u5177\u4f53\u914d\u7f6e");
+            record.setMatchMessage("命中多个已发布配置，请人工选择具体配置");
         }
     }
 
@@ -265,7 +265,7 @@ public class DocumentAccessService {
         record.setMatchStatus("MATCHED");
         record.setAccessStatus("CREATED_TASK");
         record.setTaskId(nextTaskId());
-        record.setMatchMessage("\u624b\u5de5\u4e0a\u4f20\u6307\u5b9a\u751f\u6548\u914d\u7f6e\uff1a" + config.getConfigName() + " V" + config.getVersion());
+        record.setMatchMessage("手工上传指定生效配置：" + config.getConfigName() + " V" + config.getVersion());
     }
 
     private DocumentAccessRecord requireRecord(String id) {
@@ -294,9 +294,9 @@ public class DocumentAccessService {
             return value;
         }
         return switch (key) {
-            case "OPS" -> "\u8fd0\u8425\u90e8";
-            case "FINANCE" -> "\u8d22\u52a1\u90e8";
-            case "PRODUCT" -> "\u4ea7\u54c1\u90e8";
+            case "OPS" -> "运营部";
+            case "FINANCE" -> "财务部";
+            case "PRODUCT" -> "产品部";
             default -> value;
         };
     }
@@ -307,9 +307,9 @@ public class DocumentAccessService {
             return value;
         }
         return switch (key) {
-            case "FUND_BUSINESS" -> "\u8d44\u91d1\u4e1a\u52a1";
-            case "FUND_TRADE" -> "\u57fa\u91d1\u4ea4\u6613";
-            case "CUSTOMER_BUSINESS" -> "\u5ba2\u6237\u4e1a\u52a1";
+            case "FUND_BUSINESS" -> "资金业务";
+            case "FUND_TRADE" -> "基金交易";
+            case "CUSTOMER_BUSINESS" -> "客户业务";
             default -> value;
         };
     }
@@ -320,9 +320,9 @@ public class DocumentAccessService {
             return value;
         }
         return switch (key) {
-            case "PAYMENT_INSTRUCTION" -> "\u5212\u6b3e\u6307\u4ee4";
-            case "BANK_RECEIPT" -> "\u94f6\u884c\u56de\u5355";
-            case "ACCOUNT_OPENING" -> "\u5f00\u6237\u8d44\u6599";
+            case "PAYMENT_INSTRUCTION" -> "划款指令";
+            case "BANK_RECEIPT" -> "银行回单";
+            case "ACCOUNT_OPENING" -> "开户资料";
             default -> value;
         };
     }
@@ -333,8 +333,8 @@ public class DocumentAccessService {
             return value;
         }
         return switch (key) {
-            case "GENERAL_PAYMENT_INSTRUCTION_TEMPLATE" -> "\u901a\u7528\u5212\u6b3e\u6307\u4ee4\u6a21\u677f";
-            case "GENERAL_BANK_RECEIPT_TEMPLATE" -> "\u901a\u7528\u94f6\u884c\u56de\u5355\u6a21\u677f";
+            case "GENERAL_PAYMENT_INSTRUCTION_TEMPLATE" -> "通用划款指令模板";
+            case "GENERAL_BANK_RECEIPT_TEMPLATE" -> "通用银行回单模板";
             default -> value;
         };
     }

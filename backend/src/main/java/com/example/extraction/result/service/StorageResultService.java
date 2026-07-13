@@ -48,13 +48,13 @@ public class StorageResultService {
     public StorageRecordResponse execute(String taskId, StorageExecuteRequest request) {
         ExtractResultRecord result = extractResultMapper.selectByTaskId(taskId);
         if (result == null) {
-            throw new BusinessException("STORAGE_404", "\u63d0\u53d6\u7ed3\u679c\u4e0d\u5b58\u5728");
+            throw new BusinessException("STORAGE_404", "提取结果不存在");
         }
         if ("WAIT_REVIEW".equals(result.getStatus())) {
-            throw new BusinessException("STORAGE_409", "\u7ed3\u679c\u5c1a\u672a\u590d\u6838\uff0c\u4e0d\u5141\u8bb8\u843d\u5e93");
+            throw new BusinessException("STORAGE_409", "结果尚未复核，不允许落库");
         }
         if ("FAILED".equals(result.getStatus())) {
-            throw new BusinessException("STORAGE_409", "\u7ed3\u679c\u5df2\u5931\u8d25\uff0c\u4e0d\u5141\u8bb8\u843d\u5e93");
+            throw new BusinessException("STORAGE_409", "结果已失败，不允许落库");
         }
 
         Map<String, Object> storageData = buildStorageData(result);
@@ -70,13 +70,13 @@ public class StorageResultService {
         }
         record.setConfigId(result.getConfigId());
         record.setTargetTable(firstText(result.getTargetTable(), "SIMULATED_TARGET_TABLE"));
-        record.setMappingProfile(firstText(result.getMappingProfile(), "\u9ed8\u8ba4\u6620\u5c04\u65b9\u6848"));
+        record.setMappingProfile(firstText(result.getMappingProfile(), "默认映射方案"));
         record.setStorageJson(writeJson(storageData));
         record.setUniqueKeyJson(writeJson(buildUniqueKey(result, storageData)));
         record.setStorageStatus("SUCCESS");
         record.setDuplicateStrategy(firstText(request == null ? null : request.getDuplicateStrategy(), "UPSERT_BY_TASK_ID"));
         record.setErrorMessage(null);
-        record.setStoredBy(firstText(request == null ? null : request.getStoredBy(), "\u5f53\u524d\u7528\u6237"));
+        record.setStoredBy(firstText(request == null ? null : request.getStoredBy(), "当前用户"));
         record.setStoredAt(now);
         record.setUpdatedAt(now);
         if (storageResultMapper.selectByTaskId(taskId) == null) {
@@ -90,7 +90,7 @@ public class StorageResultService {
         return records(query).stream()
                 .filter(item -> taskId.equals(item.getTaskId()))
                 .findFirst()
-                .orElseThrow(() -> new BusinessException("STORAGE_500", "\u843d\u5e93\u540e\u8bb0\u5f55\u67e5\u8be2\u5931\u8d25"));
+                .orElseThrow(() -> new BusinessException("STORAGE_500", "落库后记录查询失败"));
     }
 
     private StorageRecordResponse fillStorageData(StorageRecordResponse response) {
@@ -106,7 +106,7 @@ public class StorageResultService {
         data.put("_document_id", result.getDocumentId());
         data.put("_config_id", result.getConfigId());
         data.put("_target_table", firstText(result.getTargetTable(), "SIMULATED_TARGET_TABLE"));
-        data.put("_mapping_profile", firstText(result.getMappingProfile(), "\u9ed8\u8ba4\u6620\u5c04\u65b9\u6848"));
+        data.put("_mapping_profile", firstText(result.getMappingProfile(), "默认映射方案"));
         data.put("_stored_at", LocalDateTime.now().toString());
         return data;
     }
@@ -138,7 +138,7 @@ public class StorageResultService {
         try {
             return objectMapper.writeValueAsString(value);
         } catch (JsonProcessingException e) {
-            throw new BusinessException("JSON_400", "\u843d\u5e93\u6570\u636e\u65e0\u6cd5\u5e8f\u5217\u5316");
+            throw new BusinessException("JSON_400", "落库数据无法序列化");
         }
     }
 

@@ -105,7 +105,7 @@ public class ReviewService {
         result.setFieldCount(updated.size());
         result.setUpdatedAt(LocalDateTime.now());
         extractResultMapper.updateReviewState(result);
-        updateTaskState(taskId, "COMPLETED", "\u590d\u6838\u901a\u8fc7", 100, null, null);
+        updateTaskState(taskId, "COMPLETED", "复核通过", 100, null, null);
         writeLog(result, "APPROVE", beforeJson, result.getResultJson(), request);
         return detail(taskId);
     }
@@ -121,8 +121,8 @@ public class ReviewService {
         result.setFieldCount(updated.size());
         result.setUpdatedAt(LocalDateTime.now());
         extractResultMapper.updateReviewState(result);
-        updateTaskState(taskId, "FAILED", "\u590d\u6838\u9000\u56de", 90, "REVIEW_REJECTED",
-                firstText(request == null ? null : request.getComment(), "\u4eba\u5de5\u590d\u6838\u9000\u56de\u91cd\u63d0\u53d6"));
+        updateTaskState(taskId, "FAILED", "复核退回", 90, "REVIEW_REJECTED",
+                firstText(request == null ? null : request.getComment(), "人工复核退回重提取"));
         writeLog(result, "REJECT", beforeJson, result.getResultJson(), request);
         return detail(taskId);
     }
@@ -130,7 +130,7 @@ public class ReviewService {
     private ExtractResultRecord requireResult(String taskId) {
         ExtractResultRecord result = extractResultMapper.selectByTaskId(taskId);
         if (result == null) {
-            throw new BusinessException("REVIEW_404", "\u590d\u6838\u7ed3\u679c\u4e0d\u5b58\u5728");
+            throw new BusinessException("REVIEW_404", "复核结果不存在");
         }
         return result;
     }
@@ -148,8 +148,8 @@ public class ReviewService {
             field.setFinalValue(entry.getValue());
             field.setConfidence(fieldConfidence);
             field.setReviewRequired(fieldConfidence.compareTo(new BigDecimal("0.90")) < 0);
-            field.setIssue(Boolean.TRUE.equals(field.getReviewRequired()) ? "\u7f6e\u4fe1\u5ea6\u4f4e\u4e8e90%" : "\u81ea\u52a8\u901a\u8fc7");
-            field.setEvidence("\u6765\u81ea\u89e3\u6790\u6587\u672c\u7684\u5b57\u6bb5\u547d\u4e2d\u7247\u6bb5\uff0c\u540e\u7eed\u63a5\u5165\u771f\u5b9e\u9875\u7801\u5750\u6807\u548c\u8bc1\u636e\u6587\u672c\u3002");
+            field.setIssue(Boolean.TRUE.equals(field.getReviewRequired()) ? "置信度低于90%" : "自动通过");
+            field.setEvidence("来自解析文本的字段命中片段，后续接入真实页码坐标和证据文本。");
             fields.add(field);
         }
         return fields;
@@ -192,7 +192,7 @@ public class ReviewService {
         log.setBeforeJson(beforeJson);
         log.setAfterJson(afterJson);
         log.setComment(request == null ? null : request.getComment());
-        log.setReviewer(firstText(request == null ? null : request.getReviewer(), "\u5f53\u524d\u7528\u6237"));
+        log.setReviewer(firstText(request == null ? null : request.getReviewer(), "当前用户"));
         log.setCreatedAt(LocalDateTime.now());
         reviewLogMapper.insert(log);
     }
@@ -215,7 +215,7 @@ public class ReviewService {
         summary.setTraceId(record.getTraceId());
         summary.setDocumentId(record.getDocumentId());
         summary.setResultStatus(record.getStatus());
-        summary.setReviewStatus("1".equals(record.getNeedReview()) ? "\u5f85\u590d\u6838" : "\u81ea\u52a8\u901a\u8fc7");
+        summary.setReviewStatus("1".equals(record.getNeedReview()) ? "待复核" : "自动通过");
         summary.setTargetTable(record.getTargetTable());
         summary.setMappingProfile(record.getMappingProfile());
         summary.setFieldCount(record.getFieldCount());
@@ -241,7 +241,7 @@ public class ReviewService {
         try {
             return objectMapper.writeValueAsString(value);
         } catch (JsonProcessingException e) {
-            throw new BusinessException("JSON_400", "\u590d\u6838\u7ed3\u679c\u65e0\u6cd5\u5e8f\u5217\u5316");
+            throw new BusinessException("JSON_400", "复核结果无法序列化");
         }
     }
 
@@ -268,9 +268,9 @@ public class ReviewService {
             return value;
         }
         return switch (key) {
-            case "OPS" -> "\u8fd0\u8425\u90e8";
-            case "FINANCE" -> "\u8d22\u52a1\u90e8";
-            case "PRODUCT" -> "\u4ea7\u54c1\u90e8";
+            case "OPS" -> "运营部";
+            case "FINANCE" -> "财务部";
+            case "PRODUCT" -> "产品部";
             default -> value;
         };
     }

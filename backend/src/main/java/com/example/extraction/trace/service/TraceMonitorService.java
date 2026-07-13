@@ -90,7 +90,7 @@ public class TraceMonitorService {
         DocumentAccessRecord access = documentAccessMapper.selectByTraceId(traceId);
         ExtractTaskRecord task = extractTaskMapper.selectByTraceId(traceId);
         if (access == null && task == null) {
-            throw new BusinessException("TRACE_404", "\u94fe\u8def\u4e0d\u5b58\u5728");
+            throw new BusinessException("TRACE_404", "链路不存在");
         }
         String taskId = firstText(task == null ? null : task.getTaskId(), access == null ? null : access.getTaskId());
         ExtractResultRecord result = StringUtils.hasText(taskId) ? extractResultMapper.selectByTaskId(taskId) : null;
@@ -142,29 +142,29 @@ public class TraceMonitorService {
     private List<TraceStageResponse> buildStages(DocumentAccessRecord access, ExtractTaskRecord task, ExtractResultRecord result,
                                                  StorageResultRecord storage, List<PushRecordResponse> pushRecords, List<ReviewLogRecord> reviewLogs) {
         List<TraceStageResponse> stages = new ArrayList<>();
-        stages.add(stage("ACCESS", "\u6587\u6863\u63a5\u5165", access == null ? "PENDING" : statusFromAccess(access),
+        stages.add(stage("ACCESS", "文档接入", access == null ? "PENDING" : statusFromAccess(access),
                 access == null ? null : access.getSourceType(), access == null ? null : access.getMatchMessage(), null, null,
                 null, access == null ? null : access.getCreatedAt(), access == null ? null : access.getUpdatedAt()));
-        stages.add(stage("MATCH", "\u914d\u7f6e\u5339\u914d", access == null ? "PENDING" : matchStageStatus(access),
+        stages.add(stage("MATCH", "配置匹配", access == null ? "PENDING" : matchStageStatus(access),
                 access == null ? null : access.getDocumentType(), access == null ? null : access.getMatchedConfigName(), null, null,
                 null, access == null ? null : access.getCreatedAt(), access == null ? null : access.getUpdatedAt()));
-        stages.add(stage("QUEUE", "\u4efb\u52a1\u6392\u961f", task == null ? "PENDING" : "SUCCESS",
+        stages.add(stage("QUEUE", "任务排队", task == null ? "PENDING" : "SUCCESS",
                 task == null ? null : task.getQueueName(), task == null ? null : task.getCurrentStage(), null, null,
                 null, task == null ? null : task.getCreatedAt(), task == null ? null : task.getUpdatedAt()));
         if (task != null) {
             taskStageLogMapper.selectByTaskId(task.getTaskId()).stream().map(this::toStageResponse).forEach(stages::add);
         }
-        stages.add(stage("REVIEW", "\u4eba\u5de5\u590d\u6838", reviewStatus(result, reviewLogs),
-                result == null ? null : result.getStatus(), reviewLogs.isEmpty() ? "\u65e0\u590d\u6838\u8bb0\u5f55" : "\u5df2\u8bb0\u5f55 " + reviewLogs.size() + " \u6b21\u590d\u6838\u64cd\u4f5c",
+        stages.add(stage("REVIEW", "人工复核", reviewStatus(result, reviewLogs),
+                result == null ? null : result.getStatus(), reviewLogs.isEmpty() ? "无复核记录" : "已记录 " + reviewLogs.size() + " 次复核操作",
                 null, null, null, firstReviewTime(reviewLogs), firstReviewTime(reviewLogs)));
-        stages.add(stage("STORAGE", "\u7ed3\u679c\u843d\u5e93", storage == null ? "PENDING" : storageStatus(storage),
+        stages.add(stage("STORAGE", "结果落库", storage == null ? "PENDING" : storageStatus(storage),
                 storage == null ? null : storage.getTargetTable(), storage == null ? null : storage.getStorageStatus(),
                 null, storage == null ? null : storage.getErrorMessage(), null,
                 storage == null ? null : storage.getStoredAt(), storage == null ? null : storage.getUpdatedAt()));
         PushRecordResponse latestPush = latestPush(pushRecords);
-        stages.add(stage("PUSH", "\u4e0b\u6e38\u63a8\u9001", pushStatus(latestPush),
+        stages.add(stage("PUSH", "下游推送", pushStatus(latestPush),
                 latestPush == null ? null : latestPush.getTargetSystem(),
-                latestPush == null ? "\u5c1a\u672a\u53d1\u8d77\u63a8\u9001" : latestPush.getResponseMessage(),
+                latestPush == null ? "尚未发起推送" : latestPush.getResponseMessage(),
                 latestPush == null ? null : latestPush.getResponseCode(),
                 latestPush == null ? null : latestPush.getResponseMessage(),
                 null,
@@ -177,29 +177,29 @@ public class TraceMonitorService {
                                           StorageResultRecord storage, List<PushRecordResponse> pushRecords, List<ReviewLogRecord> reviewLogs) {
         List<String> suggestions = new ArrayList<>();
         if (access != null && !"MATCHED".equals(access.getMatchStatus())) {
-            suggestions.add("\u6587\u6863\u672a\u552f\u4e00\u5339\u914d\u914d\u7f6e\uff0c\u8bf7\u5728\u5f85\u786e\u8ba4\u6587\u6863\u4e2d\u624b\u5de5\u786e\u8ba4\u3002");
+            suggestions.add("文档未唯一匹配配置，请在待确认文档中手工确认。");
         }
         if (task != null && "FAILED".equals(task.getStatus())) {
-            suggestions.add("\u4efb\u52a1\u6267\u884c\u5931\u8d25\uff1a" + firstText(task.getErrorMessage(), task.getErrorCode(), "-") + "\uff0c\u53ef\u5728\u5931\u8d25\u4efb\u52a1\u4e2d\u67e5\u770b\u5e76\u91cd\u8bd5\u3002");
+            suggestions.add("任务执行失败：" + firstText(task.getErrorMessage(), task.getErrorCode(), "-") + "，可在失败任务中查看并重试。");
         }
         if (result != null && "WAIT_REVIEW".equals(result.getStatus())) {
-            suggestions.add("\u63d0\u53d6\u7ed3\u679c\u5f85\u590d\u6838\uff0c\u8bf7\u8fdb\u5165\u4eba\u5de5\u590d\u6838\u4e2d\u786e\u8ba4\u4f4e\u7f6e\u4fe1\u5ea6\u5b57\u6bb5\u3002");
+            suggestions.add("提取结果待复核，请进入人工复核中确认低置信度字段。");
         }
         if (result != null && List.of("STORED", "PUSHED").contains(result.getStatus()) && storage == null) {
-            suggestions.add("\u7ed3\u679c\u5df2\u786e\u8ba4\u4f46\u672a\u843d\u5e93\uff0c\u53ef\u5728\u7ed3\u679c\u4e2d\u5fc3\u6267\u884c\u843d\u5e93\u3002");
+            suggestions.add("结果已确认但未落库，可在结果中心执行落库。");
         }
         PushRecordResponse latestPush = latestPush(pushRecords);
         if (storage != null && "SUCCESS".equals(storage.getStorageStatus()) && latestPush == null) {
-            suggestions.add("\u7ed3\u679c\u5df2\u843d\u5e93\uff0c\u53ef\u5728\u7ed3\u679c\u4e2d\u5fc3\u53d1\u8d77\u4e0b\u6e38\u63a8\u9001\u3002");
+            suggestions.add("结果已落库，可在结果中心发起下游推送。");
         }
         if (latestPush != null && "FAILED".equals(latestPush.getStatus())) {
-            suggestions.add("\u4e0b\u6e38\u63a8\u9001\u5931\u8d25\uff1a" + firstText(latestPush.getResponseMessage(), latestPush.getResponseCode(), "-") + "\uff0c\u53ef\u5728\u63a8\u9001\u8bb0\u5f55\u4e2d\u91cd\u8bd5\u3002");
+            suggestions.add("下游推送失败：" + firstText(latestPush.getResponseMessage(), latestPush.getResponseCode(), "-") + "，可在推送记录中重试。");
         }
         if (reviewLogs != null && !reviewLogs.isEmpty()) {
-            suggestions.add("\u94fe\u8def\u5305\u542b\u590d\u6838\u64cd\u4f5c\uff0c\u8bf7\u5173\u6ce8\u590d\u6838\u5907\u6ce8\u548c\u5b57\u6bb5\u4fee\u6b63\u5185\u5bb9\u3002");
+            suggestions.add("链路包含复核操作，请关注复核备注和字段修正内容。");
         }
         if (suggestions.isEmpty()) {
-            suggestions.add("\u94fe\u8def\u6682\u65e0\u5f02\u5e38\uff0c\u53ef\u7ee7\u7eed\u6267\u884c\u540e\u7eed\u590d\u6838\u3001\u843d\u5e93\u6216\u63a8\u9001\u52a8\u4f5c\u3002");
+            suggestions.add("链路暂无异常，可继续执行后续复核、落库或推送动作。");
         }
         return suggestions;
     }
@@ -236,7 +236,7 @@ public class TraceMonitorService {
             summary.setTraceId(result.getTraceId());
             summary.setDocumentId(result.getDocumentId());
             summary.setResultStatus(result.getStatus());
-            summary.setReviewStatus("1".equals(result.getNeedReview()) ? "\u5f85\u590d\u6838" : "\u81ea\u52a8\u901a\u8fc7");
+            summary.setReviewStatus("1".equals(result.getNeedReview()) ? "待复核" : "自动通过");
             summary.setTargetTable(result.getTargetTable());
             summary.setMappingProfile(result.getMappingProfile());
             summary.setFieldCount(result.getFieldCount());
@@ -388,10 +388,10 @@ public class TraceMonitorService {
 
     private String resolveStage(DocumentAccessRecord access, ExtractTaskRecord task, ExtractResultRecord result, StorageResultRecord storage) {
         if (storage != null && "SUCCESS".equals(storage.getStorageStatus())) {
-            return "\u7ed3\u679c\u5df2\u843d\u5e93";
+            return "结果已落库";
         }
         if (result != null && "WAIT_REVIEW".equals(result.getStatus())) {
-            return "\u7b49\u5f85\u4eba\u5de5\u590d\u6838";
+            return "等待人工复核";
         }
         if (task != null && StringUtils.hasText(task.getCurrentStage())) {
             return task.getCurrentStage();

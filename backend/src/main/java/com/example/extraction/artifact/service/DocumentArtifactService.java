@@ -383,9 +383,9 @@ public class DocumentArtifactService {
     private Set<Integer> parsePageRanges(String expression, int pageCount) {
         Set<Integer> pages = new LinkedHashSet<>();
         String normalized = expression == null ? "" : expression
-                .replace('\uFF0C', ',')
-                .replace('\uFF1B', ';')
-                .replace('\u3001', ',')
+                .replace('，', ',')
+                .replace('；', ';')
+                .replace('、', ',')
                 .replaceAll("\\s+", "");
         if (!StringUtils.hasText(normalized)) {
             return IntStream.rangeClosed(1, pageCount).boxed().collect(Collectors.toCollection(LinkedHashSet::new));

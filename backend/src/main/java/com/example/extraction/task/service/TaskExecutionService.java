@@ -50,7 +50,7 @@ public class TaskExecutionService {
     public TaskResponse executeNext() {
         List<ExtractTaskRecord> queuedTasks = extractTaskMapper.selectNextQueued();
         if (queuedTasks.isEmpty()) {
-            throw new BusinessException("TASK_404", "\u6682\u65e0\u53ef\u6267\u884c\u7684\u6392\u961f\u4efb\u52a1");
+            throw new BusinessException("TASK_404", "暂无可执行的排队任务");
         }
         return execute(queuedTasks.get(0).getTaskId());
     }
@@ -58,56 +58,56 @@ public class TaskExecutionService {
     public TaskResponse execute(String taskId) {
         ExtractTaskRecord task = extractTaskMapper.selectByTaskId(taskId);
         if (task == null) {
-            throw new BusinessException("TASK_404", "\u4efb\u52a1\u4e0d\u5b58\u5728");
+            throw new BusinessException("TASK_404", "任务不存在");
         }
         if (!List.of("QUEUED", "PARSING", "EXTRACTING").contains(task.getStatus())) {
-            throw new BusinessException("TASK_409", "\u5f53\u524d\u72b6\u6001\u4e0d\u5141\u8bb8\u6267\u884c");
+            throw new BusinessException("TASK_409", "当前状态不允许执行");
         }
 
         try {
-            updateState(task, "PARSING", "\u6587\u6863\u89e3\u6790", 20, null, null);
+            updateState(task, "PARSING", "文档解析", 20, null, null);
             documentArtifactService.recordPreprocessPlan(task);
             DocumentParseResultRecord parseResult = extractionResultService.saveParseResult(task);
             documentArtifactService.recordOcrOutput(task, parseResult);
             modelCallLogService.logOcrSuccess(task,
-                    "\u6587\u4ef6\uff1a" + task.getFileName() + "\uff0c\u8f93\u51fa\u683c\u5f0f\uff1aMarkdown",
-                    "\u6a21\u62df OCR \u89e3\u6790\u6210\u529f\uff0c\u751f\u6210 Markdown \u6587\u672c",
+                    "文件：" + task.getFileName() + "，输出格式：Markdown",
+                    "模拟 OCR 解析成功，生成 Markdown 文本",
                     1200L);
-            logSuccess(task, "PARSE", "\u6587\u6863\u89e3\u6790", "\u8bfb\u53d6\u539f\u6587\u4ef6\u5e76\u751f\u6210 Markdown", "\u6a21\u62df\u89e3\u6790\u5b8c\u6210\uff0c\u5df2\u83b7\u5f97\u6587\u6863\u6587\u672c");
+            logSuccess(task, "PARSE", "文档解析", "读取原文件并生成 Markdown", "模拟解析完成，已获得文档文本");
 
-            updateState(task, "EXTRACTING", "\u8981\u7d20\u63d0\u53d6", 55, null, null);
+            updateState(task, "EXTRACTING", "要素提取", 55, null, null);
             boolean needReview = shouldReview(task);
             BigDecimal confidence = needReview ? new BigDecimal("0.86") : new BigDecimal("0.92");
             extractionResultService.saveExtractResult(task, confidence, needReview);
             modelCallLogService.logLlmSuccess(task,
                     "EXTRACT",
-                    "\u8981\u7d20\u63d0\u53d6",
-                    "\u6309\u914d\u7f6e\u5b57\u6bb5\u751f\u6210 JSON \u63d0\u53d6\u8bf7\u6c42",
-                    "\u6a21\u62df LLM \u63d0\u53d6\u6210\u529f\uff0c\u7f6e\u4fe1\u5ea6 " + confidence,
-                    "\u8bf7\u6839\u636e\u5df2\u914d\u7f6e\u7684\u63d0\u53d6\u5b57\u6bb5\u548c\u76ee\u6807\u8868\u6620\u5c04\uff0c\u8f93\u51fa JSON \u7ed3\u679c\u3002",
+                    "要素提取",
+                    "按配置字段生成 JSON 提取请求",
+                    "模拟 LLM 提取成功，置信度 " + confidence,
+                    "请根据已配置的提取字段和目标表映射，输出 JSON 结果。",
                     1200,
                     420,
                     980L);
-            logSuccess(task, "EXTRACT", "\u8981\u7d20\u63d0\u53d6", "\u6309\u751f\u6548\u914d\u7f6e\u6267\u884c AI/\u6b63\u5219\u63d0\u53d6", "\u6a21\u62df\u63d0\u53d6\u5b8c\u6210\uff0c\u7f6e\u4fe1\u5ea6 " + confidence);
+            logSuccess(task, "EXTRACT", "要素提取", "按生效配置执行 AI/正则提取", "模拟提取完成，置信度 " + confidence);
 
-            updateState(task, "EXTRACTING", "\u52a0\u5de5\u6821\u9a8c", 80, null, null);
-            logSuccess(task, "VALIDATE", "\u52a0\u5de5\u6821\u9a8c", "\u6267\u884c\u5b57\u5178\u8f6c\u6362\u3001SQL/API \u53d6\u6570\u548c\u5fc5\u586b\u6821\u9a8c", "\u6a21\u62df\u52a0\u5de5\u6821\u9a8c\u901a\u8fc7");
+            updateState(task, "EXTRACTING", "加工校验", 80, null, null);
+            logSuccess(task, "VALIDATE", "加工校验", "执行字典转换、SQL/API 取数和必填校验", "模拟加工校验通过");
 
             if (shouldFail(task)) {
                 modelCallLogService.logFailure(task,
                         "LLM",
                         "EXTRACT",
-                        "\u8981\u7d20\u63d0\u53d6",
-                        "\u6a21\u62df\u5931\u8d25\u6587\u4ef6\u89e6\u53d1\u7684\u63d0\u53d6\u8bf7\u6c42",
-                        "\u6a21\u62df\u6267\u884c\u5931\u8d25",
+                        "要素提取",
+                        "模拟失败文件触发的提取请求",
+                        "模拟执行失败",
                         650L);
-                fail(task, "SIMULATED_FAILED", "\u6a21\u62df\u6267\u884c\u5931\u8d25\uff0c\u8bf7\u5728\u5931\u8d25\u4efb\u52a1\u4e2d\u91cd\u8bd5");
+                fail(task, "SIMULATED_FAILED", "模拟执行失败，请在失败任务中重试");
             } else if (shouldReview(task)) {
-                updateState(task, "WAIT_REVIEW", "\u7b49\u5f85\u4eba\u5de5\u590d\u6838", 90, null, null);
-                logSuccess(task, "REVIEW_DECISION", "\u590d\u6838\u5224\u65ad", "\u6839\u636e\u7f6e\u4fe1\u5ea6\u548c\u6821\u9a8c\u7ed3\u679c\u5224\u65ad", "\u6a21\u62df\u547d\u4e2d\u590d\u6838\u9608\u503c\uff0c\u8fdb\u5165\u4eba\u5de5\u590d\u6838");
+                updateState(task, "WAIT_REVIEW", "等待人工复核", 90, null, null);
+                logSuccess(task, "REVIEW_DECISION", "复核判断", "根据置信度和校验结果判断", "模拟命中复核阈值，进入人工复核");
             } else {
-                updateState(task, "COMPLETED", "\u6267\u884c\u5b8c\u6210", 100, null, null);
-                logSuccess(task, "COMPLETE", "\u6267\u884c\u5b8c\u6210", "\u5199\u5165\u6a21\u62df\u7ed3\u679c", "\u4efb\u52a1\u6a21\u62df\u6267\u884c\u5b8c\u6210");
+                updateState(task, "COMPLETED", "执行完成", 100, null, null);
+                logSuccess(task, "COMPLETE", "执行完成", "写入模拟结果", "任务模拟执行完成");
             }
             return extractTaskService.detail(taskId);
         } catch (BusinessException e) {
@@ -133,9 +133,9 @@ public class TaskExecutionService {
     }
 
     private void fail(ExtractTaskRecord task, String errorCode, String errorMessage) {
-        updateState(task, "FAILED", "\u6267\u884c\u5931\u8d25", task.getProgress() == null ? 0 : task.getProgress(), errorCode, errorMessage);
+        updateState(task, "FAILED", "执行失败", task.getProgress() == null ? 0 : task.getProgress(), errorCode, errorMessage);
         extractionResultService.markFailed(task, errorCode, errorMessage);
-        logFailure(task, "FAILED", "\u6267\u884c\u5931\u8d25", errorCode, errorMessage);
+        logFailure(task, "FAILED", "执行失败", errorCode, errorMessage);
     }
 
     private void updateState(ExtractTaskRecord task, String status, String stage, Integer progress, String errorCode, String errorMessage) {
@@ -155,7 +155,7 @@ public class TaskExecutionService {
     }
 
     private void logFailure(ExtractTaskRecord task, String stageCode, String stageName, String errorCode, String errorMessage) {
-        writeLog(task, stageCode, stageName, "FAILED", "\u6267\u884c\u9636\u6bb5\u5f02\u5e38", null, errorCode, errorMessage);
+        writeLog(task, stageCode, stageName, "FAILED", "执行阶段异常", null, errorCode, errorMessage);
     }
 
     private void writeLog(ExtractTaskRecord task, String stageCode, String stageName, String status,
