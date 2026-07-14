@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
-import { dispatchTask, listTasks, type ExtractTask, type TaskDispatchPayload } from '../api/task'
+import { dispatchTask, executeNextTask, listTasks, type ExtractTask, type TaskDispatchPayload } from '../api/task'
 
 type Priority = 'HIGH' | 'MEDIUM' | 'LOW'
 
@@ -82,6 +82,10 @@ const currentQueueTasks = computed(() =>
 const currentDepartmentConfig = computed(() => departmentConfigs.find((item) => item.department === selectedDepartment.value) || departmentConfigs[0])
 
 const openDispatch = (task: ExtractTask) => {
+  if (task.status !== 'QUEUED') {
+    ElMessage.warning('仅排队中的任务允许插队调度')
+    return
+  }
   dispatchTarget.value = task
   dispatchForm.targetPriority = task.priority || 'HIGH'
   dispatchForm.position = Math.max(1, task.queuePosition || 1)
@@ -106,6 +110,20 @@ const submitDispatch = async () => {
   }
 }
 
+const executeDepartmentNext = async () => {
+  try {
+    const result = await executeNextTask(selectedDepartment.value)
+    if (result.status === 'FAILED') {
+      ElMessage.error(result.errorMessage || `任务 ${result.taskId} 执行失败，请查看任务详情`)
+    } else {
+      ElMessage.success(`已执行${selectedDepartment.value}任务 ${result.taskId}`)
+    }
+    await loadTasks()
+  } catch (error) {
+    ElMessage.error(error instanceof Error ? error.message : '执行当前部门下一条失败')
+  }
+}
+
 const batchPromote = async () => {
   if (!selectedRows.value.length) {
     ElMessage.warning('请先选择需要批量加急的任务')
@@ -114,6 +132,11 @@ const batchPromote = async () => {
   const crossDepartment = selectedRows.value.some((task) => task.departmentId !== selectedDepartment.value)
   if (crossDepartment) {
     ElMessage.warning('批量加急只允许处理当前部门队列内的任务')
+    return
+  }
+  const nonQueued = selectedRows.value.some((task) => task.status !== 'QUEUED')
+  if (nonQueued) {
+    ElMessage.warning('批量加急只允许处理排队中的任务')
     return
   }
   try {
@@ -203,6 +226,7 @@ onMounted(loadTasks)
         <div class="card-header">
           <span>{{ selectedDepartment }} / {{ priorityLevels.find((item) => item.value === selectedQueueLevel)?.label }}任务</span>
           <div>
+            <el-button @click="executeDepartmentNext">执行当前部门下一条</el-button>
             <el-button @click="batchPromote">本部门批量加急到高优先级</el-button>
             <el-button type="primary" :loading="loading" @click="loadTasks">刷新队列</el-button>
           </div>
@@ -231,7 +255,7 @@ onMounted(loadTasks)
           <template #default="{ row }"><el-tag :type="row.manualAccelerated ? 'danger' : 'info'">{{ row.manualAccelerated ? '是' : '否' }}</el-tag></template>
         </el-table-column>
         <el-table-column label="操作" width="110" fixed="right">
-          <template #default="{ row }"><el-button link type="primary" @click="openDispatch(row)">插队</el-button></template>
+          <template #default="{ row }"><el-button link type="primary" :disabled="row.status !== 'QUEUED'" @click="openDispatch(row)">插队</el-button></template>
         </el-table-column>
       </el-table>
     </el-card>

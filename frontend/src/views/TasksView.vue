@@ -107,6 +107,10 @@ const openDetail = async (task: ExtractTask) => {
 }
 
 const openDispatch = (task: ExtractTask) => {
+  if (task.status !== 'QUEUED') {
+    ElMessage.warning('仅排队中的任务允许插队调度')
+    return
+  }
   dispatchTarget.value = task
   dispatchForm.targetPriority = task.priority || 'HIGH'
   dispatchForm.position = Math.max(1, task.queuePosition || 1)
@@ -295,7 +299,7 @@ onMounted(loadTasks)
         <el-table-column label="操作" width="280" fixed="right">
           <template #default="{ row }">
             <el-button link type="primary" @click="openDetail(row)">详情</el-button>
-            <el-button link type="primary" @click="openDispatch(row)">插队</el-button>
+            <el-button link type="primary" :disabled="row.status !== 'QUEUED'" @click="openDispatch(row)">插队</el-button>
             <el-button link type="success" :disabled="!['QUEUED', 'PARSING', 'EXTRACTING'].includes(row.status)" @click="execute(row)">模拟执行</el-button>
             <el-button link @click="router.push('/monitor/traces')">链路</el-button>
             <el-button link type="success" :disabled="row.status !== 'FAILED'" @click="retry(row)">重试</el-button>

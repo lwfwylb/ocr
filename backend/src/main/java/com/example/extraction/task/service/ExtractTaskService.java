@@ -16,6 +16,7 @@ import org.springframework.util.StringUtils;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Objects;
 
 @Service
 public class ExtractTaskService {
@@ -88,9 +89,12 @@ public class ExtractTaskService {
         if (request == null || !StringUtils.hasText(request.getReason())) {
             throw new BusinessException("TASK_400", "调度原因不能为空");
         }
-        String targetPriority = firstText(request.getTargetPriority(), task.getPriority(), "HIGH");
+        if (!"QUEUED".equals(task.getStatus())) {
+            throw new BusinessException("TASK_409", "仅排队中的任务允许插队调度");
+        }
+        String targetPriority = "PROMOTE_HIGH_TOP".equals(request.getMode()) ? "HIGH" : firstText(request.getTargetPriority(), task.getPriority(), "HIGH");
         Integer targetPosition = "PROMOTE_HIGH_TOP".equals(request.getMode()) ? 1 : request.getPosition();
-        fillQueue(task, targetPriority, targetPosition);
+        fillQueueWithReorder(task, targetPriority, targetPosition);
         task.setPriority(targetPriority);
         task.setWaitingMinutes(0);
         task.setEstimatedStartAt("尽快执行");
@@ -134,11 +138,46 @@ public class ExtractTaskService {
         task.setQueueLevel(queueLevel);
         task.setQueueCapacity(capacityOf(task.getDepartmentId()));
         task.setQueueName(task.getDepartmentId() + "-" + priorityLabel(queueLevel) + "队列");
-        if (targetPosition != null && targetPosition > 0) {
-            task.setQueuePosition(targetPosition);
+        int queueSize = extractTaskMapper.countQueueTasks(task.getDepartmentId(), queueLevel);
+        task.setQueuePosition(normalizeTargetPosition(targetPosition, queueSize + 1));
+    }
+
+    private void fillQueueWithReorder(ExtractTaskRecord task, String priority, Integer targetPosition) {
+        String sourceDepartment = task.getDepartmentId();
+        String sourceLevel = task.getQueueLevel();
+        Integer sourcePosition = task.getQueuePosition();
+        String targetLevel = firstText(priority, "MEDIUM");
+        int targetSize = extractTaskMapper.countQueueTasks(sourceDepartment, targetLevel);
+        int maxTargetPosition = targetSize + (sameQueue(sourceDepartment, sourceLevel, sourceDepartment, targetLevel) ? 0 : 1);
+        int normalizedTargetPosition = normalizeTargetPosition(targetPosition, Math.max(maxTargetPosition, 1));
+
+        if (sameQueue(sourceDepartment, sourceLevel, sourceDepartment, targetLevel) && sourcePosition != null && sourcePosition > 0) {
+            if (normalizedTargetPosition < sourcePosition) {
+                extractTaskMapper.incrementQueuePositions(sourceDepartment, targetLevel, normalizedTargetPosition, sourcePosition - 1, task.getTaskId());
+            } else if (normalizedTargetPosition > sourcePosition) {
+                extractTaskMapper.decrementQueuePositions(sourceDepartment, targetLevel, sourcePosition + 1, normalizedTargetPosition, task.getTaskId());
+            }
         } else {
-            task.setQueuePosition(extractTaskMapper.countQueueTasks(task.getDepartmentId(), queueLevel) + 1);
+            if (StringUtils.hasText(sourceLevel) && sourcePosition != null && sourcePosition > 0) {
+                int sourceSize = extractTaskMapper.countQueueTasks(sourceDepartment, sourceLevel);
+                extractTaskMapper.decrementQueuePositions(sourceDepartment, sourceLevel, sourcePosition + 1, sourceSize, task.getTaskId());
+            }
+            extractTaskMapper.incrementQueuePositions(sourceDepartment, targetLevel, normalizedTargetPosition, targetSize, task.getTaskId());
         }
+
+        task.setQueueLevel(targetLevel);
+        task.setQueueCapacity(capacityOf(task.getDepartmentId()));
+        task.setQueueName(task.getDepartmentId() + "-" + priorityLabel(targetLevel) + "队列");
+        task.setQueuePosition(normalizedTargetPosition);
+    }
+
+    private boolean sameQueue(String leftDepartment, String leftLevel, String rightDepartment, String rightLevel) {
+        return Objects.equals(leftDepartment, rightDepartment) && Objects.equals(leftLevel, rightLevel);
+    }
+
+    private int normalizeTargetPosition(Integer targetPosition, int maxPosition) {
+        int position = targetPosition == null || targetPosition < 1 ? maxPosition : targetPosition;
+        return Math.min(position, Math.max(maxPosition, 1));
     }
 
     private ExtractTaskRecord requireTask(String taskId) {

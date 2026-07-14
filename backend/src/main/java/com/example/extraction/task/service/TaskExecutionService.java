@@ -51,12 +51,24 @@ public class TaskExecutionService {
         return taskStageLogMapper.selectByTaskId(taskId).stream().map(this::toResponse).toList();
     }
 
-    public TaskResponse executeNext() {
-        List<ExtractTaskRecord> queuedTasks = extractTaskMapper.selectNextQueued();
+    public TaskResponse executeNext(String departmentId) {
+        List<ExtractTaskRecord> queuedTasks = extractTaskMapper.selectNextQueued(normalizeDepartment(departmentId));
         if (queuedTasks.isEmpty()) {
-            throw new BusinessException("TASK_404", "暂无可执行的排队任务");
+            throw new BusinessException("TASK_404", StringUtils.hasText(departmentId) ? "当前部门暂无可执行的排队任务" : "暂无可执行的排队任务");
         }
         return execute(queuedTasks.get(0).getTaskId());
+    }
+
+    private String normalizeDepartment(String value) {
+        if (!StringUtils.hasText(value)) {
+            return null;
+        }
+        return switch (value) {
+            case "OPS" -> "运营部";
+            case "FINANCE" -> "财务部";
+            case "PRODUCT" -> "产品部";
+            default -> value;
+        };
     }
 
     public TaskResponse execute(String taskId) {

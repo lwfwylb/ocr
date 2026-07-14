@@ -128,6 +128,9 @@
         select <include refid="BaseColumns"/>
         from extract_task
         where status = 'QUEUED'
+        <if test="departmentId != null and departmentId != ''">
+          and department_id = #{departmentId}
+        </if>
         order by
           case manual_accelerated when '1' then 0 else 1 end,
           case priority when 'HIGH' then 1 when 'MEDIUM' then 2 else 3 end,
@@ -140,8 +143,32 @@
         from extract_task
         where department_id = #{departmentId}
           and queue_level = #{queueLevel}
-          and status in ('QUEUED', 'PARSING', 'EXTRACTING', 'WAIT_REVIEW')
+          and status = 'QUEUED'
     </select>
+
+    <update id="incrementQueuePositions">
+        update extract_task
+        set queue_position = queue_position + 1,
+            updated_at = current_timestamp
+        where department_id = #{departmentId}
+          and queue_level = #{queueLevel}
+          and status = 'QUEUED'
+          and queue_position &gt;= #{fromPosition}
+          and queue_position &lt;= #{toPosition}
+          and task_id != #{excludeTaskId}
+    </update>
+
+    <update id="decrementQueuePositions">
+        update extract_task
+        set queue_position = queue_position - 1,
+            updated_at = current_timestamp
+        where department_id = #{departmentId}
+          and queue_level = #{queueLevel}
+          and status = 'QUEUED'
+          and queue_position &gt;= #{fromPosition}
+          and queue_position &lt;= #{toPosition}
+          and task_id != #{excludeTaskId}
+    </update>
 
     <insert id="insert" parameterType="com.example.extraction.task.domain.ExtractTaskRecord">
         insert into extract_task (

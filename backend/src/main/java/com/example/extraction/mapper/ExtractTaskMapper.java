@@ -15,9 +15,21 @@ public interface ExtractTaskMapper {
 
     ExtractTaskRecord selectByTraceId(@Param("traceId") String traceId);
 
-    List<ExtractTaskRecord> selectNextQueued();
+    List<ExtractTaskRecord> selectNextQueued(@Param("departmentId") String departmentId);
 
     int countQueueTasks(@Param("departmentId") String departmentId, @Param("queueLevel") String queueLevel);
+
+    int incrementQueuePositions(@Param("departmentId") String departmentId,
+                                @Param("queueLevel") String queueLevel,
+                                @Param("fromPosition") Integer fromPosition,
+                                @Param("toPosition") Integer toPosition,
+                                @Param("excludeTaskId") String excludeTaskId);
+
+    int decrementQueuePositions(@Param("departmentId") String departmentId,
+                                @Param("queueLevel") String queueLevel,
+                                @Param("fromPosition") Integer fromPosition,
+                                @Param("toPosition") Integer toPosition,
+                                @Param("excludeTaskId") String excludeTaskId);
 
     void insert(ExtractTaskRecord record);
 

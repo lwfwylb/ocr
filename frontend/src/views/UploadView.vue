@@ -29,6 +29,27 @@ const priorityOptions = [
   { label: '低', value: 'LOW' }
 ]
 
+const statusOrder: Record<string, number> = {
+  PUBLISHED: 1,
+  TESTING: 2,
+  DRAFT: 3
+}
+
+const statusText = (status?: string) => {
+  if (status === 'PUBLISHED') return '已发布'
+  if (status === 'TESTING') return '验证中'
+  if (status === 'DRAFT') return '草稿'
+  if (status === 'DISABLED') return '已停用'
+  return status || '-'
+}
+
+const statusTagType = (status?: string) => {
+  if (status === 'PUBLISHED') return 'success'
+  if (status === 'TESTING') return 'warning'
+  if (status === 'DRAFT') return 'info'
+  return 'info'
+}
+
 const priorityText = (value?: string) => {
   if (value === 'HIGH') return '高'
   if (value === 'MEDIUM') return '中'
@@ -36,17 +57,31 @@ const priorityText = (value?: string) => {
   return value || '-'
 }
 
+const configOptionLabel = (config: ConfigSummary) =>
+  `${config.configName} / V${config.version} / ${statusText(config.status)} / ${config.documentType || '-'}`
+
 const loadConfigs = async () => {
   loadingConfigs.value = true
   try {
-    const publishedConfigs = await listExtractConfigs({ status: 'PUBLISHED' })
-    configs.value = publishedConfigs.filter((config) => config.status === 'PUBLISHED' || config.currentEffective === true)
+    const rows = await Promise.all([
+      listExtractConfigs({ status: 'PUBLISHED' }),
+      listExtractConfigs({ status: 'TESTING' }),
+      listExtractConfigs({ status: 'DRAFT' })
+    ])
+    const merged = rows.flat()
+    const unique = new Map<string, ConfigSummary>()
+    merged.forEach((config) => unique.set(config.id, config))
+    configs.value = Array.from(unique.values()).sort((a, b) => {
+      const statusDiff = (statusOrder[a.status] || 99) - (statusOrder[b.status] || 99)
+      if (statusDiff !== 0) return statusDiff
+      return (b.version || 0) - (a.version || 0)
+    })
     if (!form.configId && configs.value.length) {
       form.configId = configs.value[0].id
     }
   } catch (error) {
     configs.value = []
-    ElMessage.error(error instanceof Error ? error.message : '生效配置加载失败')
+    ElMessage.error(error instanceof Error ? error.message : '解析配置加载失败')
   } finally {
     loadingConfigs.value = false
   }
@@ -54,7 +89,7 @@ const loadConfigs = async () => {
 
 const upload = async () => {
   if (!form.configId) {
-    ElMessage.warning('请选择生效配置')
+    ElMessage.warning('请选择解析配置')
     return
   }
   const selectedFile = fileList.value[0]
@@ -90,22 +125,34 @@ onMounted(loadConfigs)
   <div class="two-column">
     <el-card shadow="never">
       <template #header>手工上传文档</template>
+      <el-alert
+        class="mb-12"
+        type="warning"
+        show-icon
+        :closable="false"
+        title="测试阶段允许选择草稿、验证中、已发布配置；正式接入稳定后将收敛为仅允许已发布配置。"
+      />
       <el-form :model="form" label-width="110px">
-        <el-form-item label="生效配置" required>
+        <el-form-item label="解析配置" required>
           <el-select
             v-model="form.configId"
             filterable
             clearable
             :loading="loadingConfigs"
             placeholder="请选择配置名称"
-            no-data-text="暂无生效配置"
+            no-data-text="暂无可用解析配置"
           >
             <el-option
               v-for="config in configs"
               :key="config.id"
-              :label="`${config.configName} / V${config.version} / 生效中 / ${config.documentType || '-'}`"
+              :label="configOptionLabel(config)"
               :value="config.id"
-            />
+            >
+              <div class="select-option-row">
+                <span>{{ config.configName }} / V{{ config.version }} / {{ config.documentType || '-' }}</span>
+                <el-tag size="small" :type="statusTagType(config.status)">{{ statusText(config.status) }}</el-tag>
+              </div>
+            </el-option>
           </el-select>
         </el-form-item>
         <el-form-item label="上传文件" required>
@@ -135,11 +182,13 @@ onMounted(loadConfigs)
     <div class="page-stack">
       <el-card shadow="never">
         <template #header>配置摘要</template>
-        <el-empty v-if="!selectedConfig" description="请选择生效配置" />
+        <el-empty v-if="!selectedConfig" description="请选择解析配置" />
         <el-descriptions v-else :column="1" border>
           <el-descriptions-item label="配置名称">{{ selectedConfig.configName }}</el-descriptions-item>
           <el-descriptions-item label="当前版本">V{{ selectedConfig.version }}</el-descriptions-item>
-          <el-descriptions-item label="状态"><el-tag type="success">生效中</el-tag></el-descriptions-item>
+          <el-descriptions-item label="状态">
+            <el-tag :type="statusTagType(selectedConfig.status)">{{ statusText(selectedConfig.status) }}</el-tag>
+          </el-descriptions-item>
           <el-descriptions-item label="所属部门">{{ selectedConfig.departmentId || '-' }}</el-descriptions-item>
           <el-descriptions-item label="分类/子类">
             {{ selectedConfig.category || '-' }} / {{ selectedConfig.subCategory || '-' }}

@@ -123,8 +123,9 @@ export function executeTask(taskId: string) {
   return request<ExtractTask>(`/api/tasks/${taskId}/execute`, { method: 'POST' })
 }
 
-export function executeNextTask() {
-  return request<ExtractTask>('/api/tasks/execute-next', { method: 'POST' })
+export function executeNextTask(departmentId?: string) {
+  const query = departmentId ? `?${new URLSearchParams({ departmentId }).toString()}` : ''
+  return request<ExtractTask>(`/api/tasks/execute-next${query}`, { method: 'POST' })
 }
 
 export function listTaskStageLogs(taskId: string) {

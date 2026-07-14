@@ -281,6 +281,13 @@ body {
   margin-top: 10px;
 }
 
+.select-option-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
 .search-form .el-select,
 .search-form .el-input {
   width: 160px;

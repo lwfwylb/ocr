@@ -61,7 +61,7 @@ public class DocumentAccessService {
         if (!StringUtils.hasText(request.getSourceSystem())) {
             request.setSourceSystem("手工上传");
         }
-        return createAccess(request, true);
+        return createAccess(request, true, true);
     }
 
     @Transactional
@@ -81,7 +81,7 @@ public class DocumentAccessService {
         request.setFileName(storedFile.fileName());
         request.setFileSize(storedFile.fileSize());
         request.setStoragePath(storedFile.storagePath());
-        return createAccess(request, true);
+        return createAccess(request, true, true);
     }
 
     @Transactional
@@ -92,7 +92,7 @@ public class DocumentAccessService {
         if (!StringUtils.hasText(request.getSourceSystem())) {
             request.setSourceSystem("业务系统API");
         }
-        return createAccess(request, false);
+        return createAccess(request, false, false);
     }
 
     @Transactional
@@ -142,7 +142,7 @@ public class DocumentAccessService {
         return detail(id);
     }
 
-    private DocumentAccessResponse createAccess(DocumentAccessRequest request, boolean configRequired) {
+    private DocumentAccessResponse createAccess(DocumentAccessRequest request, boolean configRequired, boolean allowDraftConfig) {
         normalizeRequest(request);
         validateRequest(request);
         DocumentAccessRecord record = new DocumentAccessRecord();
@@ -166,7 +166,7 @@ public class DocumentAccessService {
         record.setCreatedAt(LocalDateTime.now());
         record.setUpdatedAt(record.getCreatedAt());
         if (StringUtils.hasText(request.getConfigId())) {
-            applySpecifiedConfig(record, request.getConfigId());
+            applySpecifiedConfig(record, request.getConfigId(), allowDraftConfig);
         } else if (configRequired) {
             throw new BusinessException("PARAM_400", "configId is required");
         } else {
@@ -248,10 +248,10 @@ public class DocumentAccessService {
         }
     }
 
-    private void applySpecifiedConfig(DocumentAccessRecord record, String configId) {
+    private void applySpecifiedConfig(DocumentAccessRecord record, String configId, boolean allowDraftConfig) {
         ExtractConfigRecord config = extractConfigMapper.selectById(configId);
-        if (config == null || !"PUBLISHED".equals(config.getStatus())) {
-            throw new BusinessException("CONFIG_404", "Published config not found");
+        if (config == null || !isAllowedSpecifiedConfig(config, allowDraftConfig)) {
+            throw new BusinessException("CONFIG_404", allowDraftConfig ? "未找到可用于手工上传测试的配置" : "未找到已发布的生效配置");
         }
         record.setDepartmentId(config.getDepartmentId());
         record.setCategory(config.getCategory());
@@ -265,7 +265,23 @@ public class DocumentAccessService {
         record.setMatchStatus("MATCHED");
         record.setAccessStatus("CREATED_TASK");
         record.setTaskId(nextTaskId());
-        record.setMatchMessage("手工上传指定生效配置：" + config.getConfigName() + " V" + config.getVersion());
+        String specifiedSource = allowDraftConfig ? "手工上传指定解析配置" : "指定生效配置";
+        record.setMatchMessage(specifiedSource + "：" + config.getConfigName() + " V" + config.getVersion() + "（" + statusLabel(config.getStatus()) + "）");
+    }
+
+    private boolean isAllowedSpecifiedConfig(ExtractConfigRecord config, boolean allowDraftConfig) {
+        if ("PUBLISHED".equals(config.getStatus())) {
+            return true;
+        }
+        return allowDraftConfig && ("DRAFT".equals(config.getStatus()) || "TESTING".equals(config.getStatus()));
+    }
+
+    private String statusLabel(String status) {
+        if ("DRAFT".equals(status)) return "草稿";
+        if ("TESTING".equals(status)) return "验证中";
+        if ("PUBLISHED".equals(status)) return "已发布";
+        if ("DISABLED".equals(status)) return "已停用";
+        return status;
     }
 
     private DocumentAccessRecord requireRecord(String id) {
