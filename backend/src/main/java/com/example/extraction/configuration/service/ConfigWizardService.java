@@ -15,6 +15,7 @@ import com.example.extraction.mapper.OcrEngineConfigMapper;
 import com.example.extraction.model.domain.LlmModelConfigRecord;
 import com.example.extraction.model.domain.OcrEngineConfigRecord;
 import com.example.extraction.system.service.SystemDictionaryService;
+import com.example.extraction.system.service.SystemAccessService;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -39,6 +40,7 @@ public class ConfigWizardService {
     private final LlmModelConfigMapper llmModelConfigMapper;
     private final DownstreamIntegrationService downstreamIntegrationService;
     private final SystemDictionaryService dictionaryService;
+    private final SystemAccessService systemAccessService;
     private final ObjectMapper objectMapper;
 
     public ConfigWizardService(ExtractConfigMapper extractConfigMapper,
@@ -46,12 +48,14 @@ public class ConfigWizardService {
                                LlmModelConfigMapper llmModelConfigMapper,
                                DownstreamIntegrationService downstreamIntegrationService,
                                SystemDictionaryService dictionaryService,
+                               SystemAccessService systemAccessService,
                                ObjectMapper objectMapper) {
         this.extractConfigMapper = extractConfigMapper;
         this.ocrEngineConfigMapper = ocrEngineConfigMapper;
         this.llmModelConfigMapper = llmModelConfigMapper;
         this.downstreamIntegrationService = downstreamIntegrationService;
         this.dictionaryService = dictionaryService;
+        this.systemAccessService = systemAccessService;
         this.objectMapper = objectMapper;
     }
 
@@ -211,7 +215,14 @@ public class ConfigWizardService {
     public ConfigOptionsResponse options() {
         ConfigOptionsResponse response = new ConfigOptionsResponse();
         response.setDepartments(dictionaryService.departments());
-        response.setRoles(dictionaryService.roles());
+        response.setRoles(systemAccessService.roles(null, "ENABLED").stream().map(role -> {
+            Map<String, Object> option = option(role.getRoleCode(), role.getRoleName());
+            option.put("roleId", role.getId());
+            option.put("roleCode", role.getRoleCode());
+            option.put("roleName", role.getRoleName());
+            option.put("status", role.getStatus());
+            return option;
+        }).toList());
         response.setCategories(dictionaryService.businessCategoryTree());
         response.setDocumentTypes(dictionaryService.options("DOCUMENT_TYPE"));
         response.setOcrEngines(ocrEngineConfigMapper.selectEnabled().stream().map(ocrEngine -> {

@@ -1052,6 +1052,17 @@ const runAllRegexPreview = () => {
   })
   ElMessage.success('已批量验证已启用的正则规则')
 }
+const normalizeRoleValue = (value: string) => {
+  if (!value) return value
+  const role = options.value.roles.find((item) =>
+    item.value === value || item.roleCode === value || item.label === value || item.roleName === value
+  )
+  return String(role?.value || role?.roleCode || value)
+}
+const normalizeRoleFields = () => {
+  form.ownerRole = normalizeRoleValue(form.ownerRole)
+  form.visibleRoles = form.visibleRoles.map((role) => normalizeRoleValue(role))
+}
 const applyWizardPayload = (payload: any) => {
   if (!payload) return
   const baseInfo = payload.baseInfo || {}
@@ -1129,6 +1140,7 @@ const applyWizardPayload = (payload: any) => {
   fields.value.forEach((field: any) => {
     downstreamFieldMap[field.fieldCode] = field.targetColumn || field.fieldCode
   })
+  normalizeRoleFields()
 }
 const loadConfigForEdit = async () => {
   const id = String(route.query.id || '')
@@ -1172,6 +1184,7 @@ const loadWizardOptions = async () => {
     if (!form.llmModelCode && llmModelOptions.value.length) {
       form.llmModelCode = llmModelOptions.value.find((item) => item.defaultModel)?.modelCode || llmModelOptions.value[0].modelCode
     }
+    normalizeRoleFields()
   } catch (error) {
     ElMessage.error(error instanceof Error ? error.message : '配置选项加载失败')
   }
