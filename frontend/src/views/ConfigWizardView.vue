@@ -303,6 +303,7 @@ const form = reactive({
   departmentId: '',
   visibleRoles: [] as string[],
   ownerRole: '',
+  tags: [] as string[],
   defaultPriority: 'HIGH',
   engineCode: '',
   outputFormat: 'Markdown',
@@ -341,6 +342,11 @@ const categoryOptions = computed<OptionItem[]>(() => options.value.categories ||
 const subCategoryOptions = computed<OptionItem[]>(() => {
   return (categoryOptions.value.find((item: OptionItem) => item.value === form.category)?.children || []) as OptionItem[]
 })
+const addConfigTag = (value: string) => {
+  const tag = value.trim()
+  if (!tag) return
+  if (!form.tags.includes(tag)) form.tags.push(tag)
+}
 const templateTypeOptions = computed<string[]>(() => {
   return (subCategoryOptions.value.find((item: OptionItem) => item.value === form.subCategory)?.templates || []) as string[]
 })
@@ -678,6 +684,7 @@ const buildWizardPayload = () => ({
     documentType: form.documentType,
     departmentId: form.departmentId,
     ownerRole: form.ownerRole,
+    tags: form.tags,
     defaultPriority: form.defaultPriority
   },
   parseConfig: {
@@ -1081,6 +1088,7 @@ const applyWizardPayload = (payload: any) => {
     departmentId: baseInfo.departmentId ?? form.departmentId,
     visibleRoles: Array.isArray(payload.visibleRoles) ? payload.visibleRoles : form.visibleRoles,
     ownerRole: baseInfo.ownerRole ?? form.ownerRole,
+    tags: Array.isArray(baseInfo.tags) ? baseInfo.tags : form.tags,
     defaultPriority: baseInfo.defaultPriority || form.defaultPriority,
     engineCode: parseConfig.engineCode || form.engineCode,
     outputFormat: 'Markdown',
@@ -1202,12 +1210,6 @@ onMounted(async () => {
       <template #header>
         <div class="card-header">
           <span>配置向导</span>
-          <div>
-            <el-button v-if="isReadonlyVersion" type="primary" @click="copyCurrentVersion">复制为新版本</el-button>
-            <el-button :disabled="isReadonlyVersion" :loading="saving" @click="saveDraft">保存草稿</el-button>
-            <el-button type="primary" :disabled="isReadonlyVersion" :loading="saving" @click="validate">验证</el-button>
-            <el-button type="success" :disabled="isReadonlyVersion" :loading="saving" @click="publish">发布</el-button>
-          </div>
         </div>
       </template>
       <el-steps :active="activeStep" finish-status="success" align-center class="wizard-steps">
@@ -1277,6 +1279,21 @@ onMounted(async () => {
             <el-select v-model="form.visibleRoles" multiple filterable clearable collapse-tags collapse-tags-tooltip placeholder="请选择可查看/使用该配置的角色">
               <el-option v-for="item in options.roles" :key="item.value" :label="item.label" :value="item.value" />
             </el-select>
+          </el-form-item>
+          <el-form-item label="标签" class="wide">
+            <el-select
+              v-model="form.tags"
+              multiple
+              filterable
+              allow-create
+              default-first-option
+              clearable
+              collapse-tags
+              collapse-tags-tooltip
+              placeholder="输入文字后按回车生成标签，可多次输入"
+              @change="form.tags = Array.from(new Set(form.tags.map((tag) => tag.trim()).filter(Boolean)))"
+              @blur="(event: FocusEvent) => addConfigTag((event.target as HTMLInputElement)?.value || '')"
+            />
           </el-form-item>
           <el-form-item label="默认优先级">
             <el-radio-group v-model="form.defaultPriority">
@@ -2346,10 +2363,10 @@ onMounted(async () => {
       <div class="wizard-actions">
         <el-button :disabled="activeStep === 0" @click="prev">上一步</el-button>
         <el-button v-if="activeStep < steps.length - 1" type="primary" @click="next">下一步</el-button>
-          <el-button v-if="isReadonlyVersion" type="primary" @click="copyCurrentVersion">复制为新版本</el-button>
-          <el-button :disabled="isReadonlyVersion" :loading="saving" @click="saveDraft">保存草稿</el-button>
-          <el-button type="primary" :disabled="isReadonlyVersion" :loading="saving" @click="validate">验证</el-button>
-          <el-button type="success" :disabled="isReadonlyVersion" :loading="saving" @click="publish">发布配置</el-button>
+        <el-button v-if="isReadonlyVersion" type="primary" @click="copyCurrentVersion">复制为新版本</el-button>
+        <el-button :disabled="isReadonlyVersion" :loading="saving" @click="saveDraft">保存草稿</el-button>
+        <el-button type="primary" :disabled="isReadonlyVersion" :loading="saving" @click="validate">验证</el-button>
+        <el-button type="success" :disabled="isReadonlyVersion" :loading="saving" @click="publish">发布配置</el-button>
       </div>
     </el-card>
   </div>

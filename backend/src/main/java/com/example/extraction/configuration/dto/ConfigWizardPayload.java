@@ -171,6 +171,7 @@ public class ConfigWizardPayload {
         private String departmentId;
         @NotBlank
         private String ownerRole;
+        private List<String> tags = new ArrayList<>();
         private String defaultPriority;
 
         public String getConfigName() {
@@ -235,6 +236,14 @@ public class ConfigWizardPayload {
 
         public void setOwnerRole(String ownerRole) {
             this.ownerRole = ownerRole;
+        }
+
+        public List<String> getTags() {
+            return tags;
+        }
+
+        public void setTags(List<String> tags) {
+            this.tags = tags == null ? new ArrayList<>() : tags;
         }
 
         public String getDefaultPriority() {
