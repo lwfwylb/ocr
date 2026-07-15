@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
@@ -234,6 +234,10 @@ const aiEnabled = ref(true)
 const activeExtractTab = ref('ai')
 const aiSystemPrompt = ref('你是基金公司智能要素提取助手。请基于解析后的文档文本、表格和页面位置信息，按字段定义一次性提取全部业务要素。')
 const aiUserPrompt = ref('')
+const promptAutoSync = ref(true)
+const promptOutdated = ref(false)
+const promptBasisVisible = ref(false)
+const suppressPromptInput = ref(false)
 const regexSampleText = ref('付款方：示例基金管理有限公司\n收款账号：6222 **** 8910\n金额：100000.00\n划款日期：2026年6月28日')
 const regexPreview = ref('100000.00')
 const regexPreviewMap = ref<Record<string, string>>({
@@ -421,12 +425,53 @@ const mappingProfiles = [
     mapping: 'payer_name -> counterparty_name, transaction_no -> biz_no, amount -> business_amount'
   }
 ]
-const defaultAiUserPrompt = computed(() => {
-  const documentType = form.documentType || '当前文档'
-  return `请从${documentType}中一次性提取下方字段。无法识别的字段返回 null，不要编造。`
+const promptFieldItems = computed(() => fields.value
+  .filter((field: any) => field.fieldCode || field.fieldName)
+  .map((field: any) => {
+    const fieldCode = field.fieldCode || field.fieldName || '-'
+    const fieldName = field.fieldName || field.fieldCode || '-'
+    const fieldDescription = String(field.fieldDescription || '').trim()
+    return {
+      fieldCode,
+      fieldName,
+      fieldDescription,
+      targetColumn: field.targetColumn || fieldCode,
+      extractRequired: Boolean(field.extractRequired),
+      multiple: Boolean(field.multiple),
+      promptText: `${fieldCode}（${fieldName}${fieldDescription ? `：${fieldDescription}` : ''}）`
+    }
+  }))
+const fieldDrivenUserPrompt = computed(() => {
+  const fieldsText = promptFieldItems.value.map((field) => field.promptText).join('、') || '请先维护提取字段'
+  const multipleFields = promptFieldItems.value.filter((field) => field.multiple).map((field) => field.fieldCode)
+  const multipleRequirement = multipleFields.length ? `多值字段 ${multipleFields.join('、')} 返回数组。` : ''
+  return `请从文档内容中提取要素：${fieldsText}。${multipleRequirement}要求无法识别的字段返回null，严格JSON格式输出。`
 })
+const promptStatusLabel = computed(() => promptAutoSync.value ? '由字段配置自动生成' : promptOutdated.value ? '已人工调整，字段配置已变更' : '已人工调整')
+const promptStatusType = computed(() => promptAutoSync.value ? 'success' : promptOutdated.value ? 'warning' : 'info')
+const setAiUserPrompt = (value: string, autoSync: boolean) => {
+  suppressPromptInput.value = true
+  aiUserPrompt.value = value
+  promptAutoSync.value = autoSync
+  promptOutdated.value = false
+  suppressPromptInput.value = false
+}
+const regenerateAiUserPrompt = () => {
+  setAiUserPrompt(fieldDrivenUserPrompt.value, false)
+  ElMessage.success('已按字段配置重新生成用户提示词')
+}
+const restoreAutoPrompt = () => {
+  setAiUserPrompt(fieldDrivenUserPrompt.value, true)
+  ElMessage.success('已恢复为字段配置自动生成')
+}
+const handleAiUserPromptInput = (value: string) => {
+  aiUserPrompt.value = value
+  if (suppressPromptInput.value) return
+  promptAutoSync.value = value.trim() === fieldDrivenUserPrompt.value.trim()
+  promptOutdated.value = false
+}
 const generatedPrompt = computed(() => {
-  const userRequirement = aiUserPrompt.value.trim() || defaultAiUserPrompt.value
+  const userRequirement = aiUserPrompt.value.trim() || fieldDrivenUserPrompt.value
   const fieldLines = fields.value.length
     ? fields.value.map((field: any, index: number) => {
       const parts = [
@@ -461,6 +506,15 @@ const promptPreviewTip = computed(() => form.storageEnabled
   ? '根据用户提示词、提取字段和字段映射自动生成，执行时用于约束 AI 输出 JSON。'
   : '根据用户提示词和提取字段自动生成，执行时仅要求 AI 输出结构化 JSON，不涉及落库字段。'
 )
+watch(fieldDrivenUserPrompt, (nextPrompt, previousPrompt) => {
+  if (promptAutoSync.value) {
+    setAiUserPrompt(nextPrompt, true)
+    return
+  }
+  if (previousPrompt !== undefined && nextPrompt !== previousPrompt) {
+    promptOutdated.value = true
+  }
+}, { immediate: true })
 const normalizeDbTypeParams = (column: any) => {
   if (['varchar', 'char'].includes(column.dbType)) {
     column.length = column.length || 100
@@ -1248,6 +1302,11 @@ const applyWizardPayload = (payload: any) => {
     selectedRuleId.value = transformRules.value[0]?.id || ''
   }
   if (payload.validationRules?.length) validationRules.value = payload.validationRules
+  const savedUserPrompt = String(extractStrategy.userPrompt || '').trim()
+  const generatedUserPrompt = fieldDrivenUserPrompt.value
+  setAiUserPrompt(savedUserPrompt || generatedUserPrompt, !savedUserPrompt || savedUserPrompt === generatedUserPrompt)
+  aiSystemPrompt.value = extractStrategy.systemPrompt || aiSystemPrompt.value
+  aiEnabled.value = extractStrategy.aiEnabled ?? aiEnabled.value
   if (form.storageMode === 'REUSE' && form.targetTable) void handleTargetTableChange(form.targetTable)
 
   Object.keys(downstreamFieldMap).forEach((key) => delete downstreamFieldMap[key])
@@ -1852,7 +1911,35 @@ onMounted(async () => {
                 <el-input v-model="aiSystemPrompt" type="textarea" :rows="4" />
               </el-form-item>
               <el-form-item label="用户提示词">
-                <el-input v-model="aiUserPrompt" type="textarea" :rows="8" :placeholder="defaultAiUserPrompt" />
+                <div class="prompt-editor wide">
+                  <div class="prompt-editor-bar">
+                    <div class="prompt-editor-status">
+                      <el-tag size="small" :type="promptStatusType">{{ promptStatusLabel }}</el-tag>
+                      <span class="muted">默认根据字段配置生成，可按业务习惯手工调整。</span>
+                    </div>
+                    <div class="header-actions">
+                      <el-button size="small" @click="regenerateAiUserPrompt">按字段重新生成</el-button>
+                      <el-button size="small" @click="restoreAutoPrompt">恢复自动生成</el-button>
+                      <el-button size="small" link type="primary" @click="promptBasisVisible = !promptBasisVisible">{{ promptBasisVisible ? '收起依据' : '查看生成依据' }}</el-button>
+                    </div>
+                  </div>
+                  <el-alert
+                    v-if="promptOutdated"
+                    class="mb-12"
+                    title="字段配置已变更，当前用户提示词不会自动覆盖。可点击“按字段重新生成”同步最新字段。"
+                    type="warning"
+                    :closable="false"
+                  />
+                  <el-input :model-value="aiUserPrompt" type="textarea" :rows="5" :placeholder="fieldDrivenUserPrompt" @input="handleAiUserPromptInput" />
+                  <el-table v-if="promptBasisVisible" :data="promptFieldItems" class="mt-12" height="220">
+                    <el-table-column prop="fieldCode" label="JSON Key" min-width="140" />
+                    <el-table-column prop="fieldName" label="字段名称" min-width="130" />
+                    <el-table-column prop="fieldDescription" label="生成说明" min-width="220" show-overflow-tooltip />
+                    <el-table-column label="必填" width="70"><template #default="{ row }">{{ row.extractRequired ? '是' : '否' }}</template></el-table-column>
+                    <el-table-column label="多值" width="70"><template #default="{ row }">{{ row.multiple ? '是' : '否' }}</template></el-table-column>
+                    <el-table-column v-if="isStorageEnabled" prop="targetColumn" label="目标字段" min-width="150" />
+                  </el-table>
+                </div>
               </el-form-item>
               <el-form-item label="自动生成提示词预览">
                 <div class="field-with-tip wide">
@@ -2570,5 +2657,31 @@ onMounted(async () => {
   justify-content: flex-end;
   gap: 8px;
   margin-top: 14px;
+}
+
+.prompt-editor {
+  width: 100%;
+}
+
+.prompt-editor-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.prompt-editor-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+@media (max-width: 900px) {
+  .prompt-editor-bar {
+    align-items: flex-start;
+    flex-direction: column;
+  }
 }
 </style>
