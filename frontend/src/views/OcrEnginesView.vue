@@ -17,6 +17,7 @@ import {
   type OcrEnginePayload,
   type OcrEngineParseTestResult
 } from '../api/model'
+import { API_BASE_URL } from '../api/http'
 
 const drawerVisible = ref(false)
 const loading = ref(false)
@@ -395,7 +396,7 @@ const escapeAttribute = (value: string) => escapeHtml(value).replace(/`/g, '&#96
 
 const renderMarkdown = (source: string) => {
   if (!source) return ''
-  const html = markdownParser.render(source)
+  const html = markdownParser.render(resolveApiAssetUrls(source))
   return DOMPurify.sanitize(html, {
     USE_PROFILES: { html: true },
     ADD_TAGS: ['table', 'thead', 'tbody', 'tr', 'th', 'td', 'div', 'span', 'img'],
@@ -403,6 +404,13 @@ const renderMarkdown = (source: string) => {
     FORBID_TAGS: ['script', 'style', 'iframe', 'object', 'embed', 'form', 'input', 'button'],
     FORBID_ATTR: ['style', 'srcdoc']
   }).replace(/<a /g, '<a target="_blank" rel="noopener noreferrer" ')
+}
+
+const resolveApiAssetUrls = (source: string) => {
+  const baseUrl = API_BASE_URL.replace(/\/$/, '')
+  return source
+    .replace(/\]\(\/api\//g, `](${baseUrl}/api/`)
+    .replace(/src=["']\/api\//g, (match) => `${match.slice(0, 5)}${baseUrl}/api/`)
 }
 
 onMounted(loadEngines)

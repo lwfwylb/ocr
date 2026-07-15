@@ -35,6 +35,7 @@ public class OcrParseService {
     private final DocumentArtifactMapper documentArtifactMapper;
     private final DocumentParseResultMapper documentParseResultMapper;
     private final DocumentArtifactService documentArtifactService;
+    private final OcrPreviewAssetService ocrPreviewAssetService;
     private final ObjectMapper objectMapper;
     private final List<OcrEngineClient> clients;
 
@@ -43,6 +44,7 @@ public class OcrParseService {
                            DocumentArtifactMapper documentArtifactMapper,
                            DocumentParseResultMapper documentParseResultMapper,
                            DocumentArtifactService documentArtifactService,
+                           OcrPreviewAssetService ocrPreviewAssetService,
                            ObjectMapper objectMapper,
                            List<OcrEngineClient> clients) {
         this.ocrEngineConfigMapper = ocrEngineConfigMapper;
@@ -50,6 +52,7 @@ public class OcrParseService {
         this.documentArtifactMapper = documentArtifactMapper;
         this.documentParseResultMapper = documentParseResultMapper;
         this.documentArtifactService = documentArtifactService;
+        this.ocrPreviewAssetService = ocrPreviewAssetService;
         this.objectMapper = objectMapper;
         this.clients = clients;
     }
@@ -114,7 +117,10 @@ public class OcrParseService {
             OcrParseRequest request = new OcrParseRequest(task, engine, payload, tempPath,
                     firstText(file.getOriginalFilename(), tempPath.getFileName().toString()),
                     firstText(fileExt(file.getOriginalFilename()), contentTypeExt(file.getContentType())));
-            return client.parse(request);
+            OcrParseResponse response = client.parse(request);
+            Map<String, String> imageUrls = ocrPreviewAssetService.saveImages(response.getImages());
+            response.setMarkdownText(replaceImageReferences(response.getMarkdownText(), imageUrls));
+            return response;
         } catch (IOException e) {
             throw new BusinessException("OCR_TEST_IO_ERROR", "样本文档读取失败：" + e.getMessage());
         } finally {
