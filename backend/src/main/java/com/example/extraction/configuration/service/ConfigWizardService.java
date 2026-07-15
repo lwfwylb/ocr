@@ -385,7 +385,14 @@ public class ConfigWizardService {
 
     private List<Map<String, Object>> validateStorageConfig(ConfigWizardPayload payload) {
         List<Map<String, Object>> issues = new ArrayList<>();
-        ConfigWizardPayload.StorageConfig storageConfig = payload.getStorageConfig();
+        ConfigWizardPayload.StorageConfig storageConfig = payload.getStorageConfig() == null ? new ConfigWizardPayload.StorageConfig() : payload.getStorageConfig();
+        if (!storageEnabled(payload)) {
+            validateExtractFieldsOnly(payload, issues);
+            if (issues.isEmpty()) {
+                issues.add(issue("INFO", "未启用结果落库，仅校验提取字段配置；不会生成 DDL，也不会同步结果表元数据"));
+            }
+            return issues;
+        }
         if (!StringUtils.hasText(storageConfig.getStorageMode())) {
             issues.add(issue("ERROR", "落库模式不能为空"));
         }
@@ -469,6 +476,26 @@ public class ConfigWizardService {
             issues.add(issue("INFO", "落库配置、字段映射和唯一约束检查通过"));
         }
         return issues;
+    }
+
+    private void validateExtractFieldsOnly(ConfigWizardPayload payload, List<Map<String, Object>> issues) {
+        if (payload.getExtractFields() == null || payload.getExtractFields().isEmpty()) {
+            issues.add(issue("ERROR", "至少需要维护一个提取字段"));
+            return;
+        }
+        Set<String> fieldCodes = new HashSet<>();
+        for (ConfigWizardPayload.ExtractField field : payload.getExtractFields()) {
+            if (!StringUtils.hasText(field.getFieldCode())) {
+                issues.add(issue("ERROR", "提取字段编码不能为空"));
+                continue;
+            }
+            if (!fieldCodes.add(field.getFieldCode())) {
+                issues.add(issue("ERROR", "提取字段编码重复：" + field.getFieldCode()));
+            }
+            if (!StringUtils.hasText(field.getFieldName())) {
+                issues.add(issue("ERROR", "提取字段名称不能为空：" + field.getFieldCode()));
+            }
+        }
     }
 
     private void validateColumnType(ConfigWizardPayload.ResultTableColumn column, List<Map<String, Object>> issues) {
@@ -617,6 +644,7 @@ public class ConfigWizardService {
             issues.add(issue("INFO", "未启用下游推送规则"));
             return issues;
         }
+        boolean storageDisabled = !storageEnabled(payload);
         Map<String, Map<String, Object>> downstreamServices = downstreamServicesByCode();
         for (ConfigWizardPayload.PushRule rule : payload.getPushRules()) {
             if (!Boolean.TRUE.equals(rule.getPushEnabled())) {
@@ -635,6 +663,9 @@ public class ConfigWizardService {
             }
             if (!StringUtils.hasText(rule.getPushTrigger())) {
                 issues.add(issue("ERROR", "启用的推送规则必须维护触发时机：" + rule.getServiceCode()));
+            }
+            if (storageDisabled && "STORED".equals(rule.getPushTrigger())) {
+                issues.add(issue("ERROR", "未启用结果落库时，下游推送触发时机不能选择落库成功后"));
             }
             if (!StringUtils.hasText(rule.getPushMode())) {
                 issues.add(issue("ERROR", "启用的推送规则必须维护推送模式：" + rule.getServiceCode()));
@@ -700,7 +731,10 @@ public class ConfigWizardService {
     }
 
     private String buildDdlPreview(ConfigWizardPayload payload) {
-        ConfigWizardPayload.StorageConfig storageConfig = payload.getStorageConfig();
+        ConfigWizardPayload.StorageConfig storageConfig = payload.getStorageConfig() == null ? new ConfigWizardPayload.StorageConfig() : payload.getStorageConfig();
+        if (!storageEnabled(payload)) {
+            return "-- 当前配置未启用结果落库\n-- 不生成 DDL，不写入结果表，仅保留提取、加工、复核和下游推送能力。";
+        }
         if (!"CREATE".equals(storageConfig.getStorageMode())) {
             return "-- 复用已有表: " + nullToDash(storageConfig.getTargetTable()) + "\n-- 验证阶段不执行 DDL，仅校验目标字段映射。";
         }
@@ -738,6 +772,10 @@ public class ConfigWizardService {
 
     private String nullToDash(String value) {
         return StringUtils.hasText(value) ? value : "-";
+    }
+
+    private boolean storageEnabled(ConfigWizardPayload payload) {
+        return payload == null || payload.getStorageConfig() == null || !Boolean.FALSE.equals(payload.getStorageConfig().getStorageEnabled());
     }
 
     private ConfigWizardPayload toPayload(Map<String, Object> payloadBody) {
@@ -810,8 +848,8 @@ public class ConfigWizardService {
         try {
             ConfigWizardPayload payload = objectMapper.readValue(record.getConfigPayload(), ConfigWizardPayload.class);
             response.setParseEngine(payload.getParseConfig() == null ? "-" : payload.getParseConfig().getEngineCode());
-            response.setTargetTable(payload.getStorageConfig() == null ? "-" : payload.getStorageConfig().getTargetTable());
-            response.setMappingProfile(payload.getStorageConfig() == null ? "-" : payload.getStorageConfig().getMappingProfileName());
+            response.setTargetTable(storageEnabled(payload) && payload.getStorageConfig() != null ? payload.getStorageConfig().getTargetTable() : "未启用落库");
+            response.setMappingProfile(storageEnabled(payload) && payload.getStorageConfig() != null ? payload.getStorageConfig().getMappingProfileName() : "-");
             if (payload.getExtractStrategy() != null && payload.getExtractStrategy().getConfidenceThreshold() != null) {
                 response.setConfidenceThreshold(payload.getExtractStrategy().getConfidenceThreshold().doubleValue());
             } else if (payload.getReviewPolicy() != null && payload.getReviewPolicy().getConfidenceThreshold() != null) {

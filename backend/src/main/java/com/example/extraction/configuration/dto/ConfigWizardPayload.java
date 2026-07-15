@@ -406,12 +406,21 @@ public class ConfigWizardPayload {
     }
 
     public static class StorageConfig {
+        private Boolean storageEnabled = true;
         private String storageMode;
         private String mappingProfileName;
         private String targetTable;
         private String targetTableName;
         private String targetTableComment;
         private String saveMode;
+
+        public Boolean getStorageEnabled() {
+            return storageEnabled;
+        }
+
+        public void setStorageEnabled(Boolean storageEnabled) {
+            this.storageEnabled = storageEnabled;
+        }
 
         public String getStorageMode() {
             return storageMode;

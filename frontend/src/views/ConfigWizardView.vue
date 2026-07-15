@@ -310,6 +310,7 @@ const form = reactive({
   outputFormat: 'Markdown',
   parseMode: 'FULL',
   pageBatchSize: 10,
+  storageEnabled: true,
   storageMode: 'REUSE',
   mappingProfileName: '划款指令-资金结果表映射',
   targetTable: 'ext_fund_business_result',
@@ -340,6 +341,8 @@ const existingTables = computed(() =>
   }))
 )
 const isReuseStorageMode = computed(() => form.storageMode === 'REUSE')
+const isStorageEnabled = computed(() => form.storageEnabled)
+const storageDisabledTip = '关闭后，平台仅完成解析、提取、加工、校验、复核和下游推送，不写入结果表，也不生成 DDL。'
 const categoryOptions = computed<OptionItem[]>(() => options.value.categories || [])
 const subCategoryOptions = computed<OptionItem[]>(() => {
   return (categoryOptions.value.find((item: OptionItem) => item.value === form.category)?.children || []) as OptionItem[]
@@ -448,6 +451,9 @@ const formatDbColumnType = (column: any) => {
   return column.dbType
 }
 const storageDdlPreview = computed(() => {
+  if (!form.storageEnabled) {
+    return '-- 当前配置未启用结果落库\n-- 不生成 DDL，不写入结果表，仅保留提取、加工、复核和下游推送能力。'
+  }
   if (form.storageMode === 'REUSE') {
     return `-- 复用已有表: ${form.targetTable}\n-- 目标表名称: ${form.targetTableName}\n-- 仅保存映射方案: ${form.mappingProfileName}\n-- 不执行 DDL，仅校验目标字段是否存在。`
   }
@@ -510,6 +516,12 @@ const handleStorageModeChange = (storageMode: string) => {
     form.targetTable = ''
     form.targetTableName = ''
     form.targetTableComment = ''
+  }
+}
+const handleStorageEnabledChange = (enabled: string | number | boolean) => {
+  if (!Boolean(enabled) && form.pushTrigger === 'STORED') {
+    form.pushTrigger = 'REVIEW_APPROVED'
+    ElMessage.info('未启用落库时，推送触发时机已调整为复核通过后')
   }
 }
 const enabledDownstreamServices = computed(() => options.value.downstreamServices.filter((service) => service.enabled !== false))
@@ -586,6 +598,14 @@ const hasDuplicate = (values: string[]) => {
 }
 const validateFieldStorageStep = () => {
   const errors: string[] = []
+  if (!fields.value.length) errors.push('至少维护 1 个提取字段')
+  if (hasDuplicate(fields.value.map((field) => field.fieldCode))) errors.push('提取字段编码不能重复')
+  fields.value.forEach((field, index) => {
+    const rowLabel = `提取字段第 ${index + 1} 行`
+    if (!field.fieldCode?.trim()) errors.push(`${rowLabel}：字段编码不能为空`)
+    if (!field.fieldName?.trim()) errors.push(`${rowLabel}：字段名称不能为空`)
+  })
+  if (!form.storageEnabled) return errors
   if (!form.storageMode) errors.push('落库模式不能为空')
   if (!form.targetTable?.trim()) errors.push('目标表编码不能为空')
   if (form.storageMode === 'CREATE' && form.targetTable && !/^[a-z][a-z0-9_]*$/.test(form.targetTable)) {
@@ -608,12 +628,8 @@ const validateFieldStorageStep = () => {
     }
   })
 
-  if (!fields.value.length) errors.push('至少维护 1 个提取字段')
-  if (hasDuplicate(fields.value.map((field) => field.fieldCode))) errors.push('提取字段编码不能重复')
   fields.value.forEach((field, index) => {
     const rowLabel = `提取字段第 ${index + 1} 行`
-    if (!field.fieldCode?.trim()) errors.push(`${rowLabel}：字段编码不能为空`)
-    if (!field.fieldName?.trim()) errors.push(`${rowLabel}：字段名称不能为空`)
     if (!field.targetColumn?.trim()) errors.push(`${rowLabel}：目标字段不能为空`)
     if (field.targetColumn && !targetColumnOptions.value.includes(field.targetColumn)) errors.push(`${rowLabel}：目标字段 ${field.targetColumn} 不存在于目标表字段定义中`)
   })
@@ -651,6 +667,7 @@ const extractStrategyStepErrors = () => {
 
 const pushStepErrors = () => {
   if (!form.pushEnabled) return []
+  if (!form.storageEnabled && form.pushTrigger === 'STORED') return ['未启用结果落库时，推送触发时机不能选择“落库成功后”']
   return form.targetServices.length ? [] : ['已启用推送，但未选择目标接口服务']
 }
 
@@ -740,6 +757,7 @@ const buildWizardPayload = () => ({
   },
   preprocessSteps: supportedPreprocessSteps(preprocessSteps.value),
   storageConfig: {
+    storageEnabled: form.storageEnabled,
     storageMode: form.storageMode,
     mappingProfileName: form.mappingProfileName,
     targetTable: form.targetTable,
@@ -756,14 +774,16 @@ const buildWizardPayload = () => ({
     extractRequired: field.extractRequired,
     multiple: field.multiple,
     extractByRegex: field.extractByRegex,
-    targetColumn: field.targetColumn
+    targetColumn: form.storageEnabled ? field.targetColumn : field.fieldCode
   })),
-  fieldMappings: fields.value.map((field: any) => ({
-    extractFieldCode: field.fieldCode,
-    targetColumn: field.targetColumn,
-    multiple: field.multiple,
-    requiredForStorage: field.extractRequired
-  })),
+  fieldMappings: form.storageEnabled
+    ? fields.value.map((field: any) => ({
+      extractFieldCode: field.fieldCode,
+      targetColumn: field.targetColumn,
+      multiple: field.multiple,
+      requiredForStorage: field.extractRequired
+    }))
+    : [],
   extractStrategy: {
     aiEnabled: aiEnabled.value,
     outputMode: form.outputMode,
@@ -1146,6 +1166,7 @@ const applyWizardPayload = (payload: any) => {
     outputFormat: 'Markdown',
     parseMode: parseConfig.parseMode || form.parseMode,
     pageBatchSize: parseConfig.pageBatchSize || form.pageBatchSize,
+    storageEnabled: storageConfig.storageEnabled ?? form.storageEnabled,
     storageMode: storageConfig.storageMode || form.storageMode,
     mappingProfileName: storageConfig.mappingProfileName || form.mappingProfileName,
     targetTable: storageConfig.targetTable || form.targetTable,
@@ -1501,22 +1522,28 @@ onMounted(async () => {
         </div>
 
         <el-form :model="form" label-width="120px" class="form-grid">
-          <el-form-item label="落库模式" class="wide">
+          <el-form-item label="启用结果落库" class="wide">
+            <div class="field-with-tip">
+              <el-switch v-model="form.storageEnabled" active-text="启用" inactive-text="不落库" @change="handleStorageEnabledChange" />
+              <span class="muted block">{{ storageDisabledTip }}</span>
+            </div>
+          </el-form-item>
+          <el-form-item v-if="isStorageEnabled" label="落库模式" class="wide">
             <el-radio-group v-model="form.storageMode" @change="handleStorageModeChange">
               <el-radio-button label="REUSE">复用已有表</el-radio-button>
               <el-radio-button label="CREATE">新建结果表</el-radio-button>
             </el-radio-group>
           </el-form-item>
-          <el-form-item label="目标表编码">
+          <el-form-item v-if="isStorageEnabled" label="目标表编码">
             <el-select v-if="form.storageMode === 'REUSE'" v-model="form.targetTable" filterable clearable @change="handleTargetTableChange">
               <el-option v-for="table in existingTables" :key="table.value" :label="table.label" :value="table.value" />
             </el-select>
             <el-input v-else v-model="form.targetTable" placeholder="如 ext_new_extract_result" />
           </el-form-item>
-          <el-form-item label="目标表名称">
+          <el-form-item v-if="isStorageEnabled" label="目标表名称">
             <el-input v-model="form.targetTableName" :readonly="form.storageMode === 'REUSE'" placeholder="如 基金业务要素结果表" />
           </el-form-item>
-          <el-form-item label="目标表说明" class="wide">
+          <el-form-item v-if="isStorageEnabled" label="目标表说明" class="wide">
             <el-input
               v-model="form.targetTableComment"
               :readonly="form.storageMode === 'REUSE'"
@@ -1525,13 +1552,13 @@ onMounted(async () => {
               placeholder="说明该结果表保存哪些业务场景和结构化结果"
             />
           </el-form-item>
-          <el-form-item label="映射方案名称" class="wide">
+          <el-form-item v-if="isStorageEnabled" label="映射方案名称" class="wide">
             <div class="field-with-tip">
               <el-input v-model="form.mappingProfileName" placeholder="如 大成基金申购单-基金业务要素结果表映射" />
               <span class="muted block">用于标识当前任务的提取字段如何映射到目标结果表；多个任务复用同一张表时便于区分。</span>
             </div>
           </el-form-item>
-          <el-form-item label="保存模式">
+          <el-form-item v-if="isStorageEnabled" label="保存模式">
             <el-radio-group v-model="form.saveMode">
               <el-radio-button label="SINGLE">单对象</el-radio-button>
               <el-radio-button label="BATCH">数组批量</el-radio-button>
@@ -1539,14 +1566,14 @@ onMounted(async () => {
           </el-form-item>
         </el-form>
 
-        <div class="card-header mt-16">
+        <div v-if="isStorageEnabled" class="card-header mt-16">
           <div>
             <h3 class="section-title">目标表字段定义</h3>
             <p class="muted">类型、长度、入库必填、默认值和入库校验属于目标表字段定义；复用已有表时只做字段存在性和约束校验。</p>
           </div>
           <el-button type="primary" :disabled="isReuseStorageMode" @click="addTargetColumn">添加目标字段</el-button>
         </div>
-        <el-table :data="targetTableColumns" class="mb-12" height="300">
+        <el-table v-if="isStorageEnabled" :data="targetTableColumns" class="mb-12" height="300">
           <el-table-column label="目标字段名" min-width="160" fixed>
             <template #default="{ row }"><el-input v-model="row.columnName" :readonly="isReuseStorageMode" /></template>
           </el-table-column>
@@ -1599,7 +1626,7 @@ onMounted(async () => {
             </template>
           </el-table-column>
         </el-table>
-        <el-card shadow="never" class="mb-12">
+        <el-card v-if="isStorageEnabled" shadow="never" class="mb-12">
           <template #header>
             <div class="card-header">
               <div>
@@ -1669,7 +1696,7 @@ onMounted(async () => {
             </el-table-column>
           </el-table>
         </el-card>
-        <div class="ddl-preview-panel mb-12">
+        <div v-if="isStorageEnabled" class="ddl-preview-panel mb-12">
           <div class="card-header">
             <div>
               <h3 class="section-title">表结构 DDL 预览</h3>
@@ -1687,15 +1714,15 @@ onMounted(async () => {
 
         <div class="card-header mt-16">
           <div>
-            <h3 class="section-title">提取字段与目标字段映射</h3>
-            <p class="muted">提取字段定义 AI/正则需要识别的业务要素；提取必填表示识别不到时是否进入复核或报错，和入库必填分开维护。</p>
+            <h3 class="section-title">{{ isStorageEnabled ? '提取字段与目标字段映射' : '提取字段配置' }}</h3>
+            <p class="muted">{{ isStorageEnabled ? '提取字段定义 AI/正则需要识别的业务要素；提取必填表示识别不到时是否进入复核或报错，和入库必填分开维护。' : '仅维护 AI、正则、加工校验、复核和推送需要使用的提取字段，不配置目标表和字段映射。' }}</p>
           </div>
           <div class="header-actions">
-            <span class="mapping-profile-hint">
+            <span v-if="isStorageEnabled" class="mapping-profile-hint">
               <el-tag size="small" type="info">已复用 {{ mappingProfiles.length }} 个方案</el-tag>
               <el-button link type="primary" @click="mappingProfileDrawerVisible = true">查看已有映射</el-button>
             </span>
-            <el-button @click="autoMapFields">自动生成映射</el-button>
+            <el-button v-if="isStorageEnabled" @click="autoMapFields">自动生成映射</el-button>
             <el-button type="primary" @click="addField">添加提取字段</el-button>
           </div>
         </div>
@@ -1715,7 +1742,7 @@ onMounted(async () => {
           <el-table-column label="多值" width="80">
             <template #default="{ row }"><el-switch v-model="row.multiple" /></template>
           </el-table-column>
-          <el-table-column label="目标字段" min-width="260">
+          <el-table-column v-if="isStorageEnabled" label="目标字段" min-width="260">
             <template #default="{ row }">
               <el-select v-if="form.storageMode === 'REUSE'" v-model="row.targetColumn" filterable clearable>
                 <el-option v-for="column in targetColumnOptions" :key="column" :label="column" :value="column" />
@@ -1723,7 +1750,7 @@ onMounted(async () => {
               <el-input v-else v-model="row.targetColumn" />
             </template>
           </el-table-column>
-          <el-table-column label="映射说明" min-width="160">
+          <el-table-column v-if="isStorageEnabled" label="映射说明" min-width="160">
             <template #default="{ row }">
               <span class="muted">{{ row.fieldCode }} 写入 {{ row.targetColumn }}</span>
             </template>

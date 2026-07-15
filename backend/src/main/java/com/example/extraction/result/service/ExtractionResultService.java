@@ -137,7 +137,7 @@ public class ExtractionResultService {
         record.setConfidenceJson(writeJson(transformOutcome.confidence()));
         record.setOverallConfidence(overallConfidence);
         record.setNeedReview(finalNeedReview ? "1" : "0");
-        record.setStatus(finalNeedReview ? "WAIT_REVIEW" : "STORED");
+        record.setStatus(finalNeedReview ? "WAIT_REVIEW" : storageEnabled(payload) ? "STORED" : "EXTRACTED");
         record.setFieldCount(countBusinessFields(transformOutcome.result()));
         record.setTargetTable(resolveTargetTable(payload));
         record.setMappingProfile(resolveMappingProfile(payload, task));
@@ -247,6 +247,9 @@ public class ExtractionResultService {
     private List<StoragePreviewResponse> buildStoragePreview(ConfigWizardPayload payload, Map<String, Object> resultJson,
                                                              ExtractResultRecord result) {
         List<StoragePreviewResponse> rows = new ArrayList<>();
+        if (!storageEnabled(payload)) {
+            return rows;
+        }
         Map<String, ConfigWizardPayload.ResultTableColumn> columnByName = resultColumnByName(payload);
         Set<String> uniqueColumns = uniqueColumns(payload);
         String targetTable = resolveTargetTable(payload);
@@ -1036,6 +1039,9 @@ public class ExtractionResultService {
     }
 
     private String resolveTargetTable(ConfigWizardPayload payload) {
+        if (!storageEnabled(payload)) {
+            return "未启用落库";
+        }
         if (payload != null && payload.getStorageConfig() != null) {
             return firstText(payload.getStorageConfig().getTargetTable(), "SIMULATED_TARGET_TABLE");
         }
@@ -1043,6 +1049,9 @@ public class ExtractionResultService {
     }
 
     private String resolveMappingProfile(ConfigWizardPayload payload, ExtractTaskRecord task) {
+        if (!storageEnabled(payload)) {
+            return "-";
+        }
         if (payload != null && payload.getStorageConfig() != null) {
             return firstText(payload.getStorageConfig().getMappingProfileName(), task.getConfigName(), "默认映射方案");
         }
@@ -1060,6 +1069,10 @@ public class ExtractionResultService {
             return BigDecimal.ZERO;
         }
         return value;
+    }
+
+    private boolean storageEnabled(ConfigWizardPayload payload) {
+        return payload == null || payload.getStorageConfig() == null || !Boolean.FALSE.equals(payload.getStorageConfig().getStorageEnabled());
     }
 
     private int countBusinessFields(Map<String, Object> result) {

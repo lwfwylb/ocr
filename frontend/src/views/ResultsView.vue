@@ -6,7 +6,7 @@ import { getResultDetail, listResults, type ResultDetail, type ResultSummary } f
 import { executeStorage } from '../api/storage'
 import { pushResultToDownstream } from '../api/push'
 
-type ResultStatus = 'STORED' | 'WAIT_REVIEW' | 'PUSHED' | 'FAILED'
+type ResultStatus = 'STORED' | 'EXTRACTED' | 'WAIT_REVIEW' | 'PUSHED' | 'FAILED'
 
 interface FieldRow {
   fieldCode?: string
@@ -40,6 +40,7 @@ const results = ref<ResultSummary[]>([])
 
 const statusMap: Record<ResultStatus, { label: string; type: 'success' | 'warning' | 'danger' | 'info' }> = {
   STORED: { label: '已落库', type: 'success' },
+  EXTRACTED: { label: '已提取', type: 'info' },
   WAIT_REVIEW: { label: '待复核', type: 'warning' },
   PUSHED: { label: '已推送', type: 'success' },
   FAILED: { label: '失败', type: 'danger' }
@@ -76,6 +77,8 @@ const metrics = computed(() => {
 })
 
 const detailSummary = computed(() => selectedDetail.value?.summary || selectedResult.value)
+const isStorageDisabled = computed(() => detailSummary.value?.targetTable === '未启用落库')
+const rowStorageDisabled = (row: ResultSummary) => row.targetTable === '未启用落库'
 
 const fieldRows = computed<FieldRow[]>(() => {
   const detail = selectedDetail.value
@@ -111,6 +114,7 @@ const fieldRows = computed<FieldRow[]>(() => {
 })
 
 const storageRows = computed(() => {
+  if (isStorageDisabled.value) return []
   if (selectedDetail.value?.storagePreview?.length) return selectedDetail.value.storagePreview
   const targetTable = detailSummary.value?.targetTable || '-'
   return fieldRows.value.map((row) => ({
@@ -156,7 +160,7 @@ const exportResult = (type: string) => {
 }
 
 const pushResult = async (row: ResultSummary) => {
-  await ElMessageBox.confirm('确认将该结果推送到下游业务系统？仅成功落库的数据允许推送。', '手工推送', { type: 'warning' })
+  await ElMessageBox.confirm('确认将该结果推送到下游业务系统？待复核或失败结果不允许推送。', '手工推送', { type: 'warning' })
   try {
     const record = await pushResultToDownstream(row.taskId, {
       targetSystem: '模拟业务系统',
@@ -174,6 +178,10 @@ const pushResult = async (row: ResultSummary) => {
 }
 
 const executeStorageForResult = async (row: ResultSummary) => {
+  if (rowStorageDisabled(row)) {
+    ElMessage.warning('当前配置未启用结果落库，无需执行落库')
+    return
+  }
   await ElMessageBox.confirm('确认将该提取结果写入落库台账？待复核或失败结果不允许落库。', '执行落库', { type: 'warning' })
   try {
     await executeStorage(row.taskId, { storedBy: '当前用户', duplicateStrategy: 'UPSERT_BY_TASK_ID' })
@@ -262,6 +270,7 @@ onMounted(loadResults)
         <el-form-item label="结果状态">
           <el-select v-model="query.resultStatus" clearable filterable placeholder="全部">
             <el-option label="已落库" value="STORED" />
+            <el-option label="已提取" value="EXTRACTED" />
             <el-option label="待复核" value="WAIT_REVIEW" />
             <el-option label="已推送" value="PUSHED" />
             <el-option label="失败" value="FAILED" />
@@ -312,7 +321,7 @@ onMounted(loadResults)
             <el-button link type="primary" @click="openDetail(row, 'fields')">字段</el-button>
             <el-button link type="primary" @click="openDetail(row, 'parse')">解析</el-button>
             <el-button link type="primary" @click="openDetail(row, 'storage')">落库</el-button>
-            <el-button link type="warning" @click="executeStorageForResult(row)">执行落库</el-button>
+            <el-button link type="warning" :disabled="rowStorageDisabled(row)" @click="executeStorageForResult(row)">执行落库</el-button>
             <el-button link type="success" @click="pushResult(row)">推送</el-button>
           </template>
         </el-table-column>
@@ -365,8 +374,9 @@ onMounted(loadResults)
             <pre class="parse-preview">{{ selectedDetail?.parseText || '暂无解析文本' }}</pre>
           </el-tab-pane>
           <el-tab-pane label="落库预览" name="storage">
-            <el-alert title="落库预览由后端按当前配置的目标表字段定义、字段映射、必填和唯一约束生成；第一版仍写入平台落库台账，不直接写真实业务结果表。" type="info" :closable="false" class="mb-12" />
-            <el-table :data="storageRows">
+            <el-alert v-if="!isStorageDisabled" title="落库预览由后端按当前配置的目标表字段定义、字段映射、必填和唯一约束生成；第一版仍写入平台落库台账，不直接写真实业务结果表。" type="info" :closable="false" class="mb-12" />
+            <el-empty v-if="isStorageDisabled" description="当前配置未启用结果落库，无落库预览。" />
+            <el-table v-else :data="storageRows">
               <el-table-column prop="targetTable" label="目标表" min-width="160" />
               <el-table-column prop="targetColumn" label="目标字段" min-width="150" />
               <el-table-column prop="columnName" label="字段名称" min-width="130" />

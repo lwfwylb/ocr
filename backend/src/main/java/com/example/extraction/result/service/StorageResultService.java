@@ -2,6 +2,9 @@ package com.example.extraction.result.service;
 
 import com.example.extraction.common.BusinessException;
 import com.example.extraction.common.IdGenerator;
+import com.example.extraction.configuration.domain.ExtractConfigRecord;
+import com.example.extraction.configuration.dto.ConfigWizardPayload;
+import com.example.extraction.mapper.ExtractConfigMapper;
 import com.example.extraction.mapper.ExtractResultMapper;
 import com.example.extraction.mapper.StorageResultMapper;
 import com.example.extraction.result.domain.ExtractResultRecord;
@@ -26,13 +29,16 @@ import java.util.Map;
 public class StorageResultService {
     private final ExtractResultMapper extractResultMapper;
     private final StorageResultMapper storageResultMapper;
+    private final ExtractConfigMapper extractConfigMapper;
     private final ObjectMapper objectMapper;
 
     public StorageResultService(ExtractResultMapper extractResultMapper,
                                 StorageResultMapper storageResultMapper,
+                                ExtractConfigMapper extractConfigMapper,
                                 ObjectMapper objectMapper) {
         this.extractResultMapper = extractResultMapper;
         this.storageResultMapper = storageResultMapper;
+        this.extractConfigMapper = extractConfigMapper;
         this.objectMapper = objectMapper;
     }
 
@@ -55,6 +61,9 @@ public class StorageResultService {
         }
         if ("FAILED".equals(result.getStatus())) {
             throw new BusinessException("STORAGE_409", "结果已失败，不允许落库");
+        }
+        if (!storageEnabled(readConfigPayload(result.getConfigId()))) {
+            throw new BusinessException("STORAGE_409", "当前配置未启用结果落库，不允许执行落库");
         }
 
         Map<String, Object> storageData = buildStorageData(result);
@@ -140,6 +149,25 @@ public class StorageResultService {
         } catch (JsonProcessingException e) {
             throw new BusinessException("JSON_400", "落库数据无法序列化");
         }
+    }
+
+    private ConfigWizardPayload readConfigPayload(String configId) {
+        if (!StringUtils.hasText(configId)) {
+            return null;
+        }
+        ExtractConfigRecord config = extractConfigMapper.selectById(configId);
+        if (config == null || !StringUtils.hasText(config.getConfigPayload())) {
+            return null;
+        }
+        try {
+            return objectMapper.readValue(config.getConfigPayload(), ConfigWizardPayload.class);
+        } catch (JsonProcessingException e) {
+            return null;
+        }
+    }
+
+    private boolean storageEnabled(ConfigWizardPayload payload) {
+        return payload == null || payload.getStorageConfig() == null || !Boolean.FALSE.equals(payload.getStorageConfig().getStorageEnabled());
     }
 
     private String firstText(String... values) {

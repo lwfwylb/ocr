@@ -46,6 +46,9 @@ public class ResultTableService {
             return;
         }
         ConfigWizardPayload.StorageConfig storageConfig = payload.getStorageConfig();
+        if (Boolean.FALSE.equals(storageConfig.getStorageEnabled())) {
+            return;
+        }
         if (!StringUtils.hasText(storageConfig.getTargetTable())) {
             return;
         }

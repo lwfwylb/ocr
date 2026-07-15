@@ -59,29 +59,37 @@ public class DownstreamPushService {
 
     @Transactional
     public PushRecordResponse push(String taskId, PushExecuteRequest request) {
-        StorageResultRecord storage = storageResultMapper.selectByTaskId(taskId);
-        if (storage == null) {
-            throw new BusinessException("PUSH_404", "落库记录不存在，请先完成结果落库");
+        ExtractResultRecord result = extractResultMapper.selectByTaskId(taskId);
+        if (result == null) {
+            throw new BusinessException("PUSH_404", "提取结果不存在，无法推送下游");
         }
-        if (!"SUCCESS".equals(storage.getStorageStatus())) {
-            throw new BusinessException("PUSH_409", "仅成功落库的数据允许推送下游");
+        if ("WAIT_REVIEW".equals(result.getStatus())) {
+            throw new BusinessException("PUSH_409", "结果尚未复核，不允许推送下游");
+        }
+        if ("FAILED".equals(result.getStatus())) {
+            throw new BusinessException("PUSH_409", "结果已失败，不允许推送下游");
+        }
+
+        StorageResultRecord storage = storageResultMapper.selectByTaskId(taskId);
+        if (storage != null && !"SUCCESS".equals(storage.getStorageStatus())) {
+            throw new BusinessException("PUSH_409", "落库记录未成功，不能基于该落库记录推送下游");
         }
 
         LocalDateTime now = LocalDateTime.now();
         DownstreamPushRecord record = new DownstreamPushRecord();
         record.setId(IdGenerator.nextId("DPR"));
         record.setPushId(IdGenerator.nextId("PUSH"));
-        record.setTraceId(storage.getTraceId());
-        record.setTaskId(storage.getTaskId());
-        record.setDocumentId(storage.getDocumentId());
-        record.setConfigId(storage.getConfigId());
+        record.setTraceId(firstText(storage == null ? null : storage.getTraceId(), result.getTraceId()));
+        record.setTaskId(result.getTaskId());
+        record.setDocumentId(result.getDocumentId());
+        record.setConfigId(result.getConfigId());
         record.setTargetSystem(firstText(request == null ? null : request.getTargetSystem(), "模拟业务系统"));
         record.setServiceCode(firstText(request == null ? null : request.getServiceCode(), "mock_result_receive"));
         record.setServiceName(firstText(request == null ? null : request.getServiceName(), "模拟结果接收服务"));
         record.setPushMethod(firstText(request == null ? null : request.getPushMethod(), "HTTP"));
         record.setTriggerType(firstText(request == null ? null : request.getTriggerType(), "MANUAL"));
-        record.setIdempotentKey(buildIdempotentKey(storage, record.getServiceCode()));
-        record.setRequestPayload(buildRequestPayload(storage, request));
+        record.setIdempotentKey(buildIdempotentKey(result.getTaskId(), record.getServiceCode()));
+        record.setRequestPayload(buildRequestPayload(storage, result, request));
         record.setRetryCount(0);
         record.setMaxRetry(3);
         record.setPushedAt(now);
@@ -167,21 +175,23 @@ public class DownstreamPushService {
         extractResultMapper.update(result);
     }
 
-    private String buildRequestPayload(StorageResultRecord storage, PushExecuteRequest request) {
+    private String buildRequestPayload(StorageResultRecord storage, ExtractResultRecord result, PushExecuteRequest request) {
         Map<String, Object> payload = new LinkedHashMap<>();
-        payload.put("traceId", storage.getTraceId());
-        payload.put("taskId", storage.getTaskId());
-        payload.put("documentId", storage.getDocumentId());
-        payload.put("configId", storage.getConfigId());
-        payload.put("targetTable", storage.getTargetTable());
-        payload.put("mappingProfile", storage.getMappingProfile());
-        payload.put("storageData", storage.getStorageJson());
+        payload.put("traceId", firstText(storage == null ? null : storage.getTraceId(), result.getTraceId()));
+        payload.put("taskId", result.getTaskId());
+        payload.put("documentId", result.getDocumentId());
+        payload.put("configId", result.getConfigId());
+        payload.put("targetTable", storage == null ? null : storage.getTargetTable());
+        payload.put("mappingProfile", storage == null ? null : storage.getMappingProfile());
+        payload.put("storageData", storage == null ? null : storage.getStorageJson());
+        payload.put("extractResult", result.getResultJson());
+        payload.put("pushSource", storage == null ? "EXTRACT_RESULT" : "STORAGE_RESULT");
         payload.put("operator", request == null ? null : request.getOperator());
         return writeJson(payload);
     }
 
-    private String buildIdempotentKey(StorageResultRecord storage, String serviceCode) {
-        return storage.getTaskId() + ":" + firstText(serviceCode, "default");
+    private String buildIdempotentKey(String taskId, String serviceCode) {
+        return taskId + ":" + firstText(serviceCode, "default");
     }
 
     private PushRecordResponse toResponse(DownstreamPushRecord record) {
