@@ -11,6 +11,7 @@ import com.example.extraction.configuration.dto.ConfigWizardPayload;
 import com.example.extraction.document.domain.DocumentAccessRecord;
 import com.example.extraction.mapper.DocumentArtifactMapper;
 import com.example.extraction.mapper.ExtractConfigMapper;
+import com.example.extraction.ocr.OcrImageArtifact;
 import com.example.extraction.result.domain.DocumentParseResultRecord;
 import com.example.extraction.task.domain.ExtractTaskRecord;
 import com.fasterxml.jackson.core.JsonProcessingException;
@@ -36,6 +37,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.LinkedHashMap;
 import java.util.Objects;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -147,9 +149,9 @@ public class DocumentArtifactService {
         return artifact;
     }
 
-    public void recordOcrOutput(ExtractTaskRecord task, DocumentParseResultRecord parseResult) {
+    public DocumentArtifactRecord recordOcrOutput(ExtractTaskRecord task, DocumentParseResultRecord parseResult) {
         if (task == null || parseResult == null || !StringUtils.hasText(task.getTaskId())) {
-            return;
+            return null;
         }
         DocumentArtifactRecord existing = documentArtifactMapper.selectFirstByTaskIdAndType(task.getTaskId(), "OCR_OUTPUT_MARKDOWN");
         DocumentArtifactRecord input = documentArtifactMapper.selectFirstByTaskIdAndType(task.getTaskId(), "OCR_INPUT_MANIFEST");
@@ -178,9 +180,78 @@ public class DocumentArtifactService {
         )));
         saveArtifact(artifact, existing);
 
-        insertStep(task, "OCR_PARSE", "OCR parse output", "SIMULATED_OCR",
+        insertStep(task, "OCR_PARSE", "OCR parse output", "REAL_OCR",
                 input == null ? null : input.getId(), artifact.getId(),
                 writeJson(Map.of("outputFormat", "markdown")), null);
+        return artifact;
+    }
+
+    public DocumentArtifactRecord recordOcrRawResponse(ExtractTaskRecord task, String rawJson) {
+        if (task == null || !StringUtils.hasText(task.getTaskId()) || !StringUtils.hasText(rawJson)) {
+            return null;
+        }
+        DocumentArtifactRecord existing = documentArtifactMapper.selectFirstByTaskIdAndType(task.getTaskId(), "OCR_RAW_RESPONSE_JSON");
+        DocumentArtifactRecord input = documentArtifactMapper.selectFirstByTaskIdAndType(task.getTaskId(), "OCR_INPUT_MANIFEST");
+        Path outputPath = artifactPath(task, "ocr-output", "041_ocr_raw_response.json");
+        writeFile(outputPath, rawJson);
+
+        DocumentArtifactRecord artifact = existing == null
+                ? baseArtifact(task.getTraceId(), task.getTaskId(), task.getDocumentId())
+                : reuseArtifact(existing, task);
+        artifact.setParentId(input == null ? null : input.getId());
+        artifact.setArtifactType("OCR_RAW_RESPONSE_JSON");
+        artifact.setStageCode("PARSE");
+        artifact.setFileName(outputPath.getFileName().toString());
+        artifact.setFileExt("json");
+        artifact.setMimeType("application/json");
+        artifact.setStoragePath(outputPath.toString());
+        artifact.setPreviewPath(outputPath.toString());
+        artifact.setFileSize(size(outputPath));
+        artifact.setChecksum(checksum(outputPath));
+        artifact.setPageRange("ALL");
+        artifact.setSortNo(41);
+        artifact.setStatus("SUCCESS");
+        artifact.setMetadataJson(writeJson(Map.of("rawResponse", true)));
+        saveArtifact(artifact, existing);
+        return artifact;
+    }
+
+    public Map<String, String> recordOcrImages(ExtractTaskRecord task, List<OcrImageArtifact> images) {
+        Map<String, String> previewByName = new LinkedHashMap<>();
+        if (task == null || images == null || images.isEmpty()) {
+            return previewByName;
+        }
+        DocumentArtifactRecord input = documentArtifactMapper.selectFirstByTaskIdAndType(task.getTaskId(), "OCR_INPUT_MANIFEST");
+        int index = 1;
+        for (OcrImageArtifact image : images) {
+            if (image == null || image.getContent() == null || image.getContent().length == 0) {
+                continue;
+            }
+            String fileName = String.format("042_ocr_image_%03d_%s", index, firstText(image.getImageName(), "image.jpg"));
+            Path imagePath = artifactPath(task, "ocr-output/images", fileName);
+            writeBytes(imagePath, image.getContent());
+            DocumentArtifactRecord artifact = baseArtifact(task.getTraceId(), task.getTaskId(), task.getDocumentId());
+            artifact.setParentId(input == null ? null : input.getId());
+            artifact.setArtifactType("OCR_OUTPUT_IMAGE");
+            artifact.setStageCode("PARSE");
+            artifact.setFileName(imagePath.getFileName().toString());
+            artifact.setFileExt(fileExt(imagePath.getFileName().toString(), "jpg"));
+            artifact.setMimeType(firstText(image.getMimeType(), probeMimeType(imagePath, artifact.getFileExt())));
+            artifact.setStoragePath(imagePath.toString());
+            artifact.setPreviewPath(imagePath.toString());
+            artifact.setFileSize(size(imagePath));
+            artifact.setChecksum(checksum(imagePath));
+            artifact.setPageRange("ALL");
+            artifact.setSortNo(42 + index);
+            artifact.setStatus("SUCCESS");
+            artifact.setMetadataJson(writeJson(Map.of("referenceName", firstText(image.getReferenceName(), image.getImageName(), "-"))));
+            documentArtifactMapper.insertArtifact(artifact);
+            String previewUrl = "/api/artifacts/" + artifact.getId() + "/preview";
+            image.setPreviewUrl(previewUrl);
+            previewByName.put(firstText(image.getReferenceName(), image.getImageName(), fileName), previewUrl);
+            index++;
+        }
+        return previewByName;
     }
 
     private PdfPreprocessResult executePdfPreprocess(ExtractTaskRecord task, ConfigWizardPayload payload, DocumentArtifactRecord original) {
@@ -557,6 +628,15 @@ public class DocumentArtifactService {
         try {
             Files.createDirectories(path.getParent());
             Files.writeString(path, content == null ? "" : content, StandardCharsets.UTF_8);
+        } catch (IOException e) {
+            throw new BusinessException("ARTIFACT_500", "Artifact file save failed");
+        }
+    }
+
+    private void writeBytes(Path path, byte[] content) {
+        try {
+            Files.createDirectories(path.getParent());
+            Files.write(path, content == null ? new byte[0] : content);
         } catch (IOException e) {
             throw new BusinessException("ARTIFACT_500", "Artifact file save failed");
         }

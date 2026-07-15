@@ -114,7 +114,7 @@ public class OcrEngineConfigService {
         }
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("passed", true);
-        result.put("message", "Mock test passed. Real OCR call will be connected in the execution pipeline.");
+        result.put("message", "配置检查通过。真实 OCR 调用已在任务执行链路接入，连接测试后续可扩展为样本文档试调。");
         result.put("engineCode", record.getEngineCode());
         result.put("baseUrl", record.getBaseUrl());
         result.put("outputFormat", record.getOutputFormat());

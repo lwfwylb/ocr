@@ -187,7 +187,9 @@ const artifactTypeMap: Record<string, string> = {
   PREPROCESSED: '预处理文件',
   PAGE_IMAGE: '页面图片',
   OCR_INPUT_MANIFEST: 'OCR输入清单',
-  OCR_OUTPUT_MARKDOWN: 'OCR输出文本'
+  OCR_OUTPUT_MARKDOWN: 'OCR输出文本',
+  OCR_RAW_RESPONSE_JSON: 'OCR原始响应',
+  OCR_OUTPUT_IMAGE: 'OCR输出图片'
 }
 const artifactTypeText = (type?: string) => (type ? artifactTypeMap[type] || type : '-')
 const formatFileSize = (value?: number) => {

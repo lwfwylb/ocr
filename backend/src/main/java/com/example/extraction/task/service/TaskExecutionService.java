@@ -6,7 +6,8 @@ import com.example.extraction.artifact.service.DocumentArtifactService;
 import com.example.extraction.mapper.ExtractTaskMapper;
 import com.example.extraction.mapper.TaskStageLogMapper;
 import com.example.extraction.model.service.ModelCallLogService;
-import com.example.extraction.result.domain.DocumentParseResultRecord;
+import com.example.extraction.ocr.OcrParseService;
+import com.example.extraction.ocr.OcrTaskParseResult;
 import com.example.extraction.result.service.ExtractionResultService;
 import com.example.extraction.task.domain.ExtractTaskRecord;
 import com.example.extraction.task.domain.TaskStageLogRecord;
@@ -32,19 +33,22 @@ public class TaskExecutionService {
     private final ExtractionResultService extractionResultService;
     private final ModelCallLogService modelCallLogService;
     private final DocumentArtifactService documentArtifactService;
+    private final OcrParseService ocrParseService;
 
     public TaskExecutionService(ExtractTaskMapper extractTaskMapper,
                                 TaskStageLogMapper taskStageLogMapper,
                                 ExtractTaskService extractTaskService,
                                 ExtractionResultService extractionResultService,
                                 ModelCallLogService modelCallLogService,
-                                DocumentArtifactService documentArtifactService) {
+                                DocumentArtifactService documentArtifactService,
+                                OcrParseService ocrParseService) {
         this.extractTaskMapper = extractTaskMapper;
         this.taskStageLogMapper = taskStageLogMapper;
         this.extractTaskService = extractTaskService;
         this.extractionResultService = extractionResultService;
         this.modelCallLogService = modelCallLogService;
         this.documentArtifactService = documentArtifactService;
+        this.ocrParseService = ocrParseService;
     }
 
     public List<TaskStageLogResponse> stageLogs(String taskId) {
@@ -85,13 +89,12 @@ public class TaskExecutionService {
             runningStage = "文档解析";
             updateState(task, "PARSING", "文档解析", 20, null, null);
             documentArtifactService.recordPreprocessPlan(task);
-            DocumentParseResultRecord parseResult = extractionResultService.saveParseResult(task);
-            documentArtifactService.recordOcrOutput(task, parseResult);
-            modelCallLogService.logOcrSuccess(task,
+            OcrTaskParseResult ocrResult = ocrParseService.parseAndSave(task);
+            modelCallLogService.logOcrSuccess(task, ocrResult.getEngine(),
                     "文件：" + task.getFileName() + "，输出格式：Markdown",
-                    "模拟 OCR 解析成功，生成 Markdown 文本",
-                    1200L);
-            logSuccess(task, "PARSE", "文档解析", "读取原文件并生成 Markdown", "模拟解析完成，已获得文档文本");
+                    (ocrResult.isDirectTextParse() ? "文本文件直接解析成功" : "OCR 解析成功") + "，生成 Markdown 文本",
+                    ocrResult.getDurationMs());
+            logSuccess(task, "PARSE", "文档解析", "读取预处理输入并生成 Markdown", "解析完成，已获得文档文本");
 
             runningStage = "要素提取";
             updateState(task, "EXTRACTING", "要素提取", 55, null, null);
@@ -135,14 +138,17 @@ public class TaskExecutionService {
         } catch (BusinessException e) {
             log.warn("Task execution business failure. taskId={}, stage={}, code={}, message={}",
                     taskId, runningStage, e.getCode(), e.getMessage(), e);
+            logParseModelFailure(task, runningStage, e.getMessage());
             fail(task, e.getCode(), firstText(e.getMessage(), runningStage + "失败"));
             return extractTaskService.detail(taskId);
         } catch (RuntimeException e) {
             log.error("Task execution runtime failure. taskId={}, stage={}", taskId, runningStage, e);
+            logParseModelFailure(task, runningStage, firstText(e.getMessage(), e.getClass().getSimpleName()));
             fail(task, "EXECUTION_ERROR", runningStage + "异常：" + firstText(e.getMessage(), e.getClass().getSimpleName()));
             return extractTaskService.detail(taskId);
         } catch (LinkageError e) {
             log.error("Task execution dependency failure. taskId={}, stage={}", taskId, runningStage, e);
+            logParseModelFailure(task, runningStage, firstText(e.getMessage(), e.getClass().getSimpleName()));
             fail(task, "EXECUTION_LINKAGE_ERROR", runningStage + "依赖异常：" + firstText(e.getMessage(), e.getClass().getSimpleName()));
             return extractTaskService.detail(taskId);
         }
@@ -156,6 +162,14 @@ public class TaskExecutionService {
     private boolean shouldFail(ExtractTaskRecord task) {
         String fileName = task.getFileName() == null ? "" : task.getFileName().toLowerCase();
         return fileName.contains("fail") || fileName.contains("error");
+    }
+
+    private void logParseModelFailure(ExtractTaskRecord task, String runningStage, String errorMessage) {
+        if (!"文档解析".equals(runningStage)) {
+            return;
+        }
+        modelCallLogService.logFailure(task, "OCR", "PARSE", "文档解析",
+                "OCR/文档解析请求", firstText(errorMessage, "文档解析失败"), 0L);
     }
 
     private void fail(ExtractTaskRecord task, String errorCode, String errorMessage) {

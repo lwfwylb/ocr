@@ -44,6 +44,10 @@ public class ModelCallLogService {
 
     public void logOcrSuccess(ExtractTaskRecord task, String requestSummary, String responseSummary, long durationMs) {
         OcrEngineConfigRecord engine = defaultOcrEngine();
+        logOcrSuccess(task, engine, requestSummary, responseSummary, durationMs);
+    }
+
+    public void logOcrSuccess(ExtractTaskRecord task, OcrEngineConfigRecord engine, String requestSummary, String responseSummary, long durationMs) {
         ModelCallLogRecord record = baseRecord(task, "OCR", "PARSE", "文档解析", durationMs);
         record.setProvider(engine == null ? "MockOCR" : engine.getProvider());
         record.setModelCode(engine == null ? "mock_ocr" : engine.getEngineCode());
