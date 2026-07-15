@@ -26,6 +26,7 @@ const parseTesting = ref(false)
 const parseTestEngine = ref<OcrEngineConfig | null>(null)
 const parseTestFile = ref<File | null>(null)
 const parseTestResult = ref<OcrEngineParseTestResult | null>(null)
+const markdownViewMode = ref<'preview' | 'source'>('preview')
 const query = reactive({
   keyword: '',
   provider: '',
@@ -64,6 +65,8 @@ const adapterTypeOptions = [
 ]
 const adapterTypeText = (value?: string) => adapterTypeOptions.find((item) => item.value === value)?.label || value || '-'
 const parseStatusType = computed(() => parseTestResult.value?.passed ? 'success' : 'error')
+const markdownSource = computed(() => parseTestResult.value?.markdownText || parseTestResult.value?.markdownPreview || '')
+const renderedMarkdownHtml = computed(() => renderMarkdown(markdownSource.value))
 
 const resetForm = () => {
   editingId.value = ''
@@ -186,17 +189,20 @@ const openParseTest = (engine: OcrEngineConfig) => {
   parseTestEngine.value = engine
   parseTestFile.value = null
   parseTestResult.value = null
+  markdownViewMode.value = 'preview'
   parseDialogVisible.value = true
 }
 
 const handleParseFileChange = (uploadFile: UploadFile) => {
   parseTestFile.value = uploadFile.raw || null
   parseTestResult.value = null
+  markdownViewMode.value = 'preview'
 }
 
 const handleParseFileRemove = () => {
   parseTestFile.value = null
   parseTestResult.value = null
+  markdownViewMode.value = 'preview'
 }
 
 const runParseTest = async () => {
@@ -208,6 +214,7 @@ const runParseTest = async () => {
   parseTesting.value = true
   try {
     parseTestResult.value = await testOcrEngineParse(parseTestEngine.value.id, parseTestFile.value)
+    markdownViewMode.value = 'preview'
     if (parseTestResult.value.passed) {
       ElMessage.success(parseTestResult.value.message)
     } else {
@@ -221,7 +228,7 @@ const runParseTest = async () => {
 }
 
 const copyMarkdown = async () => {
-  const text = parseTestResult.value?.markdownText || parseTestResult.value?.markdownPreview || ''
+  const text = markdownSource.value
   if (!text) return
   await navigator.clipboard.writeText(text)
   ElMessage.success('Markdown 已复制')
@@ -234,6 +241,135 @@ const resetQuery = () => {
   query.status = ''
   loadEngines()
 }
+
+const renderMarkdown = (source: string) => {
+  if (!source) return ''
+  const lines = source.replace(/\r\n/g, '\n').split('\n')
+  const html: string[] = []
+  let paragraph: string[] = []
+  let listItems: string[] = []
+  let codeLines: string[] = []
+  let inCode = false
+
+  const flushParagraph = () => {
+    if (paragraph.length) {
+      html.push(`<p>${renderInline(paragraph.join(' '))}</p>`)
+      paragraph = []
+    }
+  }
+  const flushList = () => {
+    if (listItems.length) {
+      html.push(`<ul>${listItems.map((item) => `<li>${renderInline(item)}</li>`).join('')}</ul>`)
+      listItems = []
+    }
+  }
+  const flushCode = () => {
+    html.push(`<pre><code>${escapeHtml(codeLines.join('\n'))}</code></pre>`)
+    codeLines = []
+  }
+
+  for (let index = 0; index < lines.length; index++) {
+    const line = lines[index]
+    const trimmed = line.trim()
+    if (trimmed.startsWith('```')) {
+      if (inCode) {
+        flushCode()
+        inCode = false
+      } else {
+        flushParagraph()
+        flushList()
+        inCode = true
+      }
+      continue
+    }
+    if (inCode) {
+      codeLines.push(line)
+      continue
+    }
+    if (!trimmed) {
+      flushParagraph()
+      flushList()
+      continue
+    }
+    if (/^---+$/.test(trimmed)) {
+      flushParagraph()
+      flushList()
+      html.push('<hr>')
+      continue
+    }
+    const heading = trimmed.match(/^(#{1,6})\s+(.+)$/)
+    if (heading) {
+      flushParagraph()
+      flushList()
+      const level = heading[1].length
+      html.push(`<h${level}>${renderInline(heading[2])}</h${level}>`)
+      continue
+    }
+    if (isTableStart(lines, index)) {
+      flushParagraph()
+      flushList()
+      const parsed = parseTable(lines, index)
+      html.push(parsed.html)
+      index = parsed.nextIndex - 1
+      continue
+    }
+    const list = trimmed.match(/^[-*+]\s+(.+)$/)
+    if (list) {
+      flushParagraph()
+      listItems.push(list[1])
+      continue
+    }
+    flushList()
+    paragraph.push(trimmed)
+  }
+
+  if (inCode) flushCode()
+  flushParagraph()
+  flushList()
+  return html.join('')
+}
+
+const isTableStart = (lines: string[], index: number) => {
+  const current = lines[index]?.trim() || ''
+  const next = lines[index + 1]?.trim() || ''
+  return current.includes('|') && /^\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)+\|?$/.test(next)
+}
+
+const parseTable = (lines: string[], startIndex: number) => {
+  const header = splitTableRow(lines[startIndex])
+  const rows: string[][] = []
+  let index = startIndex + 2
+  while (index < lines.length && lines[index].includes('|') && lines[index].trim()) {
+    rows.push(splitTableRow(lines[index]))
+    index++
+  }
+  const thead = `<thead><tr>${header.map((cell) => `<th>${renderInline(cell)}</th>`).join('')}</tr></thead>`
+  const tbody = `<tbody>${rows.map((row) => `<tr>${header.map((_, cellIndex) => `<td>${renderInline(row[cellIndex] || '')}</td>`).join('')}</tr>`).join('')}</tbody>`
+  return { html: `<div class="markdown-table-wrap"><table>${thead}${tbody}</table></div>`, nextIndex: index }
+}
+
+const splitTableRow = (line: string) => line.trim().replace(/^\|/, '').replace(/\|$/, '').split('|').map((cell) => cell.trim())
+
+const renderInline = (value: string) => escapeHtml(value)
+  .replace(/!\[([^\]]*)\]\(([^)]+)\)/g, (_match, alt, url) => safeUrl(url) ? `<img src="${safeUrl(url)}" alt="${escapeAttribute(alt)}">` : escapeHtml(_match))
+  .replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_match, text, url) => safeUrl(url) ? `<a href="${safeUrl(url)}" target="_blank" rel="noopener noreferrer">${text}</a>` : text)
+  .replace(/`([^`]+)`/g, '<code>$1</code>')
+  .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+
+const safeUrl = (value: string) => {
+  const url = String(value || '').trim()
+  if (/^(https?:|data:image\/|\/api\/artifacts\/)/i.test(url)) return escapeAttribute(url)
+  return ''
+}
+
+const escapeHtml = (value: string) => String(value || '')
+  .replace(/&/g, '&amp;')
+  .replace(/</g, '&lt;')
+  .replace(/>/g, '&gt;')
+  .replace(/"/g, '&quot;')
+  .replace(/'/g, '&#39;')
+
+const escapeAttribute = (value: string) => escapeHtml(value).replace(/`/g, '&#96;')
 
 onMounted(loadEngines)
 </script>
@@ -412,9 +548,16 @@ onMounted(loadEngines)
         </section>
         <section class="parse-test-main">
           <el-tabs v-if="parseTestResult" model-value="markdown">
-            <el-tab-pane label="Markdown 预览" name="markdown">
-              <div class="preview-actions"><el-button size="small" :disabled="!parseTestResult.markdownPreview" @click="copyMarkdown">复制 Markdown</el-button></div>
-              <pre class="ocr-preview">{{ parseTestResult.markdownPreview || '暂无 Markdown 输出' }}</pre>
+            <el-tab-pane label="识别结果" name="markdown">
+              <div class="preview-actions">
+                <el-radio-group v-model="markdownViewMode" size="small">
+                  <el-radio-button label="preview">渲染预览</el-radio-button>
+                  <el-radio-button label="source">Markdown 原文</el-radio-button>
+                </el-radio-group>
+                <el-button size="small" :disabled="!markdownSource" @click="copyMarkdown">复制 Markdown</el-button>
+              </div>
+              <div v-if="markdownViewMode === 'preview'" class="ocr-markdown-rendered" v-html="renderedMarkdownHtml || '<p>暂无 Markdown 输出</p>'"></div>
+              <pre v-else class="ocr-preview">{{ markdownSource || '暂无 Markdown 输出' }}</pre>
             </el-tab-pane>
             <el-tab-pane label="原始响应摘要" name="raw">
               <pre class="ocr-preview">{{ parseTestResult.rawResponsePreview || '暂无原始响应摘要' }}</pre>
