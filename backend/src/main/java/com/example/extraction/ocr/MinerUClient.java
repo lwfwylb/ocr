@@ -5,23 +5,26 @@ import com.example.extraction.configuration.dto.ConfigWizardPayload;
 import com.example.extraction.model.domain.OcrEngineConfigRecord;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.springframework.core.io.ByteArrayResource;
+import org.springframework.http.HttpEntity;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
+import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.stereotype.Component;
+import org.springframework.util.LinkedMultiValueMap;
+import org.springframework.util.MultiValueMap;
 import org.springframework.util.StringUtils;
+import org.springframework.web.client.HttpStatusCodeException;
+import org.springframework.web.client.RestTemplate;
 
-import java.io.ByteArrayOutputStream;
 import java.io.IOException;
-import java.net.URI;
-import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
-import java.net.http.HttpResponse;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.time.Duration;
 import java.util.Base64;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
-import java.util.UUID;
 
 @Component
 public class MinerUClient implements OcrEngineClient {
@@ -49,32 +52,23 @@ public class MinerUClient implements OcrEngineClient {
         long begin = System.currentTimeMillis();
         try {
             byte[] fileContent = Files.readAllBytes(request.getInputPath());
-            String boundary = "----ExtractionBoundary" + UUID.randomUUID().toString().replace("-", "");
-            byte[] body = multipartBody(boundary, request.getInputFileName(), fileContent, contentType(request), request);
-            HttpRequest httpRequest = HttpRequest.newBuilder(URI.create(engine.getBaseUrl()))
-                    .timeout(Duration.ofSeconds(timeoutSeconds(engine, 360)))
-                    .header("Content-Type", "multipart/form-data; boundary=" + boundary)
-                    .POST(HttpRequest.BodyPublishers.ofByteArray(body))
-                    .build();
-            HttpResponse<String> httpResponse = HttpClient.newBuilder()
-                    .connectTimeout(Duration.ofSeconds(Math.min(timeoutSeconds(engine, 360), 30)))
-                    .build()
-                    .send(httpRequest, HttpResponse.BodyHandlers.ofString());
-            if (httpResponse.statusCode() < 200 || httpResponse.statusCode() >= 300) {
-                throw new BusinessException("OCR_HTTP_" + httpResponse.statusCode(),
-                        "MinerU 调用失败：HTTP " + httpResponse.statusCode() + responseBodyMessage(httpResponse.body()));
-            }
-            OcrParseResponse result = parseResponseBody(httpResponse.body());
+            RestTemplate restTemplate = restTemplate(engine);
+            HttpHeaders headers = new HttpHeaders();
+            headers.setContentType(MediaType.MULTIPART_FORM_DATA);
+            HttpEntity<MultiValueMap<String, Object>> entity = new HttpEntity<>(
+                    multipartBody(request.getInputFileName(), fileContent, contentType(request), request), headers);
+            ResponseEntity<String> httpResponse = restTemplate.postForEntity(engine.getBaseUrl(), entity, String.class);
+            OcrParseResponse result = parseResponseBody(httpResponse.getBody());
             result.setEngineCode(engine.getEngineCode());
             result.setDurationMs(System.currentTimeMillis() - begin);
             return result;
         } catch (BusinessException e) {
             throw e;
+        } catch (HttpStatusCodeException e) {
+            throw new BusinessException("OCR_HTTP_" + e.getStatusCode().value(),
+                    "MinerU 调用失败：HTTP " + e.getStatusCode().value() + responseBodyMessage(e.getResponseBodyAsString()));
         } catch (IOException e) {
             throw new BusinessException("OCR_IO_ERROR", "MinerU 文件读取或响应解析失败：" + e.getMessage());
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            throw new BusinessException("OCR_INTERRUPTED", "MinerU 调用被中断");
         } catch (IllegalArgumentException e) {
             throw new BusinessException("OCR_400", "MinerU 服务地址不合法：" + e.getMessage());
         }
@@ -123,34 +117,39 @@ public class MinerUClient implements OcrEngineClient {
         }
     }
 
-    private byte[] multipartBody(String boundary, String fileName, byte[] content, String contentType, OcrParseRequest request) throws IOException {
-        ByteArrayOutputStream output = new ByteArrayOutputStream();
-        addFilePart(output, boundary, "files", fileName, contentType, content);
-        addTextPart(output, boundary, "backend", textParam(request, "backend", "pipeline"));
-        addRepeatedTextPart(output, boundary, "lang_list", param(request, "lang_list"), List.of("ch", "en"));
-        addTextPart(output, boundary, "parse_method", textParam(request, "parse_method", "auto"));
-        addTextPart(output, boundary, "formula_enable", textParam(request, "formula_enable", "true"));
-        addTextPart(output, boundary, "table_enable", textParam(request, "table_enable", "true"));
-        addTextPart(output, boundary, "return_md", textParam(request, "return_md", "true"));
-        addTextPart(output, boundary, "return_middle_json", textParam(request, "return_middle_json", "false"));
-        addTextPart(output, boundary, "response_format_zip", textParam(request, "response_format_zip", "false"));
-        addTextPart(output, boundary, "return_images", textParam(request, "return_images", "true"));
-        write(output, "--" + boundary + "--\r\n");
-        return output.toByteArray();
+    private MultiValueMap<String, Object> multipartBody(String fileName, byte[] content, String contentType, OcrParseRequest request) {
+        MultiValueMap<String, Object> body = new LinkedMultiValueMap<>();
+        body.add("files", filePart(fileName, contentType, content));
+        body.add("backend", textParam(request, "backend", "pipeline"));
+        addRepeatedTextPart(body, "lang_list", param(request, "lang_list"), List.of("ch", "en"));
+        body.add("parse_method", textParam(request, "parse_method", "auto"));
+        body.add("formula_enable", textParam(request, "formula_enable", "true"));
+        body.add("table_enable", textParam(request, "table_enable", "true"));
+        body.add("return_md", textParam(request, "return_md", "true"));
+        body.add("return_middle_json", textParam(request, "return_middle_json", "false"));
+        body.add("response_format_zip", textParam(request, "response_format_zip", "false"));
+        body.add("return_images", textParam(request, "return_images", "true"));
+        return body;
     }
 
-    private void addTextPart(ByteArrayOutputStream output, String boundary, String name, String value) throws IOException {
-        write(output, "--" + boundary + "\r\n");
-        write(output, "Content-Disposition: form-data; name=\"" + name + "\"\r\n\r\n");
-        write(output, value + "\r\n");
+    private HttpEntity<ByteArrayResource> filePart(String fileName, String contentType, byte[] content) {
+        ByteArrayResource resource = new ByteArrayResource(content) {
+            @Override
+            public String getFilename() {
+                return safeFileName(fileName);
+            }
+        };
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.parseMediaType(contentType));
+        return new HttpEntity<>(resource, headers);
     }
 
-    private void addRepeatedTextPart(ByteArrayOutputStream output, String boundary, String name, Object value, List<String> defaults) throws IOException {
+    private void addRepeatedTextPart(MultiValueMap<String, Object> body, String name, Object value, List<String> defaults) {
         if (value instanceof Iterable<?> items) {
             boolean added = false;
             for (Object item : items) {
                 if (item != null && StringUtils.hasText(String.valueOf(item))) {
-                    addTextPart(output, boundary, name, String.valueOf(item));
+                    body.add(name, String.valueOf(item));
                     added = true;
                 }
             }
@@ -160,27 +159,14 @@ public class MinerUClient implements OcrEngineClient {
         } else if (value != null && StringUtils.hasText(String.valueOf(value))) {
             for (String item : String.valueOf(value).split(",")) {
                 if (StringUtils.hasText(item)) {
-                    addTextPart(output, boundary, name, item.trim());
+                    body.add(name, item.trim());
                 }
             }
             return;
         }
         for (String item : defaults) {
-            addTextPart(output, boundary, name, item);
+            body.add(name, item);
         }
-    }
-
-    private void addFilePart(ByteArrayOutputStream output, String boundary, String name, String fileName,
-                             String contentType, byte[] content) throws IOException {
-        write(output, "--" + boundary + "\r\n");
-        write(output, "Content-Disposition: form-data; name=\"" + name + "\"; filename=\"" + safeFileName(fileName) + "\"\r\n");
-        write(output, "Content-Type: " + contentType + "\r\n\r\n");
-        output.write(content);
-        write(output, "\r\n");
-    }
-
-    private void write(ByteArrayOutputStream output, String value) throws IOException {
-        output.write(value.getBytes(StandardCharsets.UTF_8));
     }
 
     private String contentType(OcrParseRequest request) {
@@ -200,6 +186,14 @@ public class MinerUClient implements OcrEngineClient {
 
     private int timeoutSeconds(OcrEngineConfigRecord engine, int fallback) {
         return engine.getTimeoutSeconds() == null || engine.getTimeoutSeconds() <= 0 ? fallback : engine.getTimeoutSeconds();
+    }
+
+    private RestTemplate restTemplate(OcrEngineConfigRecord engine) {
+        SimpleClientHttpRequestFactory factory = new SimpleClientHttpRequestFactory();
+        int timeout = timeoutSeconds(engine, 360);
+        factory.setConnectTimeout(Duration.ofSeconds(Math.min(timeout, 30)));
+        factory.setReadTimeout(Duration.ofSeconds(timeout));
+        return new RestTemplate(factory);
     }
 
     private String responseBodyMessage(String responseBody) {
