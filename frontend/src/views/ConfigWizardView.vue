@@ -421,14 +421,46 @@ const mappingProfiles = [
     mapping: 'payer_name -> counterparty_name, transaction_no -> biz_no, amount -> business_amount'
   }
 ]
-const generatedPrompt = computed(() => {
-  const names = fields.value
-    .map((field: any) => `${field.fieldCode}(${field.fieldName}${field.fieldDescription ? `：${field.fieldDescription}` : ''})`)
-    .join('、')
-  const mappings = fields.value.map((field) => `${field.fieldCode}->${field.targetColumn}`).join('；')
-  return `请从${form.documentType}中提取以下字段：${names}。字段需按映射关系 ${mappings} 写入结果对象。严格输出 JSON，无法识别返回 null，并提供 confidence、evidence、sourcePage。`
+const defaultAiUserPrompt = computed(() => {
+  const documentType = form.documentType || '当前文档'
+  return `请从${documentType}中一次性提取下方字段。无法识别的字段返回 null，不要编造。`
 })
-const effectiveAiUserPrompt = computed(() => aiUserPrompt.value.trim() || generatedPrompt.value)
+const generatedPrompt = computed(() => {
+  const userRequirement = aiUserPrompt.value.trim() || defaultAiUserPrompt.value
+  const fieldLines = fields.value.length
+    ? fields.value.map((field: any, index: number) => {
+      const parts = [
+        `${index + 1}. 字段名称：${field.fieldName || field.fieldCode || '-'}`,
+        `   JSON Key：${field.fieldCode || '-'}`,
+        `   字段说明：${field.fieldDescription || '无'}`,
+        `   提取必填：${field.extractRequired ? '是' : '否'}`,
+        `   是否多值：${field.multiple ? '是' : '否'}`
+      ]
+      if (form.storageEnabled) {
+        parts.push(`   目标落库字段：${field.targetColumn || field.fieldCode || '-'}`)
+      }
+      return parts.join('\n')
+    }).join('\n')
+    : '暂无提取字段，请先在字段与落库配置中维护字段。'
+  const storageRequirement = form.storageEnabled
+    ? '当前配置已启用结果落库。JSON Key 为 AI 输出字段名，目标落库字段仅用于后续写入目标表，请确保输出 JSON Key 与字段清单一致。'
+    : '当前配置未启用结果落库。请仅按 JSON Key 输出结构化结果，不涉及目标表、落库字段或字段映射关系。'
+  return [
+    '用户补充要求：',
+    userRequirement,
+    '',
+    '字段输出要求：',
+    fieldLines,
+    '',
+    '输出约束：',
+    storageRequirement,
+    '请严格输出 JSON 对象；每个字段包含 value、confidence、evidence、sourcePage。confidence 使用 0 到 1 的小数；无法识别时 value 返回 null，并说明 evidence。'
+  ].join('\n')
+})
+const promptPreviewTip = computed(() => form.storageEnabled
+  ? '根据用户提示词、提取字段和字段映射自动生成，执行时用于约束 AI 输出 JSON。'
+  : '根据用户提示词和提取字段自动生成，执行时仅要求 AI 输出结构化 JSON，不涉及落库字段。'
+)
 const normalizeDbTypeParams = (column: any) => {
   if (['varchar', 'char'].includes(column.dbType)) {
     column.length = column.length || 100
@@ -1820,16 +1852,26 @@ onMounted(async () => {
                 <el-input v-model="aiSystemPrompt" type="textarea" :rows="4" />
               </el-form-item>
               <el-form-item label="用户提示词">
-                <el-input v-model="aiUserPrompt" type="textarea" :rows="8" :placeholder="generatedPrompt" />
+                <el-input v-model="aiUserPrompt" type="textarea" :rows="8" :placeholder="defaultAiUserPrompt" />
               </el-form-item>
               <el-form-item label="自动生成提示词预览">
-                <el-input type="textarea" :rows="5" :model-value="effectiveAiUserPrompt" readonly />
+                <div class="field-with-tip wide">
+                  <el-input type="textarea" :rows="10" :model-value="generatedPrompt" readonly />
+                  <span class="muted block">{{ promptPreviewTip }}</span>
+                </div>
               </el-form-item>
             </el-form>
             <el-table :data="fields" height="260">
               <el-table-column prop="fieldName" label="字段" width="120" />
               <el-table-column prop="fieldCode" label="JSON Key" width="140" />
-              <el-table-column prop="targetColumn" label="落库字段" min-width="150" />
+              <el-table-column v-if="isStorageEnabled" prop="targetColumn" label="落库字段" min-width="150" />
+              <el-table-column label="提取必填" width="90">
+                <template #default="{ row }"><el-tag :type="row.extractRequired ? 'danger' : 'info'">{{ row.extractRequired ? '是' : '否' }}</el-tag></template>
+              </el-table-column>
+              <el-table-column label="多值" width="80">
+                <template #default="{ row }"><el-tag :type="row.multiple ? 'warning' : 'info'">{{ row.multiple ? '是' : '否' }}</el-tag></template>
+              </el-table-column>
+              <el-table-column prop="fieldDescription" label="字段说明" min-width="180" show-overflow-tooltip />
             </el-table>
           </el-card>
           </el-tab-pane>
