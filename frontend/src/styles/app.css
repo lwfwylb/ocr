@@ -560,6 +560,81 @@ body {
   font-weight: 650;
 }
 
+.ocr-compare-dialog .el-dialog__body {
+  padding-top: 8px;
+}
+
+.compare-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  align-items: center;
+  margin-bottom: 8px;
+  color: #64748b;
+  font-size: 12px;
+}
+
+.compare-meta strong {
+  color: #0f172a;
+  font-weight: 650;
+}
+
+.ocr-compare-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 10px;
+}
+
+.compare-pane {
+  min-width: 0;
+  border: 1px solid #dbe3ef;
+  border-radius: 6px;
+  background: #ffffff;
+  overflow: hidden;
+}
+
+.compare-pane-title {
+  padding: 8px 10px;
+  color: #0f172a;
+  background: #f8fafc;
+  border-bottom: 1px solid #e5e7eb;
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.compare-original-preview,
+.compare-markdown {
+  height: calc(92vh - 190px);
+  min-height: 520px;
+  max-height: none;
+  overflow: auto;
+}
+
+.compare-original-preview {
+  display: grid;
+  place-items: center;
+  background: #eef2f7;
+}
+
+.compare-original-preview iframe {
+  width: 100%;
+  height: 100%;
+  border: 0;
+  background: #ffffff;
+}
+
+.compare-original-preview img {
+  display: block;
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+}
+
+.compare-markdown {
+  border: 0;
+  border-radius: 0;
+}
+
 .validation-grid {
   display: grid;
   grid-template-columns: 320px 1fr;
@@ -1189,6 +1264,7 @@ body {
     .queue-card-grid,
     .queue-dispatch-layout,
     .integration-layout,
+    .ocr-compare-layout,
     .strategy-overview {
     grid-template-columns: 1fr;
   }

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import type { UploadFile } from 'element-plus'
 import MarkdownIt from 'markdown-it'
@@ -30,6 +30,8 @@ const parseTestEngine = ref<OcrEngineConfig | null>(null)
 const parseTestFile = ref<File | null>(null)
 const parseTestResult = ref<OcrEngineParseTestResult | null>(null)
 const markdownViewMode = ref<'preview' | 'source'>('preview')
+const compareDialogVisible = ref(false)
+const compareFileUrl = ref('')
 const markdownParser = new MarkdownIt({
   html: true,
   linkify: true,
@@ -80,6 +82,15 @@ const parseUploadAccept = computed(() => isMinerUParseTest.value ? '.pdf' : '.pd
 const parseUploadTip = computed(() => isMinerUParseTest.value
   ? 'MinerU 试识别当前仅支持 PDF，测试不写入正式任务链路。'
   : '支持 PDF、PNG、JPG、JPEG，测试不写入正式任务链路。')
+const compareFileName = computed(() => parseTestFile.value?.name || '-')
+const compareFileKind = computed(() => {
+  const file = parseTestFile.value
+  const name = file?.name.toLowerCase() || ''
+  const type = file?.type.toLowerCase() || ''
+  if (name.endsWith('.pdf') || type.includes('pdf')) return 'pdf'
+  if (/\.(png|jpg|jpeg|gif|webp|bmp)$/i.test(name) || type.startsWith('image/')) return 'image'
+  return 'unknown'
+})
 
 const resetForm = () => {
   editingId.value = ''
@@ -203,6 +214,7 @@ const openParseTest = (engine: OcrEngineConfig) => {
   parseTestFile.value = null
   parseTestResult.value = null
   markdownViewMode.value = 'preview'
+  closeCompareDialog()
   parseDialogVisible.value = true
 }
 
@@ -210,18 +222,21 @@ const handleParseFileChange = (uploadFile: UploadFile) => {
   if (isMinerUParseTest.value && uploadFile.raw && !uploadFile.raw.name.toLowerCase().endsWith('.pdf')) {
     parseTestFile.value = null
     parseTestResult.value = null
+    closeCompareDialog()
     ElMessage.warning('MinerU 试识别当前仅支持上传 PDF 文件')
     return
   }
   parseTestFile.value = uploadFile.raw || null
   parseTestResult.value = null
   markdownViewMode.value = 'preview'
+  closeCompareDialog()
 }
 
 const handleParseFileRemove = () => {
   parseTestFile.value = null
   parseTestResult.value = null
   markdownViewMode.value = 'preview'
+  closeCompareDialog()
 }
 
 const runParseTest = async () => {
@@ -255,6 +270,32 @@ const copyMarkdown = async () => {
   if (!text) return
   await navigator.clipboard.writeText(text)
   ElMessage.success('Markdown 已复制')
+}
+
+const openCompareDialog = () => {
+  if (!parseTestFile.value) {
+    ElMessage.warning('请先上传样本文档')
+    return
+  }
+  if (!markdownSource.value) {
+    ElMessage.warning('请先完成 OCR 试识别')
+    return
+  }
+  revokeCompareFileUrl()
+  compareFileUrl.value = URL.createObjectURL(parseTestFile.value)
+  compareDialogVisible.value = true
+}
+
+const closeCompareDialog = () => {
+  compareDialogVisible.value = false
+  revokeCompareFileUrl()
+}
+
+const revokeCompareFileUrl = () => {
+  if (compareFileUrl.value) {
+    URL.revokeObjectURL(compareFileUrl.value)
+    compareFileUrl.value = ''
+  }
 }
 
 const resetQuery = () => {
@@ -414,6 +455,7 @@ const resolveApiAssetUrls = (source: string) => {
 }
 
 onMounted(loadEngines)
+onBeforeUnmount(revokeCompareFileUrl)
 </script>
 
 <template>
@@ -596,6 +638,7 @@ onMounted(loadEngines)
                   <el-radio-button label="preview">渲染预览</el-radio-button>
                   <el-radio-button label="source">Markdown 原文</el-radio-button>
                 </el-radio-group>
+                <el-button size="small" :disabled="!markdownSource || !parseTestFile" @click="openCompareDialog">对比查看</el-button>
                 <el-button size="small" :disabled="!markdownSource" @click="copyMarkdown">复制 Markdown</el-button>
               </div>
               <div v-if="markdownViewMode === 'preview'" class="ocr-markdown-rendered" v-html="renderedMarkdownHtml || '<p>暂无 Markdown 输出</p>'"></div>
@@ -606,6 +649,37 @@ onMounted(loadEngines)
             </el-tab-pane>
           </el-tabs>
           <el-empty v-else description="上传样本文档后点击开始识别" />
+        </section>
+      </div>
+    </el-dialog>
+
+    <el-dialog
+      v-model="compareDialogVisible"
+      title="OCR 识别对比查看"
+      width="92vw"
+      top="4vh"
+      class="ocr-compare-dialog"
+      destroy-on-close
+      @closed="revokeCompareFileUrl"
+    >
+      <div class="compare-meta">
+        <span>文件：<strong>{{ compareFileName }}</strong></span>
+        <span>引擎：<strong>{{ parseTestEngine?.engineName || '-' }}</strong></span>
+        <span>耗时：<strong>{{ parseTestResult?.durationMs ? `${parseTestResult.durationMs}ms` : '-' }}</strong></span>
+        <span>图片：<strong>{{ parseTestResult?.imageCount ?? '-' }}</strong></span>
+      </div>
+      <div class="ocr-compare-layout">
+        <section class="compare-pane">
+          <div class="compare-pane-title">原始文档</div>
+          <div class="compare-original-preview">
+            <iframe v-if="compareFileKind === 'pdf' && compareFileUrl" :src="compareFileUrl" title="原始 PDF 预览"></iframe>
+            <img v-else-if="compareFileKind === 'image' && compareFileUrl" :src="compareFileUrl" alt="原始图片预览" />
+            <el-empty v-else description="当前文件类型暂不支持原文预览" />
+          </div>
+        </section>
+        <section class="compare-pane">
+          <div class="compare-pane-title">Markdown 渲染结果</div>
+          <div class="ocr-markdown-rendered compare-markdown" v-html="renderedMarkdownHtml || '<p>暂无 Markdown 输出</p>'"></div>
         </section>
       </div>
     </el-dialog>
