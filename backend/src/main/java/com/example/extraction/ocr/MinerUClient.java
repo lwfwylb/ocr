@@ -61,7 +61,8 @@ public class MinerUClient implements OcrEngineClient {
                     .build()
                     .send(httpRequest, HttpResponse.BodyHandlers.ofString());
             if (httpResponse.statusCode() < 200 || httpResponse.statusCode() >= 300) {
-                throw new BusinessException("OCR_HTTP_" + httpResponse.statusCode(), "MinerU 调用失败：HTTP " + httpResponse.statusCode());
+                throw new BusinessException("OCR_HTTP_" + httpResponse.statusCode(),
+                        "MinerU 调用失败：HTTP " + httpResponse.statusCode() + responseBodyMessage(httpResponse.body()));
             }
             OcrParseResponse result = parseResponseBody(httpResponse.body());
             result.setEngineCode(engine.getEngineCode());
@@ -199,6 +200,17 @@ public class MinerUClient implements OcrEngineClient {
 
     private int timeoutSeconds(OcrEngineConfigRecord engine, int fallback) {
         return engine.getTimeoutSeconds() == null || engine.getTimeoutSeconds() <= 0 ? fallback : engine.getTimeoutSeconds();
+    }
+
+    private String responseBodyMessage(String responseBody) {
+        if (!StringUtils.hasText(responseBody)) {
+            return "";
+        }
+        String compact = responseBody.replaceAll("\\s+", " ").trim();
+        if (compact.length() > 2000) {
+            compact = compact.substring(0, 2000) + "...";
+        }
+        return "，响应内容：" + compact;
     }
 
     private String textParam(OcrParseRequest request, String key, String defaultValue) {

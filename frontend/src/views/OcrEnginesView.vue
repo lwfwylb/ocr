@@ -74,6 +74,11 @@ const adapterTypeText = (value?: string) => adapterTypeOptions.find((item) => it
 const parseStatusType = computed(() => parseTestResult.value?.passed ? 'success' : 'error')
 const markdownSource = computed(() => parseTestResult.value?.markdownText || parseTestResult.value?.markdownPreview || '')
 const renderedMarkdownHtml = computed(() => renderMarkdown(markdownSource.value))
+const isMinerUParseTest = computed(() => parseTestEngine.value?.adapterType === 'MINERU')
+const parseUploadAccept = computed(() => isMinerUParseTest.value ? '.pdf' : '.pdf,.png,.jpg,.jpeg')
+const parseUploadTip = computed(() => isMinerUParseTest.value
+  ? 'MinerU 试识别当前仅支持 PDF，测试不写入正式任务链路。'
+  : '支持 PDF、PNG、JPG、JPEG，测试不写入正式任务链路。')
 
 const resetForm = () => {
   editingId.value = ''
@@ -201,6 +206,12 @@ const openParseTest = (engine: OcrEngineConfig) => {
 }
 
 const handleParseFileChange = (uploadFile: UploadFile) => {
+  if (isMinerUParseTest.value && uploadFile.raw && !uploadFile.raw.name.toLowerCase().endsWith('.pdf')) {
+    parseTestFile.value = null
+    parseTestResult.value = null
+    ElMessage.warning('MinerU 试识别当前仅支持上传 PDF 文件')
+    return
+  }
   parseTestFile.value = uploadFile.raw || null
   parseTestResult.value = null
   markdownViewMode.value = 'preview'
@@ -216,6 +227,10 @@ const runParseTest = async () => {
   if (!parseTestEngine.value) return
   if (!parseTestFile.value) {
     ElMessage.warning('请先上传样本文档')
+    return
+  }
+  if (isMinerUParseTest.value && !parseTestFile.value.name.toLowerCase().endsWith('.pdf')) {
+    ElMessage.warning('MinerU 试识别当前仅支持上传 PDF 文件')
     return
   }
   parseTesting.value = true
@@ -549,12 +564,12 @@ onMounted(loadEngines)
             drag
             :auto-upload="false"
             :limit="1"
-            accept=".pdf,.png,.jpg,.jpeg"
+            :accept="parseUploadAccept"
             :on-change="handleParseFileChange"
             :on-remove="handleParseFileRemove"
           >
             <span class="upload-title">上传样本文档</span>
-            <template #tip><div class="el-upload__tip">支持 PDF、PNG、JPG、JPEG，测试不写入正式任务链路。</div></template>
+            <template #tip><div class="el-upload__tip">{{ parseUploadTip }}</div></template>
           </el-upload>
           <el-button type="primary" class="full-button" :loading="parseTesting" @click="runParseTest">开始识别</el-button>
           <el-alert v-if="parseTestResult" :type="parseStatusType" :title="parseTestResult.message" :closable="false" show-icon />

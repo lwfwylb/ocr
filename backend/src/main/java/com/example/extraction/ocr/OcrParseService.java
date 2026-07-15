@@ -96,6 +96,9 @@ public class OcrParseService {
         if (file == null || file.isEmpty()) {
             throw new BusinessException("OCR_TEST_400", "请上传样本文档");
         }
+        if (isMinerUEngine(engine) && !isPdfFile(file)) {
+            throw new BusinessException("OCR_TEST_400", "MinerU 试识别当前仅支持 PDF 文件，请上传 PDF 样本文档");
+        }
         OcrEngineClient client = clientFor(engine);
         ConfigWizardPayload payload = mergeEngineParams(new ConfigWizardPayload(), engine);
         Path tempPath = null;
@@ -356,6 +359,21 @@ public class OcrParseService {
     private String safeFileName(String fileName) {
         String value = StringUtils.hasText(fileName) ? fileName : "sample.pdf";
         return value.replaceAll("[^a-zA-Z0-9._-]", "_");
+    }
+
+    private boolean isPdfFile(MultipartFile file) {
+        String fileName = file.getOriginalFilename();
+        String contentType = file.getContentType();
+        return (StringUtils.hasText(fileName) && fileName.toLowerCase().endsWith(".pdf"))
+                || (StringUtils.hasText(contentType) && contentType.toLowerCase().contains("pdf"));
+    }
+
+    private boolean isMinerUEngine(OcrEngineConfigRecord engine) {
+        String joined = (firstText(engine.getAdapterType(), "") + " "
+                + firstText(engine.getEngineType(), "") + " "
+                + firstText(engine.getProvider(), "") + " "
+                + firstText(engine.getEngineCode(), "")).toLowerCase();
+        return joined.contains("mineru") || joined.contains("miner_u");
     }
 
     private String firstText(String... values) {
