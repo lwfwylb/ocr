@@ -537,12 +537,15 @@ body {
   margin: 8px 0;
 }
 
+.ocr-markdown-rendered table,
 .markdown-table-wrap table {
   width: 100%;
   border-collapse: collapse;
   background: #ffffff;
 }
 
+.ocr-markdown-rendered th,
+.ocr-markdown-rendered td,
 .markdown-table-wrap th,
 .markdown-table-wrap td {
   padding: 6px 8px;
@@ -551,6 +554,7 @@ body {
   vertical-align: top;
 }
 
+.ocr-markdown-rendered th,
 .markdown-table-wrap th {
   background: #f1f5f9;
   font-weight: 650;

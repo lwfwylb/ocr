@@ -2,6 +2,8 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import type { UploadFile } from 'element-plus'
+import MarkdownIt from 'markdown-it'
+import DOMPurify from 'dompurify'
 import {
   createOcrEngineConfig,
   disableOcrEngineConfig,
@@ -27,6 +29,11 @@ const parseTestEngine = ref<OcrEngineConfig | null>(null)
 const parseTestFile = ref<File | null>(null)
 const parseTestResult = ref<OcrEngineParseTestResult | null>(null)
 const markdownViewMode = ref<'preview' | 'source'>('preview')
+const markdownParser = new MarkdownIt({
+  html: true,
+  linkify: true,
+  breaks: true
+})
 const query = reactive({
   keyword: '',
   provider: '',
@@ -242,7 +249,7 @@ const resetQuery = () => {
   loadEngines()
 }
 
-const renderMarkdown = (source: string) => {
+const legacyRenderMarkdown = (source: string) => {
   if (!source) return ''
   const lines = source.replace(/\r\n/g, '\n').split('\n')
   const html: string[] = []
@@ -370,6 +377,18 @@ const escapeHtml = (value: string) => String(value || '')
   .replace(/'/g, '&#39;')
 
 const escapeAttribute = (value: string) => escapeHtml(value).replace(/`/g, '&#96;')
+
+const renderMarkdown = (source: string) => {
+  if (!source) return ''
+  const html = markdownParser.render(source)
+  return DOMPurify.sanitize(html, {
+    USE_PROFILES: { html: true },
+    ADD_TAGS: ['table', 'thead', 'tbody', 'tr', 'th', 'td', 'div', 'span', 'img'],
+    ADD_ATTR: ['target', 'rel', 'colspan', 'rowspan', 'align', 'src', 'alt', 'title', 'width', 'height', 'class'],
+    FORBID_TAGS: ['script', 'style', 'iframe', 'object', 'embed', 'form', 'input', 'button'],
+    FORBID_ATTR: ['style', 'srcdoc']
+  }).replace(/<a /g, '<a target="_blank" rel="noopener noreferrer" ')
+}
 
 onMounted(loadEngines)
 </script>
