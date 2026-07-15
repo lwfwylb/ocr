@@ -11,7 +11,10 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.http.MediaType;
+import org.springframework.web.multipart.MultipartFile;
 
 import java.util.List;
 import java.util.Map;
@@ -68,5 +71,11 @@ public class OcrEngineConfigController {
     @PostMapping("/{id}/test")
     public ApiResponse<Map<String, Object>> test(@PathVariable("id") String id) {
         return ApiResponse.success(ocrEngineConfigService.test(id));
+    }
+
+    @PostMapping(value = "/{id}/test-parse", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    public ApiResponse<Map<String, Object>> testParse(@PathVariable("id") String id,
+                                                     @RequestParam("file") MultipartFile file) {
+        return ApiResponse.success(ocrEngineConfigService.testParse(id, file));
     }
 }

@@ -1,6 +1,7 @@
 package com.example.extraction.ocr;
 
 import com.example.extraction.common.BusinessException;
+import com.example.extraction.configuration.dto.ConfigWizardPayload;
 import com.example.extraction.model.domain.OcrEngineConfigRecord;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -18,6 +19,7 @@ import java.nio.file.Files;
 import java.time.Duration;
 import java.util.Base64;
 import java.util.Iterator;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
@@ -30,8 +32,11 @@ public class MinerUClient implements OcrEngineClient {
     }
 
     @Override
-    public boolean supports(String engineType, String provider, String engineCode) {
-        String joined = (nullToEmpty(engineType) + " " + nullToEmpty(provider) + " " + nullToEmpty(engineCode)).toLowerCase();
+    public boolean supports(String adapterType, String engineType, String provider, String engineCode) {
+        if ("MINERU".equalsIgnoreCase(nullToEmpty(adapterType))) {
+            return true;
+        }
+        String joined = (nullToEmpty(adapterType) + " " + nullToEmpty(engineType) + " " + nullToEmpty(provider) + " " + nullToEmpty(engineCode)).toLowerCase();
         return joined.contains("mineru") || joined.contains("miner_u");
     }
 
@@ -45,7 +50,7 @@ public class MinerUClient implements OcrEngineClient {
         try {
             byte[] fileContent = Files.readAllBytes(request.getInputPath());
             String boundary = "----ExtractionBoundary" + UUID.randomUUID().toString().replace("-", "");
-            byte[] body = multipartBody(boundary, request.getInputFileName(), fileContent, contentType(request));
+            byte[] body = multipartBody(boundary, request.getInputFileName(), fileContent, contentType(request), request);
             HttpRequest httpRequest = HttpRequest.newBuilder(URI.create(engine.getBaseUrl()))
                     .timeout(Duration.ofSeconds(timeoutSeconds(engine, 360)))
                     .header("Content-Type", "multipart/form-data; boundary=" + boundary)
@@ -117,19 +122,18 @@ public class MinerUClient implements OcrEngineClient {
         }
     }
 
-    private byte[] multipartBody(String boundary, String fileName, byte[] content, String contentType) throws IOException {
+    private byte[] multipartBody(String boundary, String fileName, byte[] content, String contentType, OcrParseRequest request) throws IOException {
         ByteArrayOutputStream output = new ByteArrayOutputStream();
         addFilePart(output, boundary, "files", fileName, contentType, content);
-        addTextPart(output, boundary, "backend", "pipeline");
-        addTextPart(output, boundary, "lang_list", "ch");
-        addTextPart(output, boundary, "lang_list", "en");
-        addTextPart(output, boundary, "parse_method", "auto");
-        addTextPart(output, boundary, "formula_enable", "true");
-        addTextPart(output, boundary, "table_enable", "true");
-        addTextPart(output, boundary, "return_md", "true");
-        addTextPart(output, boundary, "return_middle_json", "false");
-        addTextPart(output, boundary, "response_format_zip", "false");
-        addTextPart(output, boundary, "return_images", "true");
+        addTextPart(output, boundary, "backend", textParam(request, "backend", "pipeline"));
+        addRepeatedTextPart(output, boundary, "lang_list", param(request, "lang_list"), List.of("ch", "en"));
+        addTextPart(output, boundary, "parse_method", textParam(request, "parse_method", "auto"));
+        addTextPart(output, boundary, "formula_enable", textParam(request, "formula_enable", "true"));
+        addTextPart(output, boundary, "table_enable", textParam(request, "table_enable", "true"));
+        addTextPart(output, boundary, "return_md", textParam(request, "return_md", "true"));
+        addTextPart(output, boundary, "return_middle_json", textParam(request, "return_middle_json", "false"));
+        addTextPart(output, boundary, "response_format_zip", textParam(request, "response_format_zip", "false"));
+        addTextPart(output, boundary, "return_images", textParam(request, "return_images", "true"));
         write(output, "--" + boundary + "--\r\n");
         return output.toByteArray();
     }
@@ -138,6 +142,31 @@ public class MinerUClient implements OcrEngineClient {
         write(output, "--" + boundary + "\r\n");
         write(output, "Content-Disposition: form-data; name=\"" + name + "\"\r\n\r\n");
         write(output, value + "\r\n");
+    }
+
+    private void addRepeatedTextPart(ByteArrayOutputStream output, String boundary, String name, Object value, List<String> defaults) throws IOException {
+        if (value instanceof Iterable<?> items) {
+            boolean added = false;
+            for (Object item : items) {
+                if (item != null && StringUtils.hasText(String.valueOf(item))) {
+                    addTextPart(output, boundary, name, String.valueOf(item));
+                    added = true;
+                }
+            }
+            if (added) {
+                return;
+            }
+        } else if (value != null && StringUtils.hasText(String.valueOf(value))) {
+            for (String item : String.valueOf(value).split(",")) {
+                if (StringUtils.hasText(item)) {
+                    addTextPart(output, boundary, name, item.trim());
+                }
+            }
+            return;
+        }
+        for (String item : defaults) {
+            addTextPart(output, boundary, name, item);
+        }
     }
 
     private void addFilePart(ByteArrayOutputStream output, String boundary, String name, String fileName,
@@ -170,6 +199,19 @@ public class MinerUClient implements OcrEngineClient {
 
     private int timeoutSeconds(OcrEngineConfigRecord engine, int fallback) {
         return engine.getTimeoutSeconds() == null || engine.getTimeoutSeconds() <= 0 ? fallback : engine.getTimeoutSeconds();
+    }
+
+    private String textParam(OcrParseRequest request, String key, String defaultValue) {
+        Object value = param(request, key);
+        return value == null || !StringUtils.hasText(String.valueOf(value)) ? defaultValue : String.valueOf(value);
+    }
+
+    private Object param(OcrParseRequest request, String key) {
+        ConfigWizardPayload payload = request.getPayload();
+        if (payload == null || payload.getParseConfig() == null || payload.getParseConfig().getEngineParams() == null) {
+            return null;
+        }
+        return payload.getParseConfig().getEngineParams().get(key);
     }
 
     private byte[] decodeBase64(String value) {

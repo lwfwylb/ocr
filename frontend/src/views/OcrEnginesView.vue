@@ -1,16 +1,19 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import type { UploadFile } from 'element-plus'
 import {
   createOcrEngineConfig,
   disableOcrEngineConfig,
   enableOcrEngineConfig,
   listOcrEngineConfigs,
   setDefaultOcrEngineConfig,
+  testOcrEngineParse,
   testOcrEngineConfig,
   updateOcrEngineConfig,
   type OcrEngineConfig,
-  type OcrEnginePayload
+  type OcrEnginePayload,
+  type OcrEngineParseTestResult
 } from '../api/model'
 
 const drawerVisible = ref(false)
@@ -18,6 +21,11 @@ const loading = ref(false)
 const saving = ref(false)
 const editingId = ref('')
 const engines = ref<OcrEngineConfig[]>([])
+const parseDialogVisible = ref(false)
+const parseTesting = ref(false)
+const parseTestEngine = ref<OcrEngineConfig | null>(null)
+const parseTestFile = ref<File | null>(null)
+const parseTestResult = ref<OcrEngineParseTestResult | null>(null)
 const query = reactive({
   keyword: '',
   provider: '',
@@ -28,6 +36,7 @@ const form = reactive<OcrEnginePayload>({
   engineCode: '',
   engineName: '',
   engineType: 'OCR/LAYOUT/TABLE',
+  adapterType: 'PADDLE_OCR_VL',
   provider: 'PaddleOCR',
   baseUrl: '',
   authMode: 'NONE',
@@ -39,6 +48,7 @@ const form = reactive<OcrEnginePayload>({
   supportedFileTypes: 'pdf,png,jpg,jpeg,tif,tiff',
   outputFormat: 'Markdown',
   maxPagesPerCall: 20,
+  engineParamsJson: '',
   status: 'ENABLED',
   description: ''
 })
@@ -48,6 +58,12 @@ const defaultEngine = computed(() => engines.value.find((item) => item.defaultEn
 const providerOptions = computed(() => Array.from(new Set(engines.value.map((item) => item.provider).filter(Boolean))))
 const engineTypeOptions = computed(() => Array.from(new Set(engines.value.map((item) => item.engineType).filter(Boolean))))
 const markdownCount = computed(() => engines.value.filter((item) => item.outputFormat === 'Markdown').length)
+const adapterTypeOptions = [
+  { label: 'PaddleOCR-VL', value: 'PADDLE_OCR_VL' },
+  { label: 'MinerU', value: 'MINERU' }
+]
+const adapterTypeText = (value?: string) => adapterTypeOptions.find((item) => item.value === value)?.label || value || '-'
+const parseStatusType = computed(() => parseTestResult.value?.passed ? 'success' : 'error')
 
 const resetForm = () => {
   editingId.value = ''
@@ -55,6 +71,7 @@ const resetForm = () => {
     engineCode: '',
     engineName: '',
     engineType: 'OCR/LAYOUT/TABLE',
+    adapterType: 'PADDLE_OCR_VL',
     provider: 'PaddleOCR',
     baseUrl: '',
     authMode: 'NONE',
@@ -66,6 +83,7 @@ const resetForm = () => {
     supportedFileTypes: 'pdf,png,jpg,jpeg,tif,tiff',
     outputFormat: 'Markdown',
     maxPagesPerCall: 20,
+    engineParamsJson: '',
     status: 'ENABLED',
     description: ''
   })
@@ -94,6 +112,7 @@ const openEdit = (engine: OcrEngineConfig) => {
     engineCode: engine.engineCode,
     engineName: engine.engineName,
     engineType: engine.engineType,
+    adapterType: engine.adapterType || '',
     provider: engine.provider,
     baseUrl: engine.baseUrl,
     authMode: engine.authMode || 'NONE',
@@ -105,6 +124,7 @@ const openEdit = (engine: OcrEngineConfig) => {
     supportedFileTypes: engine.supportedFileTypes || 'pdf,png,jpg,jpeg,tif,tiff',
     outputFormat: 'Markdown',
     maxPagesPerCall: engine.maxPagesPerCall || 20,
+    engineParamsJson: engine.engineParamsJson || '',
     status: engine.status,
     description: engine.description || ''
   })
@@ -162,6 +182,51 @@ const testEngine = async (engine: OcrEngineConfig) => {
   }
 }
 
+const openParseTest = (engine: OcrEngineConfig) => {
+  parseTestEngine.value = engine
+  parseTestFile.value = null
+  parseTestResult.value = null
+  parseDialogVisible.value = true
+}
+
+const handleParseFileChange = (uploadFile: UploadFile) => {
+  parseTestFile.value = uploadFile.raw || null
+  parseTestResult.value = null
+}
+
+const handleParseFileRemove = () => {
+  parseTestFile.value = null
+  parseTestResult.value = null
+}
+
+const runParseTest = async () => {
+  if (!parseTestEngine.value) return
+  if (!parseTestFile.value) {
+    ElMessage.warning('请先上传样本文档')
+    return
+  }
+  parseTesting.value = true
+  try {
+    parseTestResult.value = await testOcrEngineParse(parseTestEngine.value.id, parseTestFile.value)
+    if (parseTestResult.value.passed) {
+      ElMessage.success(parseTestResult.value.message)
+    } else {
+      ElMessage.error(parseTestResult.value.message || 'OCR 试识别失败')
+    }
+  } catch (error) {
+    ElMessage.error(error instanceof Error ? error.message : 'OCR 试识别失败')
+  } finally {
+    parseTesting.value = false
+  }
+}
+
+const copyMarkdown = async () => {
+  const text = parseTestResult.value?.markdownText || parseTestResult.value?.markdownPreview || ''
+  if (!text) return
+  await navigator.clipboard.writeText(text)
+  ElMessage.success('Markdown 已复制')
+}
+
 const resetQuery = () => {
   query.keyword = ''
   query.provider = ''
@@ -180,7 +245,7 @@ onMounted(loadEngines)
       <el-card shadow="never" class="metric-card"><span>启用中</span><strong>{{ enabledCount }}</strong><em>可被向导选择</em></el-card>
       <el-card shadow="never" class="metric-card"><span>默认引擎</span><strong>{{ defaultEngine ? 1 : 0 }}</strong><em>{{ defaultEngine?.engineName || '未设置' }}</em></el-card>
       <el-card shadow="never" class="metric-card"><span>Markdown 输出</span><strong>{{ markdownCount }}</strong><em>当前固定格式</em></el-card>
-      <el-card shadow="never" class="metric-card"><span>测试调用</span><strong>模拟</strong><em>暂不真实 OCR</em></el-card>
+      <el-card shadow="never" class="metric-card"><span>测试调用</span><strong>真实</strong><em>支持样本文档试识别</em></el-card>
     </section>
 
     <el-card shadow="never">
@@ -221,6 +286,7 @@ onMounted(loadEngines)
       <el-table v-loading="loading" :data="engines" stripe>
         <el-table-column prop="engineCode" label="引擎编码" min-width="150" fixed />
         <el-table-column prop="engineName" label="引擎名称" min-width="170" />
+        <el-table-column label="适配器" width="130"><template #default="{ row }">{{ adapterTypeText(row.adapterType) }}</template></el-table-column>
         <el-table-column prop="engineType" label="能力类型" min-width="150" />
         <el-table-column prop="provider" label="供应方" min-width="130" />
         <el-table-column prop="baseUrl" label="服务地址" min-width="260" />
@@ -240,10 +306,11 @@ onMounted(loadEngines)
         <el-table-column label="输出" width="100">
           <template #default="{ row }"><el-tag>{{ row.outputFormat }}</el-tag></template>
         </el-table-column>
-        <el-table-column label="操作" width="270" fixed="right">
+        <el-table-column label="操作" width="310" fixed="right">
           <template #default="{ row }">
             <el-button link type="primary" @click="openEdit(row)">配置</el-button>
-            <el-button link @click="testEngine(row)">测试</el-button>
+            <el-button link @click="testEngine(row)">配置检查</el-button>
+            <el-button link type="success" @click="openParseTest(row)">试识别</el-button>
             <el-button link @click="setDefault(row)">设默认</el-button>
             <el-button link :type="row.status === 'ENABLED' ? 'danger' : 'success'" @click="toggleStatus(row)">
               {{ row.status === 'ENABLED' ? '停用' : '启用' }}
@@ -257,6 +324,11 @@ onMounted(loadEngines)
       <el-form :model="form" label-width="130px" class="form-grid">
         <el-form-item label="引擎编码"><el-input v-model="form.engineCode" placeholder="如 paddleocr_vl" /></el-form-item>
         <el-form-item label="引擎名称"><el-input v-model="form.engineName" placeholder="如 PaddleOCR-VL-1.6" /></el-form-item>
+        <el-form-item label="适配器类型">
+          <el-select v-model="form.adapterType" placeholder="请选择适配器类型">
+            <el-option v-for="item in adapterTypeOptions" :key="item.value" :label="item.label" :value="item.value" />
+          </el-select>
+        </el-form-item>
         <el-form-item label="供应方">
           <el-select v-model="form.provider" filterable allow-create>
             <el-option label="PaddleOCR" value="PaddleOCR" />
@@ -294,11 +366,12 @@ onMounted(loadEngines)
             <el-radio-button label="DISABLED">停用</el-radio-button>
           </el-radio-group>
         </el-form-item>
+        <el-form-item label="默认参数 JSON" class="wide"><el-input v-model="form.engineParamsJson" type="textarea" :rows="5" placeholder='如 {"fileType":0,"useSealRecognition":true}' /></el-form-item>
         <el-form-item label="说明" class="wide"><el-input v-model="form.description" type="textarea" :rows="3" /></el-form-item>
       </el-form>
       <el-alert
         class="mb-12"
-        title="第一版维护 OCR 引擎调用配置和模拟测试；真实 OCR 调用、鉴权托管、性能指标会在任务执行链路接入。"
+        title="配置检查用于校验引擎基础配置；试识别会上传样本文档真实调用 OCR 服务，但不写入正式任务和结果表。"
         type="info"
         :closable="false"
       />
@@ -307,5 +380,49 @@ onMounted(loadEngines)
         <el-button type="primary" :loading="saving" @click="saveEngine">保存</el-button>
       </template>
     </el-drawer>
+
+    <el-dialog v-model="parseDialogVisible" title="OCR 文档试识别" width="920px" destroy-on-close>
+      <div class="parse-test-layout">
+        <section class="parse-test-side">
+          <el-descriptions :column="1" border size="small">
+            <el-descriptions-item label="引擎">{{ parseTestEngine?.engineName || '-' }}</el-descriptions-item>
+            <el-descriptions-item label="适配器">{{ adapterTypeText(parseTestEngine?.adapterType) }}</el-descriptions-item>
+            <el-descriptions-item label="服务地址">{{ parseTestEngine?.baseUrl || '-' }}</el-descriptions-item>
+          </el-descriptions>
+          <el-upload
+            class="sample-upload"
+            drag
+            :auto-upload="false"
+            :limit="1"
+            accept=".pdf,.png,.jpg,.jpeg"
+            :on-change="handleParseFileChange"
+            :on-remove="handleParseFileRemove"
+          >
+            <span class="upload-title">上传样本文档</span>
+            <template #tip><div class="el-upload__tip">支持 PDF、PNG、JPG、JPEG，测试不写入正式任务链路。</div></template>
+          </el-upload>
+          <el-button type="primary" class="full-button" :loading="parseTesting" @click="runParseTest">开始识别</el-button>
+          <el-alert v-if="parseTestResult" :type="parseStatusType" :title="parseTestResult.message" :closable="false" show-icon />
+          <el-descriptions v-if="parseTestResult" :column="1" border size="small">
+            <el-descriptions-item label="耗时">{{ parseTestResult.durationMs ? `${parseTestResult.durationMs}ms` : '-' }}</el-descriptions-item>
+            <el-descriptions-item label="页/文件数">{{ parseTestResult.pageCount || '-' }}</el-descriptions-item>
+            <el-descriptions-item label="图片数">{{ parseTestResult.imageCount ?? '-' }}</el-descriptions-item>
+            <el-descriptions-item label="错误码">{{ parseTestResult.errorCode || '-' }}</el-descriptions-item>
+          </el-descriptions>
+        </section>
+        <section class="parse-test-main">
+          <el-tabs v-if="parseTestResult" model-value="markdown">
+            <el-tab-pane label="Markdown 预览" name="markdown">
+              <div class="preview-actions"><el-button size="small" :disabled="!parseTestResult.markdownPreview" @click="copyMarkdown">复制 Markdown</el-button></div>
+              <pre class="ocr-preview">{{ parseTestResult.markdownPreview || '暂无 Markdown 输出' }}</pre>
+            </el-tab-pane>
+            <el-tab-pane label="原始响应摘要" name="raw">
+              <pre class="ocr-preview">{{ parseTestResult.rawResponsePreview || '暂无原始响应摘要' }}</pre>
+            </el-tab-pane>
+          </el-tabs>
+          <el-empty v-else description="上传样本文档后点击开始识别" />
+        </section>
+      </div>
+    </el-dialog>
   </div>
 </template>

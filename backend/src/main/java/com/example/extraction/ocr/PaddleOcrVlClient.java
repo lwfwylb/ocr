@@ -29,8 +29,11 @@ public class PaddleOcrVlClient implements OcrEngineClient {
     }
 
     @Override
-    public boolean supports(String engineType, String provider, String engineCode) {
-        String joined = (nullToEmpty(engineType) + " " + nullToEmpty(provider) + " " + nullToEmpty(engineCode)).toLowerCase();
+    public boolean supports(String adapterType, String engineType, String provider, String engineCode) {
+        if ("PADDLE_OCR_VL".equalsIgnoreCase(nullToEmpty(adapterType))) {
+            return true;
+        }
+        String joined = (nullToEmpty(adapterType) + " " + nullToEmpty(engineType) + " " + nullToEmpty(provider) + " " + nullToEmpty(engineCode)).toLowerCase();
         return joined.contains("paddle") || joined.contains("paddleocr") || joined.contains("paddle_ocr_vl");
     }
 

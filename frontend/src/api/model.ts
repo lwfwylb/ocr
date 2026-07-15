@@ -118,6 +118,7 @@ export interface OcrEngineConfig {
   engineCode: string
   engineName: string
   engineType: string
+  adapterType?: string
   provider: string
   baseUrl: string
   authMode?: string
@@ -129,6 +130,7 @@ export interface OcrEngineConfig {
   supportedFileTypes?: string
   outputFormat: string
   maxPagesPerCall?: number
+  engineParamsJson?: string
   status: 'ENABLED' | 'DISABLED'
   description?: string
   createdBy?: string
@@ -142,6 +144,7 @@ export interface OcrEngineOption {
   engineCode: string
   engineName: string
   engineType: string
+  adapterType?: string
   provider: string
   defaultEngine: boolean
   outputFormat: string
@@ -153,6 +156,24 @@ export interface OcrEngineTestResult {
   engineCode: string
   baseUrl: string
   outputFormat: string
+  checkedAt: string
+}
+
+export interface OcrEngineParseTestResult {
+  passed: boolean
+  message: string
+  engineCode: string
+  engineName: string
+  adapterType?: string
+  baseUrl: string
+  fileName?: string
+  durationMs?: number
+  pageCount?: number
+  imageCount?: number
+  markdownText?: string
+  markdownPreview?: string
+  rawResponsePreview?: string
+  errorCode?: string
   checkedAt: string
 }
 
@@ -199,6 +220,15 @@ export function setDefaultOcrEngineConfig(id: string) {
 
 export function testOcrEngineConfig(id: string) {
   return request<OcrEngineTestResult>(`/api/model/ocr-engines/${id}/test`, { method: 'POST' })
+}
+
+export function testOcrEngineParse(id: string, file: File) {
+  const formData = new FormData()
+  formData.append('file', file)
+  return request<OcrEngineParseTestResult>(`/api/model/ocr-engines/${id}/test-parse`, {
+    method: 'POST',
+    body: formData
+  })
 }
 
 export function listOcrEngineOptions() {

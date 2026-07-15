@@ -4,6 +4,7 @@ public class OcrEngineConfigRequest {
     private String engineCode;
     private String engineName;
     private String engineType;
+    private String adapterType;
     private String provider;
     private String baseUrl;
     private String authMode;
@@ -15,6 +16,7 @@ public class OcrEngineConfigRequest {
     private String supportedFileTypes;
     private String outputFormat;
     private Integer maxPagesPerCall;
+    private String engineParamsJson;
     private String status;
     private String description;
 
@@ -40,6 +42,14 @@ public class OcrEngineConfigRequest {
 
     public void setEngineType(String engineType) {
         this.engineType = engineType;
+    }
+
+    public String getAdapterType() {
+        return adapterType;
+    }
+
+    public void setAdapterType(String adapterType) {
+        this.adapterType = adapterType;
     }
 
     public String getProvider() {
@@ -128,6 +138,14 @@ public class OcrEngineConfigRequest {
 
     public void setMaxPagesPerCall(Integer maxPagesPerCall) {
         this.maxPagesPerCall = maxPagesPerCall;
+    }
+
+    public String getEngineParamsJson() {
+        return engineParamsJson;
+    }
+
+    public void setEngineParamsJson(String engineParamsJson) {
+        this.engineParamsJson = engineParamsJson;
     }
 
     public String getStatus() {

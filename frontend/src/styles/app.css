@@ -385,6 +385,61 @@ body {
   grid-column: 1 / -1;
 }
 
+.parse-test-layout {
+  display: grid;
+  grid-template-columns: 300px minmax(0, 1fr);
+  gap: 12px;
+}
+
+.parse-test-side {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.sample-upload .el-upload {
+  width: 100%;
+}
+
+.sample-upload .el-upload-dragger {
+  padding: 16px 10px;
+}
+
+.upload-title {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.full-button {
+  width: 100%;
+}
+
+.parse-test-main {
+  min-width: 0;
+}
+
+.preview-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 6px;
+}
+
+.ocr-preview {
+  min-height: 360px;
+  max-height: 520px;
+  overflow: auto;
+  margin: 0;
+  padding: 10px;
+  border: 1px solid var(--el-border-color-light);
+  border-radius: 6px;
+  background: #f8fafc;
+  color: #1f2937;
+  font-size: 12px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
 .validation-grid {
   display: grid;
   grid-template-columns: 320px 1fr;

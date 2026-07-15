@@ -14,9 +14,11 @@ import com.example.extraction.model.domain.OcrEngineConfigRecord;
 import com.example.extraction.result.domain.DocumentParseResultRecord;
 import com.example.extraction.task.domain.ExtractTaskRecord;
 import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
+import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -64,12 +66,10 @@ public class OcrParseService {
         }
 
         OcrEngineConfigRecord engine = resolveEngine(payload);
-        OcrEngineClient client = clients.stream()
-                .filter(item -> item.supports(engine.getEngineType(), engine.getProvider(), engine.getEngineCode()))
-                .findFirst()
-                .orElseThrow(() -> new BusinessException("OCR_400", "暂不支持该 OCR 引擎类型：" + firstText(engine.getEngineType(), engine.getProvider(), engine.getEngineCode(), "未知")));
+        OcrEngineClient client = clientFor(engine);
+        ConfigWizardPayload requestPayload = mergeEngineParams(payload, engine);
 
-        OcrParseRequest request = new OcrParseRequest(task, engine, payload, inputPath,
+        OcrParseRequest request = new OcrParseRequest(task, engine, requestPayload, inputPath,
                 firstText(inputArtifact == null ? null : inputArtifact.getFileName(), task.getFileName(), inputPath.getFileName().toString()),
                 firstText(inputArtifact == null ? null : inputArtifact.getFileExt(), task.getFileType(), fileExt(inputPath.getFileName().toString())));
         OcrParseResponse response = client.parse(request);
@@ -87,6 +87,41 @@ public class OcrParseService {
             documentParseResultMapper.update(record);
         }
         return new OcrTaskParseResult(record, engine, response.getDurationMs(), false);
+    }
+
+    public OcrParseResponse parsePreview(OcrEngineConfigRecord engine, MultipartFile file) {
+        if (engine == null) {
+            throw new BusinessException("OCR_404", "OCR 引擎配置不存在");
+        }
+        if (file == null || file.isEmpty()) {
+            throw new BusinessException("OCR_TEST_400", "请上传样本文档");
+        }
+        OcrEngineClient client = clientFor(engine);
+        ConfigWizardPayload payload = mergeEngineParams(new ConfigWizardPayload(), engine);
+        Path tempPath = null;
+        try {
+            tempPath = Files.createTempFile("ocr-test-", "-" + safeFileName(file.getOriginalFilename()));
+            file.transferTo(tempPath);
+            ExtractTaskRecord task = new ExtractTaskRecord();
+            task.setTaskId("OCR_TEST");
+            task.setTraceId("OCR_TEST");
+            task.setDocumentId("OCR_TEST");
+            task.setFileName(file.getOriginalFilename());
+            task.setFileType(fileExt(file.getOriginalFilename()));
+            OcrParseRequest request = new OcrParseRequest(task, engine, payload, tempPath,
+                    firstText(file.getOriginalFilename(), tempPath.getFileName().toString()),
+                    firstText(fileExt(file.getOriginalFilename()), contentTypeExt(file.getContentType())));
+            return client.parse(request);
+        } catch (IOException e) {
+            throw new BusinessException("OCR_TEST_IO_ERROR", "样本文档读取失败：" + e.getMessage());
+        } finally {
+            if (tempPath != null) {
+                try {
+                    Files.deleteIfExists(tempPath);
+                } catch (IOException ignored) {
+                }
+            }
+        }
     }
 
     private OcrTaskParseResult saveDirectTextParse(ExtractTaskRecord task, DocumentArtifactRecord inputArtifact, Path inputPath) {
@@ -136,6 +171,13 @@ public class OcrParseService {
             documentParseResultMapper.update(record);
         }
         return record;
+    }
+
+    private OcrEngineClient clientFor(OcrEngineConfigRecord engine) {
+        return clients.stream()
+                .filter(item -> item.supports(engine.getAdapterType(), engine.getEngineType(), engine.getProvider(), engine.getEngineCode()))
+                .findFirst()
+                .orElseThrow(() -> new BusinessException("OCR_400", "暂不支持该 OCR 引擎适配器：" + firstText(engine.getAdapterType(), engine.getEngineType(), engine.getProvider(), engine.getEngineCode(), "未知")));
     }
 
     private OcrEngineConfigRecord resolveEngine(ConfigWizardPayload payload) {
@@ -210,6 +252,30 @@ public class OcrParseService {
         }
     }
 
+    private ConfigWizardPayload mergeEngineParams(ConfigWizardPayload payload, OcrEngineConfigRecord engine) {
+        if (!StringUtils.hasText(engine.getEngineParamsJson())) {
+            return payload;
+        }
+        try {
+            Map<String, Object> defaults = objectMapper.readValue(engine.getEngineParamsJson(), new TypeReference<>() {});
+            if (defaults.isEmpty()) {
+                return payload;
+            }
+            ConfigWizardPayload target = payload == null ? new ConfigWizardPayload() : payload;
+            if (target.getParseConfig() == null) {
+                target.setParseConfig(new ConfigWizardPayload.ParseConfig());
+            }
+            Map<String, Object> merged = new java.util.LinkedHashMap<>(defaults);
+            if (target.getParseConfig().getEngineParams() != null) {
+                merged.putAll(target.getParseConfig().getEngineParams());
+            }
+            target.getParseConfig().setEngineParams(merged);
+            return target;
+        } catch (JsonProcessingException e) {
+            throw new BusinessException("OCR_PARAMS_ERROR", "OCR 引擎默认参数 JSON 不合法");
+        }
+    }
+
     private boolean isTextFile(ExtractTaskRecord task, DocumentArtifactRecord artifact) {
         String fileType = firstText(artifact == null ? null : artifact.getFileExt(), task.getFileType(), "").toLowerCase();
         String fileName = firstText(artifact == null ? null : artifact.getFileName(), task.getFileName(), "").toLowerCase();
@@ -269,6 +335,27 @@ public class OcrParseService {
             return fileName.substring(fileName.lastIndexOf('.') + 1).toLowerCase();
         }
         return null;
+    }
+
+    private String contentTypeExt(String contentType) {
+        if (!StringUtils.hasText(contentType)) {
+            return null;
+        }
+        if (contentType.contains("pdf")) {
+            return "pdf";
+        }
+        if (contentType.contains("png")) {
+            return "png";
+        }
+        if (contentType.contains("jpeg") || contentType.contains("jpg")) {
+            return "jpg";
+        }
+        return null;
+    }
+
+    private String safeFileName(String fileName) {
+        String value = StringUtils.hasText(fileName) ? fileName : "sample.pdf";
+        return value.replaceAll("[^a-zA-Z0-9._-]", "_");
     }
 
     private String firstText(String... values) {
