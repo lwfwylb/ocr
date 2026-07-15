@@ -7,6 +7,7 @@ import {
   createExtractConfigDraft,
   getConfigOptions,
   getExtractConfigDetail,
+  getResultTableDetail,
   publishExtractConfig,
   updateExtractConfigDraft,
   validateExtractConfig,
@@ -338,6 +339,7 @@ const existingTables = computed(() =>
     comment: table.comment || ''
   }))
 )
+const isReuseStorageMode = computed(() => form.storageMode === 'REUSE')
 const categoryOptions = computed<OptionItem[]>(() => options.value.categories || [])
 const subCategoryOptions = computed<OptionItem[]>(() => {
   return (categoryOptions.value.find((item: OptionItem) => item.value === form.category)?.children || []) as OptionItem[]
@@ -449,9 +451,6 @@ const storageDdlPreview = computed(() => {
   if (form.storageMode === 'REUSE') {
     return `-- 复用已有表: ${form.targetTable}\n-- 目标表名称: ${form.targetTableName}\n-- 仅保存映射方案: ${form.mappingProfileName}\n-- 不执行 DDL，仅校验目标字段是否存在。`
   }
-  const columns = targetTableColumns.value
-    .map((column) => `  ${column.columnName} ${formatDbColumnType(column)}${column.required ? ' NOT NULL' : ''}`)
-    .join(',\n')
   const dbUniqueConstraints = uniqueConstraints.value
     .filter((constraint) => constraint.enabled && constraint.generateDbIndex && constraint.uniqueColumns.length > 0)
     .map((constraint) => `  UNIQUE KEY ${constraint.constraintName} (${constraint.uniqueColumns.join(', ')})`)
@@ -462,11 +461,56 @@ const storageDdlPreview = computed(() => {
     .join('\n')
   return `-- 目标表名称: ${form.targetTableName}\n-- 表说明: ${form.targetTableComment || '无'}\nCREATE TABLE ${form.targetTable} (\n${tableLines.join(',\n')}\n);\n${businessRules ? `\n${businessRules}` : ''}`
 })
-const handleTargetTableChange = (tableCode: string) => {
+const cleanupTargetColumnReferences = () => {
+  const validColumns = new Set(targetColumnOptions.value)
+  fields.value.forEach((field) => {
+    if (field.targetColumn && !validColumns.has(field.targetColumn)) field.targetColumn = ''
+  })
+  uniqueConstraints.value.forEach((constraint) => {
+    constraint.uniqueColumns = constraint.uniqueColumns.filter((column) => validColumns.has(column))
+  })
+}
+const normalizeResultTableColumns = (columns: any[] = []) =>
+  columns.map((column) => ({
+    columnName: column.columnName || '',
+    columnCnName: column.columnCnName || '',
+    dbType: column.dbType || 'varchar',
+    length: column.length,
+    precision: column.precision,
+    scale: column.scale,
+    required: Boolean(column.required),
+    defaultValue: column.defaultValue || '',
+    validationRule: column.validationRule || ''
+  }))
+const handleTargetTableChange = async (tableCode: string) => {
   const matchedTable = existingTables.value.find((table) => table.value === tableCode)
-  if (!matchedTable) return
-  form.targetTableName = matchedTable.tableName
-  form.targetTableComment = matchedTable.comment
+  if (matchedTable) {
+    form.targetTableName = matchedTable.tableName
+    form.targetTableComment = matchedTable.comment
+  }
+  if (!tableCode) return
+  try {
+    const detail = await getResultTableDetail(tableCode)
+    form.targetTableName = detail.tableName || form.targetTableName
+    form.targetTableComment = detail.tableComment || ''
+    if (detail.columns?.length) {
+      targetTableColumns.value = normalizeResultTableColumns(detail.columns)
+      cleanupTargetColumnReferences()
+    }
+  } catch (error) {
+    ElMessage.error(error instanceof Error ? error.message : '结果表字段加载失败')
+  }
+}
+const handleStorageModeChange = (storageMode: string) => {
+  if (storageMode === 'REUSE') {
+    if (form.targetTable) void handleTargetTableChange(form.targetTable)
+    return
+  }
+  if (storageMode === 'CREATE' && existingTables.value.some((table) => table.value === form.targetTable)) {
+    form.targetTable = ''
+    form.targetTableName = ''
+    form.targetTableComment = ''
+  }
 }
 const enabledDownstreamServices = computed(() => options.value.downstreamServices.filter((service) => service.enabled !== false))
 const selectedPushServices = computed(() => options.value.downstreamServices.filter((service) => form.targetServices.includes(service.serviceCode)))
@@ -861,6 +905,10 @@ const autoMapFields = () => {
   ElMessage.success('已按同名字段自动生成映射')
 }
 const addTargetColumn = () => {
+  if (isReuseStorageMode.value) {
+    ElMessage.warning('复用已有表时，目标字段来自结果表元数据台账，不能在当前配置中直接新增')
+    return
+  }
   const columnName = `column_${targetTableColumns.value.length + 1}`
   targetTableColumns.value.push({
     columnName,
@@ -890,6 +938,10 @@ const removeUniqueConstraint = (row: any) => {
   ElMessage.success('已删除唯一约束')
 }
 const removeTargetColumn = (row: any) => {
+  if (isReuseStorageMode.value) {
+    ElMessage.warning('复用已有表时，不能在当前配置中删除目标字段')
+    return
+  }
   const usedCount = fields.value.filter((field) => field.targetColumn === row.columnName).length
   targetTableColumns.value = targetTableColumns.value.filter((column) => column.columnName !== row.columnName)
   uniqueConstraints.value.forEach((constraint) => {
@@ -1143,6 +1195,7 @@ const applyWizardPayload = (payload: any) => {
     selectedRuleId.value = transformRules.value[0]?.id || ''
   }
   if (payload.validationRules?.length) validationRules.value = payload.validationRules
+  if (form.storageMode === 'REUSE' && form.targetTable) void handleTargetTableChange(form.targetTable)
 
   Object.keys(downstreamFieldMap).forEach((key) => delete downstreamFieldMap[key])
   fields.value.forEach((field: any) => {
@@ -1193,6 +1246,7 @@ const loadWizardOptions = async () => {
       form.llmModelCode = llmModelOptions.value.find((item) => item.defaultModel)?.modelCode || llmModelOptions.value[0].modelCode
     }
     normalizeRoleFields()
+    if (isCreateMode && form.storageMode === 'REUSE' && form.targetTable) void handleTargetTableChange(form.targetTable)
   } catch (error) {
     ElMessage.error(error instanceof Error ? error.message : '配置选项加载失败')
   }
@@ -1448,13 +1502,13 @@ onMounted(async () => {
 
         <el-form :model="form" label-width="120px" class="form-grid">
           <el-form-item label="落库模式" class="wide">
-            <el-radio-group v-model="form.storageMode">
+            <el-radio-group v-model="form.storageMode" @change="handleStorageModeChange">
               <el-radio-button label="REUSE">复用已有表</el-radio-button>
               <el-radio-button label="CREATE">新建结果表</el-radio-button>
             </el-radio-group>
           </el-form-item>
           <el-form-item label="目标表编码">
-            <el-select v-if="form.storageMode === 'REUSE'" v-model="form.targetTable" filterable @change="handleTargetTableChange">
+            <el-select v-if="form.storageMode === 'REUSE'" v-model="form.targetTable" filterable clearable @change="handleTargetTableChange">
               <el-option v-for="table in existingTables" :key="table.value" :label="table.label" :value="table.value" />
             </el-select>
             <el-input v-else v-model="form.targetTable" placeholder="如 ext_new_extract_result" />
@@ -1490,18 +1544,18 @@ onMounted(async () => {
             <h3 class="section-title">目标表字段定义</h3>
             <p class="muted">类型、长度、入库必填、默认值和入库校验属于目标表字段定义；复用已有表时只做字段存在性和约束校验。</p>
           </div>
-          <el-button type="primary" @click="addTargetColumn">添加目标字段</el-button>
+          <el-button type="primary" :disabled="isReuseStorageMode" @click="addTargetColumn">添加目标字段</el-button>
         </div>
         <el-table :data="targetTableColumns" class="mb-12" height="300">
           <el-table-column label="目标字段名" min-width="160" fixed>
-            <template #default="{ row }"><el-input v-model="row.columnName" /></template>
+            <template #default="{ row }"><el-input v-model="row.columnName" :readonly="isReuseStorageMode" /></template>
           </el-table-column>
           <el-table-column label="字段中文名" min-width="140">
-            <template #default="{ row }"><el-input v-model="row.columnCnName" /></template>
+            <template #default="{ row }"><el-input v-model="row.columnCnName" :readonly="isReuseStorageMode" /></template>
           </el-table-column>
           <el-table-column label="数据库类型" width="130">
             <template #default="{ row }">
-              <el-select v-model="row.dbType" @change="normalizeDbTypeParams(row)">
+              <el-select v-model="row.dbType" :disabled="isReuseStorageMode" @change="normalizeDbTypeParams(row)">
                 <el-option label="varchar" value="varchar" />
                 <el-option label="char" value="char" />
                 <el-option label="decimal" value="decimal" />
@@ -1517,31 +1571,31 @@ onMounted(async () => {
             <template #default="{ row }">
               <div v-if="['varchar', 'char'].includes(row.dbType)" class="db-param-cell">
                 <span>{{ row.dbType }}(</span>
-                <el-input-number v-model="row.length" :min="1" :controls="false" placeholder="长度" />
+                <el-input-number v-model="row.length" :min="1" :controls="false" :disabled="isReuseStorageMode" placeholder="长度" />
                 <span>)</span>
               </div>
               <div v-else-if="['decimal', 'number'].includes(row.dbType)" class="db-param-cell">
                 <span>{{ row.dbType }}(</span>
-                <el-input-number v-model="row.precision" :min="1" :controls="false" placeholder="精度" />
+                <el-input-number v-model="row.precision" :min="1" :controls="false" :disabled="isReuseStorageMode" placeholder="精度" />
                 <span>,</span>
-                <el-input-number v-model="row.scale" :min="0" :controls="false" placeholder="小数位" />
+                <el-input-number v-model="row.scale" :min="0" :controls="false" :disabled="isReuseStorageMode" placeholder="小数位" />
                 <span>)</span>
               </div>
               <span v-else class="muted">无需配置</span>
             </template>
           </el-table-column>
           <el-table-column label="入库必填" width="90">
-            <template #default="{ row }"><el-switch v-model="row.required" /></template>
+            <template #default="{ row }"><el-switch v-model="row.required" :disabled="isReuseStorageMode" /></template>
           </el-table-column>
           <el-table-column label="默认值" min-width="120">
-            <template #default="{ row }"><el-input v-model="row.defaultValue" placeholder="可为空" /></template>
+            <template #default="{ row }"><el-input v-model="row.defaultValue" :readonly="isReuseStorageMode" placeholder="可为空" /></template>
           </el-table-column>
           <el-table-column label="入库校验规则" min-width="180">
-            <template #default="{ row }"><el-input v-model="row.validationRule" placeholder="如非空、金额格式" /></template>
+            <template #default="{ row }"><el-input v-model="row.validationRule" :readonly="isReuseStorageMode" placeholder="如非空、金额格式" /></template>
           </el-table-column>
           <el-table-column label="操作" width="80" fixed="right">
             <template #default="{ row }">
-              <el-button link type="danger" @click="removeTargetColumn(row)">删除</el-button>
+              <el-button link type="danger" :disabled="isReuseStorageMode" @click="removeTargetColumn(row)">删除</el-button>
             </template>
           </el-table-column>
         </el-table>
@@ -1663,7 +1717,7 @@ onMounted(async () => {
           </el-table-column>
           <el-table-column label="目标字段" min-width="260">
             <template #default="{ row }">
-              <el-select v-if="form.storageMode === 'REUSE'" v-model="row.targetColumn" filterable allow-create>
+              <el-select v-if="form.storageMode === 'REUSE'" v-model="row.targetColumn" filterable clearable>
                 <el-option v-for="column in targetColumnOptions" :key="column" :label="column" :value="column" />
               </el-select>
               <el-input v-else v-model="row.targetColumn" />

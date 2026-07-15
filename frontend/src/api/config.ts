@@ -58,6 +58,28 @@ export interface ConfigOptions {
   downstreamServices: Array<Record<string, any>>
 }
 
+export interface ResultTableColumnOption {
+  columnName: string
+  columnCnName: string
+  dbType: string
+  length?: number
+  precision?: number
+  scale?: number
+  required?: boolean
+  defaultValue?: string
+  validationRule?: string
+}
+
+export interface ResultTableDetail {
+  id: string
+  tableCode: string
+  tableName: string
+  tableComment?: string
+  ownerDepartmentId?: string
+  status: string
+  columns: ResultTableColumnOption[]
+}
+
 export function listExtractConfigs(params: Record<string, string>) {
   const searchParams = new URLSearchParams()
   Object.entries(params).forEach(([key, value]) => {
@@ -112,6 +134,17 @@ export function deleteExtractConfigDraft(id: string) {
 
 export function validateExtractConfig(id: string) {
   return request<ConfigValidateResult>(`/api/config/extract-configs/${id}/validate`, { method: 'POST' })
+}
+
+export function listResultTables(keyword?: string) {
+  const searchParams = new URLSearchParams()
+  if (keyword) searchParams.set('keyword', keyword)
+  const query = searchParams.toString()
+  return request<Array<Record<string, any>>>(`/api/config/result-tables${query ? `?${query}` : ''}`)
+}
+
+export function getResultTableDetail(tableCode: string) {
+  return request<ResultTableDetail>(`/api/config/result-tables/${encodeURIComponent(tableCode)}`)
 }
 
 export function getConfigOptions() {

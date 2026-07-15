@@ -5,7 +5,9 @@ import com.example.extraction.configuration.dto.ConfigDetailResponse;
 import com.example.extraction.configuration.dto.ConfigOptionsResponse;
 import com.example.extraction.configuration.dto.ConfigQueryRequest;
 import com.example.extraction.configuration.dto.ConfigSummaryResponse;
+import com.example.extraction.configuration.dto.ResultTableDetailResponse;
 import com.example.extraction.configuration.service.ConfigWizardService;
+import com.example.extraction.configuration.service.ResultTableService;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -23,9 +25,11 @@ import java.util.Map;
 @RequestMapping("/api/config")
 public class ConfigWizardController {
     private final ConfigWizardService configWizardService;
+    private final ResultTableService resultTableService;
 
-    public ConfigWizardController(ConfigWizardService configWizardService) {
+    public ConfigWizardController(ConfigWizardService configWizardService, ResultTableService resultTableService) {
         this.configWizardService = configWizardService;
+        this.resultTableService = resultTableService;
     }
 
     @GetMapping("/extract-configs")
@@ -82,6 +86,16 @@ public class ConfigWizardController {
     @PostMapping("/extract-configs/{id}/validate")
     public ApiResponse<Map<String, Object>> validate(@PathVariable("id") String id) {
         return ApiResponse.success(configWizardService.validate(id));
+    }
+
+    @GetMapping("/result-tables")
+    public ApiResponse<List<Map<String, Object>>> resultTables(@RequestParam(value = "keyword", required = false) String keyword) {
+        return ApiResponse.success(resultTableService.listOptions(keyword));
+    }
+
+    @GetMapping("/result-tables/{tableCode}")
+    public ApiResponse<ResultTableDetailResponse> resultTableDetail(@PathVariable("tableCode") String tableCode) {
+        return ApiResponse.success(resultTableService.detail(tableCode));
     }
 
     @GetMapping("/options")

@@ -1,0 +1,115 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.example.extraction.mapper.ResultTableMapper">
+    <resultMap id="ResultTableRecordMap" type="com.example.extraction.configuration.domain.ResultTableRecord">
+        <id property="id" column="id"/>
+        <result property="tableCode" column="table_code"/>
+        <result property="tableName" column="table_name"/>
+        <result property="tableComment" column="table_comment"/>
+        <result property="ownerDepartmentId" column="owner_department_id"/>
+        <result property="storageDatasource" column="storage_datasource"/>
+        <result property="autoCreateTable" column="auto_create_table"/>
+        <result property="autoAddColumn" column="auto_add_column"/>
+        <result property="ddlStatus" column="ddl_status"/>
+        <result property="status" column="status"/>
+        <result property="createdBy" column="created_by"/>
+        <result property="createdAt" column="created_at"/>
+        <result property="updatedAt" column="updated_at"/>
+    </resultMap>
+
+    <resultMap id="ResultTableColumnRecordMap" type="com.example.extraction.configuration.domain.ResultTableColumnRecord">
+        <id property="id" column="id"/>
+        <result property="resultTableId" column="result_table_id"/>
+        <result property="columnName" column="column_name"/>
+        <result property="columnNameCn" column="column_name_cn"/>
+        <result property="dbType" column="db_type"/>
+        <result property="typeParams" column="type_params"/>
+        <result property="fieldLength" column="field_length"/>
+        <result property="fieldPrecision" column="field_precision"/>
+        <result property="fieldScale" column="field_scale"/>
+        <result property="required" column="required"/>
+        <result property="defaultValue" column="default_value"/>
+        <result property="validationRule" column="validation_rule"/>
+        <result property="sortNo" column="sort_no"/>
+        <result property="enabled" column="enabled"/>
+        <result property="createdAt" column="created_at"/>
+        <result property="updatedAt" column="updated_at"/>
+    </resultMap>
+
+    <select id="selectTables" resultMap="ResultTableRecordMap">
+        <bind name="keywordLike" value="keyword == null ? null : '%' + keyword + '%'"/>
+        select id, table_code, table_name, table_comment, owner_department_id, storage_datasource,
+               auto_create_table, auto_add_column, ddl_status, status, created_by, created_at, updated_at
+        from result_table_config
+        <where>
+            <if test="status != null and status != ''">
+                and status = #{status}
+            </if>
+            <if test="keyword != null and keyword != ''">
+                and (table_code like #{keywordLike} or table_name like #{keywordLike} or table_comment like #{keywordLike})
+            </if>
+        </where>
+        order by updated_at desc, table_code asc
+    </select>
+
+    <select id="selectTableByCode" resultMap="ResultTableRecordMap">
+        select id, table_code, table_name, table_comment, owner_department_id, storage_datasource,
+               auto_create_table, auto_add_column, ddl_status, status, created_by, created_at, updated_at
+        from result_table_config
+        where table_code = #{tableCode}
+    </select>
+
+    <select id="selectColumnsByTableId" resultMap="ResultTableColumnRecordMap">
+        select id, result_table_id, column_name, column_name_cn, db_type, type_params, field_length,
+               field_precision, field_scale, required, default_value, validation_rule, sort_no, enabled,
+               created_at, updated_at
+        from result_table_column_config
+        where result_table_id = #{resultTableId}
+          and enabled = '1'
+        order by sort_no asc, column_name asc
+    </select>
+
+    <select id="countTables" resultType="java.lang.Integer">
+        select count(1) from result_table_config
+    </select>
+
+    <insert id="insertTable" parameterType="com.example.extraction.configuration.domain.ResultTableRecord">
+        insert into result_table_config (
+            id, table_code, table_name, table_comment, owner_department_id, storage_datasource,
+            auto_create_table, auto_add_column, ddl_status, status, created_by, created_at, updated_at
+        ) values (
+            #{id}, #{tableCode}, #{tableName}, #{tableComment}, #{ownerDepartmentId}, #{storageDatasource},
+            #{autoCreateTable}, #{autoAddColumn}, #{ddlStatus}, #{status}, #{createdBy}, #{createdAt}, #{updatedAt}
+        )
+    </insert>
+
+    <update id="updateTable" parameterType="com.example.extraction.configuration.domain.ResultTableRecord">
+        update result_table_config
+        set table_name = #{tableName},
+            table_comment = #{tableComment},
+            owner_department_id = #{ownerDepartmentId},
+            storage_datasource = #{storageDatasource},
+            auto_create_table = #{autoCreateTable},
+            auto_add_column = #{autoAddColumn},
+            ddl_status = #{ddlStatus},
+            status = #{status},
+            updated_at = #{updatedAt}
+        where id = #{id}
+    </update>
+
+    <delete id="deleteColumnsByTableId">
+        delete from result_table_column_config where result_table_id = #{resultTableId}
+    </delete>
+
+    <insert id="insertColumn" parameterType="com.example.extraction.configuration.domain.ResultTableColumnRecord">
+        insert into result_table_column_config (
+            id, result_table_id, column_name, column_name_cn, db_type, type_params, field_length,
+            field_precision, field_scale, required, default_value, validation_rule, sort_no, enabled,
+            created_at, updated_at
+        ) values (
+            #{id}, #{resultTableId}, #{columnName}, #{columnNameCn}, #{dbType}, #{typeParams}, #{fieldLength},
+            #{fieldPrecision}, #{fieldScale}, #{required}, #{defaultValue}, #{validationRule}, #{sortNo}, #{enabled},
+            #{createdAt}, #{updatedAt}
+        )
+    </insert>
+</mapper>

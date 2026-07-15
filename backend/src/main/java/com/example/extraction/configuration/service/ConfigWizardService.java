@@ -41,6 +41,7 @@ public class ConfigWizardService {
     private final DownstreamIntegrationService downstreamIntegrationService;
     private final SystemDictionaryService dictionaryService;
     private final SystemAccessService systemAccessService;
+    private final ResultTableService resultTableService;
     private final ObjectMapper objectMapper;
 
     public ConfigWizardService(ExtractConfigMapper extractConfigMapper,
@@ -49,6 +50,7 @@ public class ConfigWizardService {
                                DownstreamIntegrationService downstreamIntegrationService,
                                SystemDictionaryService dictionaryService,
                                SystemAccessService systemAccessService,
+                               ResultTableService resultTableService,
                                ObjectMapper objectMapper) {
         this.extractConfigMapper = extractConfigMapper;
         this.ocrEngineConfigMapper = ocrEngineConfigMapper;
@@ -56,6 +58,7 @@ public class ConfigWizardService {
         this.downstreamIntegrationService = downstreamIntegrationService;
         this.dictionaryService = dictionaryService;
         this.systemAccessService = systemAccessService;
+        this.resultTableService = resultTableService;
         this.objectMapper = objectMapper;
     }
 
@@ -108,6 +111,7 @@ public class ConfigWizardService {
         record.setCreatedBy("system");
         record.setCreatedAt(LocalDateTime.now());
         record.setUpdatedAt(record.getCreatedAt());
+        resultTableService.syncFromWizard(payload, record.getCreatedBy());
         extractConfigMapper.insert(record);
         return getDetail(record.getId());
     }
@@ -123,6 +127,7 @@ public class ConfigWizardService {
         validateConfigNameUnique(payload.getBaseInfo().getConfigName(), existing.getConfigCode());
         fillRecord(existing, payload, payloadBody);
         existing.setUpdatedAt(LocalDateTime.now());
+        resultTableService.syncFromWizard(payload, existing.getCreatedBy());
         int updated = extractConfigMapper.updateDraft(existing);
         if (updated == 0) {
             throw new BusinessException("CONFIG_409", "配置状态已变化，请刷新后重试");
@@ -169,6 +174,7 @@ public class ConfigWizardService {
         ExtractConfigRecord record = requireRecord(id);
         ConfigWizardPayload payload = readPayload(record);
         validatePublish(payload);
+        resultTableService.syncFromWizard(payload, record.getCreatedBy());
         extractConfigMapper.disablePublishedByConfigCode(record.getConfigCode(), id);
         int updated = extractConfigMapper.publish(id);
         if (updated == 0) {
@@ -234,11 +240,7 @@ public class ConfigWizardService {
             option.put("defaultEngine", "1".equals(ocrEngine.getDefaultEngine()));
             return option;
         }).toList());
-        response.setResultTables(List.of(
-                table("ext_fund_business_result", "基金业务要素结果表", "保存基金申购、赎回、划款、回单等业务场景的结构化要素结果"),
-                table("ext_payment_instruction", "划款指令结果表", "保存运营划款指令类文档的结构化识别结果"),
-                table("ext_bank_receipt", "银行回单结果表", "保存银行回单、流水回执等文档的结构化识别结果")
-        ));
+        response.setResultTables(resultTableService.listOptions(null));
         response.setDownstreamServices(downstreamIntegrationService.serviceOptions());
         return response;
     }
@@ -455,7 +457,13 @@ public class ConfigWizardService {
             }
         }
         if ("CREATE".equals(storageConfig.getStorageMode())) {
-            issues.add(issue("WARN", "验证阶段只做 DDL 预检查，不会真正创建结果表；发布时才执行建表"));
+            issues.add(issue("WARN", "验证阶段只预览 DDL，不会真正创建物理结果表；保存草稿时会登记结果表元数据台账"));
+        } else if ("REUSE".equals(storageConfig.getStorageMode()) && StringUtils.hasText(storageConfig.getTargetTable())) {
+            try {
+                resultTableService.validateReuseColumns(storageConfig.getTargetTable(), columns, payload.getExtractFields(), payload.getUniqueConstraints());
+            } catch (BusinessException e) {
+                issues.add(issue("ERROR", e.getMessage()));
+            }
         }
         if (issues.isEmpty()) {
             issues.add(issue("INFO", "落库配置、字段映射和唯一约束检查通过"));
@@ -836,15 +844,6 @@ public class ConfigWizardService {
         Map<String, Object> subCategory = option(label, label);
         subCategory.put("templates", templates);
         return subCategory;
-    }
-
-    private Map<String, Object> table(String tableCode, String tableName, String comment) {
-        Map<String, Object> table = new LinkedHashMap<>();
-        table.put("tableCode", tableCode);
-        table.put("tableName", tableName);
-        table.put("label", tableCode + " - " + tableName);
-        table.put("comment", comment);
-        return table;
     }
 
     private Map<String, Object> service(String serviceCode, String serviceName, String systemCode, String systemName,
