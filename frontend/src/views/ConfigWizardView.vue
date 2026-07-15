@@ -270,6 +270,27 @@ const regexFailedCount = computed(() =>
     return result === '未匹配' || result === '正则错误'
   }).length
 )
+const isRuleFirstStrategy = computed(() => form.defaultStrategy === 'RULE_FIRST_AI_FALLBACK')
+const extractStrategyGuideText = computed(() =>
+  isRuleFirstStrategy.value
+    ? '当前为“正则优先，AI 兜底”：建议先维护字段级正则并验证样本文本；如担心正则运行异常，再维护 AI 提示词作为报错兜底。'
+    : '当前为“AI 优先，正则兜底”：建议先维护 AI 提示词；如担心 AI 调用失败、返回非 JSON 或解析异常，再为关键字段补充正则兜底。'
+)
+const extractStrategyRuntimeText = computed(() =>
+  isRuleFirstStrategy.value
+    ? '执行时先按字段正则取数；仅当正则执行异常时调用 AI 兜底。正则未匹配不视为报错，会按缺失字段进入复核或后续校验。'
+    : '执行时先调用 AI 一次性提取全部字段；仅当 AI 调用失败、返回非 JSON 或解析异常时执行字段正则兜底。低置信度不自动触发正则，会进入复核。'
+)
+const regexStrategyHelpText = computed(() =>
+  isRuleFirstStrategy.value
+    ? '所有字段一次性展示。字段正则在当前策略下作为主取数规则；未匹配字段进入复核或后续校验，只有正则执行异常时才调用 AI 兜底。'
+    : '所有字段一次性展示。字段正则在当前策略下作为 AI 报错后的兜底规则；AI 低置信度不会自动触发正则兜底。'
+)
+const fieldStrategyDescription = computed(() =>
+  isRuleFirstStrategy.value
+    ? '正则优先：先执行字段正则；仅正则执行异常时调用 AI。未匹配字段进入复核/校验。'
+    : 'AI 优先：先调用 AI；仅 AI 执行异常时执行字段正则。低置信度进入复核。'
+)
 const preprocessEnabled = ref(false)
 const preprocessSteps = ref<PreprocessStep[]>([
   {
@@ -1842,7 +1863,7 @@ onMounted(async () => {
         <div class="card-header">
           <div>
             <h2>提取策略</h2>
-            <p class="muted">AI 通过一套提示词一次性提取全部字段；正则按字段逐个配置，适合金额、账号、日期等格式明确的取数。</p>
+            <p class="muted">AI 适合非固定版式的一次性要素提取；字段级正则适合金额、账号、日期等格式稳定字段。默认策略决定主提取方式，另一种方式仅在主策略执行报错时兜底。</p>
           </div>
         </div>
         <el-form :model="form" label-width="130px" class="form-grid">
@@ -1870,8 +1891,14 @@ onMounted(async () => {
 
         <div class="strategy-overview">
           <el-alert
-            title="推荐配置顺序：先确认 AI 提示词是否能一次性覆盖所有字段，再为关键字段补充正则规则，最后选择默认执行策略。"
+            :title="extractStrategyGuideText"
             type="info"
+            :closable="false"
+          />
+          <el-alert
+            class="mt-8"
+            :title="extractStrategyRuntimeText"
+            type="warning"
             :closable="false"
           />
           <div class="strategy-kpi">
@@ -1941,7 +1968,7 @@ onMounted(async () => {
             </template>
             <el-alert
               class="mb-12"
-              title="所有字段一次性展示。只需打开需要规则兜底的字段，填写正则后即可单行验证或批量验证。"
+              :title="regexStrategyHelpText"
               type="success"
               :closable="false"
             />
@@ -2004,7 +2031,7 @@ onMounted(async () => {
             fieldCode: field.fieldCode,
             ai: aiEnabled ? '统一提示词覆盖' : '停用',
             regex: (field as any).extractByRegex ? '字段正则已配置' : '未配置',
-            strategy: form.defaultStrategy === 'RULE_FIRST_AI_FALLBACK' ? '先执行字段正则，失败或低置信度时调用 AI' : '先调用 AI，失败或低置信度时执行字段正则'
+            strategy: fieldStrategyDescription
           }))"
         >
           <el-table-column prop="fieldName" label="字段" width="140" />
