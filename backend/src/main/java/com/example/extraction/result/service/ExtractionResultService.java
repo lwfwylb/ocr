@@ -553,7 +553,7 @@ public class ExtractionResultService {
         }
         Map<String, String> targetByField = targetColumnByField(payload);
         for (ConfigWizardPayload.RegexRule rule : payload.getRegexRules()) {
-            if (rule == null || !regexRuleExecutable(rule, strategy) || !StringUtils.hasText(rule.getFieldCode())
+            if (rule == null || !"REGEX".equals(ruleType(rule)) || !regexRuleExecutable(rule, strategy) || !StringUtils.hasText(rule.getFieldCode())
                     || !StringUtils.hasText(rule.getRegexPattern())) {
                 continue;
             }
@@ -590,6 +590,10 @@ public class ExtractionResultService {
         return "RULE_FIRST_AI_FALLBACK".equals(strategy) && StringUtils.hasText(rule.getRegexPattern());
     }
 
+    private String ruleType(ConfigWizardPayload.RegexRule rule) {
+        return StringUtils.hasText(rule.getRuleType()) ? rule.getRuleType() : "REGEX";
+    }
+
     private void attachRegexDiagnostics(Map<String, Object> result, ConfigWizardPayload payload, SimulatedExtraction regexExtraction) {
         List<String> configuredFields = configuredRegexTargetFields(payload);
         List<String> matchedFields = regexExtraction.result().keySet().stream()
@@ -622,7 +626,7 @@ public class ExtractionResultService {
         }
         Map<String, String> targetByField = targetColumnByField(payload);
         return payload.getRegexRules().stream()
-                .filter(rule -> rule != null && StringUtils.hasText(rule.getRegexPattern()) && StringUtils.hasText(rule.getFieldCode()))
+                .filter(rule -> rule != null && "REGEX".equals(ruleType(rule)) && StringUtils.hasText(rule.getRegexPattern()) && StringUtils.hasText(rule.getFieldCode()))
                 .map(rule -> firstText(targetByField.get(rule.getFieldCode()), rule.getFieldCode()))
                 .distinct()
                 .toList();

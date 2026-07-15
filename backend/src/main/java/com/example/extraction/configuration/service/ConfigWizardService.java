@@ -323,7 +323,7 @@ public class ConfigWizardService {
         List<Map<String, Object>> sections = new ArrayList<>();
         sections.add(section("BASIC", "配置完整性验证", validateBasicConfig(payload)));
         sections.add(section("DDL", "DDL 预检查", validateStorageConfig(payload)));
-        sections.add(section("REGEX", "正则规则验证", validateRegexRules(payload)));
+        sections.add(section("TRADITIONAL_RULE", "传统规则验证", validateRegexRules(payload)));
         sections.add(section("RULE", "加工校验规则验证", validateTransformAndValidationRules(payload)));
         sections.add(section("PUSH", "下游推送配置验证", validatePushRules(payload)));
         return sections;
@@ -523,7 +523,7 @@ public class ConfigWizardService {
     private List<Map<String, Object>> validateRegexRules(ConfigWizardPayload payload) {
         List<Map<String, Object>> issues = new ArrayList<>();
         if (payload.getRegexRules() == null || payload.getRegexRules().isEmpty()) {
-            issues.add(issue("WARN", "未配置字段级正则规则，仅依赖 AI 或其他策略提取"));
+            issues.add(issue("WARN", "未配置字段级传统规则，仅依赖 AI 提取"));
             return issues;
         }
         for (ConfigWizardPayload.RegexRule rule : payload.getRegexRules()) {
@@ -531,7 +531,12 @@ public class ConfigWizardService {
                 continue;
             }
             if (!StringUtils.hasText(rule.getFieldCode())) {
-                issues.add(issue("ERROR", "正则规则字段编码不能为空"));
+                issues.add(issue("ERROR", "传统规则字段编码不能为空"));
+            }
+            String ruleType = StringUtils.hasText(rule.getRuleType()) ? rule.getRuleType() : "REGEX";
+            if (!"REGEX".equals(ruleType)) {
+                issues.add(issue("INFO", "传统规则类型待接入执行器：" + rule.getFieldCode() + "，" + ruleType));
+                continue;
             }
             if (!StringUtils.hasText(rule.getRegexPattern())) {
                 issues.add(issue("ERROR", "正则表达式不能为空：" + rule.getFieldCode()));
@@ -547,7 +552,7 @@ public class ConfigWizardService {
             }
         }
         if (issues.isEmpty()) {
-            issues.add(issue("INFO", "已启用正则规则语法检查通过"));
+            issues.add(issue("INFO", "已启用文本正则规则语法检查通过"));
         }
         return issues;
     }

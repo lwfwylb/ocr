@@ -25,6 +25,7 @@ import {
 
 type TransformRuleType = 'DICT' | 'API' | 'SQL'
 type PreprocessStepType = 'PAGE_RANGE' | 'KEYWORD_FILTER' | 'PDF_TO_IMAGE'
+type TraditionalRuleType = 'REGEX' | 'TABLE_COLUMN' | 'FIXED_CELL' | 'KEY_VALUE' | 'METADATA'
 type ImageQuality = 'FAST_150' | 'STANDARD_300' | 'HIGH_450'
 type TransformOutputMode = 'OVERWRITE_INPUT' | 'WRITE_TARGET' | 'DERIVE_FIELD'
 type DictMatchMode = 'EQUALS' | 'CONTAINS' | 'REGEX' | 'RANGE'
@@ -121,6 +122,9 @@ fields.value.forEach((field) => {
   mutable.fieldDescription = mutable.fieldDescription || `从文档中识别${field.fieldName}`
   mutable.extractRequired = field.required
   mutable.extractByRegex = field.fieldCode === 'amount' || field.fieldCode === 'payee_account'
+  mutable.traditionalRuleEnabled = mutable.extractByRegex
+  mutable.traditionalRuleType = 'REGEX'
+  mutable.traditionalRuleConfig = {}
   mutable.regexPattern =
     field.fieldCode === 'amount'
       ? '(?:金额|付款金额|划款金额)[:：]?\\s*([0-9,]+(?:\\.\\d{1,2})?)'
@@ -261,35 +265,47 @@ const regexConfiguredCount = computed(() =>
 const regexValidatedCount = computed(() =>
   fields.value.filter((field) => {
     const result = regexPreviewMap.value[(field as any).fieldCode]
-    return (field as any).extractByRegex && Boolean(result)
+    return (field as any).extractByRegex && isExecutableTraditionalRule(field) && Boolean(result)
   }).length
 )
 const regexFailedCount = computed(() =>
   fields.value.filter((field) => {
     const result = regexPreviewMap.value[(field as any).fieldCode]
-    return result === '未匹配' || result === '正则错误'
+    return isExecutableTraditionalRule(field) && (result === '未匹配' || result === '正则错误')
   }).length
 )
+const traditionalRuleTypeOptions: Array<{ label: string; value: TraditionalRuleType; executable: boolean }> = [
+  { label: '文本正则', value: 'REGEX', executable: true },
+  { label: '表格列映射', value: 'TABLE_COLUMN', executable: false },
+  { label: '固定单元格', value: 'FIXED_CELL', executable: false },
+  { label: '关键字附近', value: 'KEY_VALUE', executable: false },
+  { label: '文件元数据', value: 'METADATA', executable: false }
+]
+const traditionalRuleTypeLabel = (type?: TraditionalRuleType | string) =>
+  traditionalRuleTypeOptions.find((item) => item.value === type)?.label || '文本正则'
+const isExecutableTraditionalRule = (field: any) => (field.traditionalRuleType || 'REGEX') === 'REGEX'
+const traditionalRuleStatusText = (field: any) =>
+  isExecutableTraditionalRule(field) ? '已接入执行器' : '待接入解析器后执行'
 const isRuleFirstStrategy = computed(() => form.defaultStrategy === 'RULE_FIRST_AI_FALLBACK')
 const extractStrategyGuideText = computed(() =>
   isRuleFirstStrategy.value
-    ? '当前为“正则优先，AI 兜底”：建议先维护字段级正则并验证样本文本；如担心正则运行异常，再维护 AI 提示词作为报错兜底。'
-    : '当前为“AI 优先，正则兜底”：建议先维护 AI 提示词；如担心 AI 调用失败、返回非 JSON 或解析异常，再为关键字段补充正则兜底。'
+    ? '当前为“传统规则优先，AI 兜底”：建议先维护字段级传统规则并验证样本文档；如担心传统规则运行异常，再维护 AI 提示词作为报错兜底。'
+    : '当前为“AI 优先，传统规则兜底”：建议先维护 AI 提示词；如担心 AI 调用失败、返回非 JSON 或解析异常，再为关键字段补充传统规则兜底。'
 )
 const extractStrategyRuntimeText = computed(() =>
   isRuleFirstStrategy.value
-    ? '执行时先按字段正则取数；仅当正则执行异常时调用 AI 兜底。正则未匹配不视为报错，会按缺失字段进入复核或后续校验。'
-    : '执行时先调用 AI 一次性提取全部字段；仅当 AI 调用失败、返回非 JSON 或解析异常时执行字段正则兜底。低置信度不自动触发正则，会进入复核。'
+    ? '执行时先按字段传统规则取数；P0 仅文本正则真实执行，其他类型先保存配置并提示待接入。仅当主规则执行异常时调用 AI 兜底。未匹配不视为报错，会进入复核或后续校验。'
+    : '执行时先调用 AI 一次性提取全部字段；仅当 AI 调用失败、返回非 JSON 或解析异常时执行字段传统规则兜底。低置信度不自动触发传统规则，会进入复核。'
 )
 const regexStrategyHelpText = computed(() =>
   isRuleFirstStrategy.value
-    ? '所有字段一次性展示。字段正则在当前策略下作为主取数规则；未匹配字段进入复核或后续校验，只有正则执行异常时才调用 AI 兜底。'
-    : '所有字段一次性展示。字段正则在当前策略下作为 AI 报错后的兜底规则；AI 低置信度不会自动触发正则兜底。'
+    ? '所有字段一次性展示。传统规则在当前策略下作为主取数规则；P0 仅文本正则执行，表格列映射、固定单元格等类型先作为配置入口保存。'
+    : '所有字段一次性展示。传统规则在当前策略下作为 AI 报错后的兜底规则；AI 低置信度不会自动触发传统规则兜底。'
 )
 const fieldStrategyDescription = computed(() =>
   isRuleFirstStrategy.value
-    ? '正则优先：先执行字段正则；仅正则执行异常时调用 AI。未匹配字段进入复核/校验。'
-    : 'AI 优先：先调用 AI；仅 AI 执行异常时执行字段正则。低置信度进入复核。'
+    ? '传统规则优先：先执行字段传统规则；仅主规则执行异常时调用 AI。未匹配字段进入复核/校验。'
+    : 'AI 优先：先调用 AI；仅 AI 执行异常时执行字段传统规则。低置信度进入复核。'
 )
 const preprocessEnabled = ref(false)
 const preprocessSteps = ref<PreprocessStep[]>([
@@ -745,8 +761,8 @@ const validateBaseInfoStep = () => {
 
 const extractStrategyStepErrors = () => {
   const errors: string[] = []
-  const hasEnabledRegex = fields.value.some((field: any) => field.extractByRegex && field.regexPattern?.trim())
-  if (!aiEnabled.value && !hasEnabledRegex) errors.push('未启用 AI，也未配置可执行的字段正则')
+  const hasEnabledTraditionalRule = fields.value.some((field: any) => field.extractByRegex && (field.traditionalRuleType || 'REGEX') === 'REGEX' && field.regexPattern?.trim())
+  if (!aiEnabled.value && !hasEnabledTraditionalRule) errors.push('未启用 AI，也未配置可执行的文本正则规则')
   if (aiEnabled.value && !form.llmModelCode) errors.push('请选择 LLM 模型')
   return errors
 }
@@ -860,6 +876,9 @@ const buildWizardPayload = () => ({
     extractRequired: field.extractRequired,
     multiple: field.multiple,
     extractByRegex: field.extractByRegex,
+    traditionalRuleEnabled: field.extractByRegex,
+    traditionalRuleType: field.traditionalRuleType || 'REGEX',
+    traditionalRuleConfig: field.traditionalRuleConfig || {},
     targetColumn: form.storageEnabled ? field.targetColumn : field.fieldCode
   })),
   fieldMappings: form.storageEnabled
@@ -882,10 +901,12 @@ const buildWizardPayload = () => ({
     outputJsonSchema: ''
   },
   regexRules: fields.value
-    .filter((field: any) => field.extractByRegex || field.regexPattern)
+    .filter((field: any) => field.extractByRegex || field.regexPattern || field.traditionalRuleType)
     .map((field: any) => ({
       fieldCode: field.fieldCode,
-      ruleName: `${field.fieldName}正则取数`,
+      ruleName: `${field.fieldName}${traditionalRuleTypeLabel(field.traditionalRuleType || 'REGEX')}取数`,
+      ruleType: field.traditionalRuleType || 'REGEX',
+      ruleConfig: field.traditionalRuleConfig || {},
       regexPattern: field.regexPattern,
       regexGroup: field.regexGroup,
       regexFlags: field.regexFlags,
@@ -997,6 +1018,9 @@ const addField = () => {
     multiple: false,
     targetColumn: fieldCode,
     extractByRegex: false,
+    traditionalRuleEnabled: false,
+    traditionalRuleType: 'REGEX',
+    traditionalRuleConfig: {},
     regexPattern: '',
     regexFlags: '',
     regexGroup: 1
@@ -1192,6 +1216,10 @@ const runRegexPreview = () => {
   ElMessage.success('已运行正则测试')
 }
 const runFieldRegexPreview = (field: any) => {
+  if (!isExecutableTraditionalRule(field)) {
+    regexPreviewMap.value[field.fieldCode] = '待接入'
+    return '待接入'
+  }
   if (!field.regexPattern) {
     regexPreviewMap.value[field.fieldCode] = '未配置'
     return '未配置'
@@ -1213,9 +1241,9 @@ const runAllRegexPreview = () => {
     return
   }
   fields.value.forEach((field) => {
-    if ((field as any).extractByRegex) runFieldRegexPreview(field)
+    if ((field as any).extractByRegex && isExecutableTraditionalRule(field)) runFieldRegexPreview(field)
   })
-  ElMessage.success('已批量验证已启用的正则规则')
+  ElMessage.success('已批量验证已启用的文本正则规则')
 }
 const normalizeRoleValue = (value: string) => {
   if (!value) return value
@@ -1283,7 +1311,10 @@ const applyWizardPayload = (payload: any) => {
       ...field,
       fieldDescription: field.fieldDescription || `从文档中识别${field.fieldName}`,
       required: field.extractRequired,
-      targetColumn: field.targetColumn || ''
+      targetColumn: field.targetColumn || '',
+      traditionalRuleEnabled: field.traditionalRuleEnabled ?? field.extractByRegex ?? false,
+      traditionalRuleType: field.traditionalRuleType || 'REGEX',
+      traditionalRuleConfig: field.traditionalRuleConfig || {}
     }))
   }
   if (payload.regexRules?.length) {
@@ -1291,6 +1322,9 @@ const applyWizardPayload = (payload: any) => {
       const field = fields.value.find((item: any) => item.fieldCode === rule.fieldCode) as any
       if (!field) return
       field.extractByRegex = rule.enabled
+      field.traditionalRuleEnabled = rule.enabled
+      field.traditionalRuleType = rule.ruleType || field.traditionalRuleType || 'REGEX'
+      field.traditionalRuleConfig = rule.ruleConfig || field.traditionalRuleConfig || {}
       field.regexPattern = rule.regexPattern
       field.regexGroup = rule.regexGroup
       field.regexFlags = rule.regexFlags
@@ -1597,7 +1631,7 @@ onMounted(async () => {
             </el-form-item>
             <el-form-item label="输出格式">
               <el-tag type="info">Markdown</el-tag>
-              <span class="muted ml-8">固定输出 Markdown，供后续 AI 提取和正则取数统一消费。</span>
+              <span class="muted ml-8">固定输出 Markdown，供后续 AI 提取和传统规则取数统一消费。</span>
             </el-form-item>
           </el-form>
           <el-input
@@ -1863,7 +1897,7 @@ onMounted(async () => {
         <div class="card-header">
           <div>
             <h2>提取策略</h2>
-            <p class="muted">AI 适合非固定版式的一次性要素提取；字段级正则适合金额、账号、日期等格式稳定字段。默认策略决定主提取方式，另一种方式仅在主策略执行报错时兜底。</p>
+            <p class="muted">AI 适合非固定版式的一次性要素提取；传统规则适合结构化文档和格式稳定字段。P0 先真实执行文本正则，表格列映射、固定单元格等作为后续解析器的配置入口。</p>
           </div>
         </div>
         <el-form :model="form" label-width="130px" class="form-grid">
@@ -1878,7 +1912,7 @@ onMounted(async () => {
               />
             </el-select>
           </el-form-item>
-          <el-form-item label="默认策略"><el-select v-model="form.defaultStrategy"><el-option label="AI 优先，正则兜底" value="AI_FIRST_RULE_FALLBACK" /><el-option label="正则优先，AI 兜底" value="RULE_FIRST_AI_FALLBACK" /></el-select></el-form-item>
+          <el-form-item label="默认策略"><el-select v-model="form.defaultStrategy"><el-option label="AI 优先，传统规则兜底" value="AI_FIRST_RULE_FALLBACK" /><el-option label="传统规则优先，AI 兜底" value="RULE_FIRST_AI_FALLBACK" /></el-select></el-form-item>
           <el-form-item label="置信度阈值"><el-input-number v-model="form.confidenceThreshold" :min="0" :max="1" :step="0.01" /></el-form-item>
         </el-form>
         <el-alert
@@ -1903,7 +1937,7 @@ onMounted(async () => {
           />
           <div class="strategy-kpi">
             <span>AI 覆盖字段：<strong>{{ fields.length }}</strong></span>
-            <span>已配置正则：<strong>{{ fields.filter((field) => (field as any).extractByRegex).length }}</strong></span>
+            <span>已配置传统规则：<strong>{{ fields.filter((field) => (field as any).extractByRegex).length }}</strong></span>
             <span>低于 <strong>{{ Math.round(form.confidenceThreshold * 100) }}%</strong> 进入复核</span>
           </div>
         </div>
@@ -1953,17 +1987,17 @@ onMounted(async () => {
           </el-card>
           </el-tab-pane>
 
-          <el-tab-pane label="字段级正则" name="regex">
+          <el-tab-pane label="传统规则" name="regex">
           <el-card shadow="never">
             <template #header>
               <div class="card-header">
                 <div>
-                  <span>字段级正则取数规则</span>
+                  <span>字段级传统取数规则</span>
                   <p class="muted">
-                    已启用 {{ regexEnabledCount }}/{{ fields.length }} 个字段，已配置 {{ regexConfiguredCount }} 个，已验证 {{ regexValidatedCount }} 个，失败 {{ regexFailedCount }} 个
+                    已启用 {{ regexEnabledCount }}/{{ fields.length }} 个字段，文本正则已配置 {{ regexConfiguredCount }} 个，已验证 {{ regexValidatedCount }} 个，失败 {{ regexFailedCount }} 个
                   </p>
                 </div>
-                <el-button size="small" type="primary" @click="runAllRegexPreview">验证全部正则</el-button>
+                <el-button size="small" type="primary" @click="runAllRegexPreview">验证全部文本正则</el-button>
               </div>
             </template>
             <el-alert
@@ -1972,7 +2006,7 @@ onMounted(async () => {
               type="success"
               :closable="false"
             />
-            <el-input v-model="regexSampleText" class="mb-12" type="textarea" :rows="4" placeholder="输入统一测试文本，用于验证下方所有字段正则" />
+            <el-input v-model="regexSampleText" class="mb-12" type="textarea" :rows="4" placeholder="输入统一测试文本，用于验证下方所有文本正则规则" />
             <el-table :data="fields" class="regex-rule-table" height="520">
               <el-table-column label="字段" min-width="150" fixed>
                 <template #default="{ row }">
@@ -1990,25 +2024,45 @@ onMounted(async () => {
                   <el-switch v-model="row.extractByRegex" />
                 </template>
               </el-table-column>
+              <el-table-column label="规则类型" min-width="150">
+                <template #default="{ row }">
+                  <el-select v-model="row.traditionalRuleType" filterable>
+                    <el-option v-for="item in traditionalRuleTypeOptions" :key="item.value" :label="item.label" :value="item.value">
+                      <div class="option-row">
+                        <span>{{ item.label }}</span>
+                        <el-tag size="small" :type="item.executable ? 'success' : 'info'">{{ item.executable ? 'P0 可执行' : '待接入' }}</el-tag>
+                      </div>
+                    </el-option>
+                  </el-select>
+                </template>
+              </el-table-column>
+              <el-table-column label="接入状态" min-width="130">
+                <template #default="{ row }">
+                  <el-tag :type="isExecutableTraditionalRule(row) ? 'success' : 'info'">{{ traditionalRuleStatusText(row) }}</el-tag>
+                </template>
+              </el-table-column>
               <el-table-column label="正则表达式" min-width="260">
                 <template #default="{ row }">
-                  <el-input v-model="row.regexPattern" type="textarea" :rows="2" placeholder="填写该字段的正则表达式" />
+                  <el-input v-if="isExecutableTraditionalRule(row)" v-model="row.regexPattern" type="textarea" :rows="2" placeholder="填写该字段的正则表达式" />
+                  <span v-else class="muted">{{ traditionalRuleTypeLabel(row.traditionalRuleType) }} 的详细配置将在对应解析器接入后开放。</span>
                 </template>
               </el-table-column>
               <el-table-column label="分组" width="86">
                 <template #default="{ row }">
-                  <el-input-number v-model="row.regexGroup" :min="0" />
+                  <el-input-number v-if="isExecutableTraditionalRule(row)" v-model="row.regexGroup" :min="0" />
+                  <span v-else class="muted">-</span>
                 </template>
               </el-table-column>
               <el-table-column label="flags" width="90">
                 <template #default="{ row }">
-                  <el-input v-model="row.regexFlags" placeholder="i/m" />
+                  <el-input v-if="isExecutableTraditionalRule(row)" v-model="row.regexFlags" placeholder="i/m" />
+                  <span v-else class="muted">-</span>
                 </template>
               </el-table-column>
               <el-table-column label="验证结果" min-width="140">
                 <template #default="{ row }">
                   <el-tag
-                    :type="regexPreviewMap[row.fieldCode] === '未匹配' || regexPreviewMap[row.fieldCode] === '正则错误' ? 'warning' : regexPreviewMap[row.fieldCode] === '未配置' ? 'info' : 'success'"
+                    :type="regexPreviewMap[row.fieldCode] === '未匹配' || regexPreviewMap[row.fieldCode] === '正则错误' ? 'warning' : regexPreviewMap[row.fieldCode] === '未配置' || regexPreviewMap[row.fieldCode] === '待接入' ? 'info' : 'success'"
                   >
                     {{ regexPreviewMap[row.fieldCode] || '待验证' }}
                   </el-tag>
@@ -2016,7 +2070,7 @@ onMounted(async () => {
               </el-table-column>
               <el-table-column label="操作" width="86" fixed="right">
                 <template #default="{ row }">
-                  <el-button size="small" @click="runFieldRegexPreview(row)">验证此字段</el-button>
+                  <el-button size="small" :disabled="!isExecutableTraditionalRule(row)" @click="runFieldRegexPreview(row)">验证此字段</el-button>
                 </template>
               </el-table-column>
             </el-table>
@@ -2030,14 +2084,14 @@ onMounted(async () => {
             fieldName: field.fieldName,
             fieldCode: field.fieldCode,
             ai: aiEnabled ? '统一提示词覆盖' : '停用',
-            regex: (field as any).extractByRegex ? '字段正则已配置' : '未配置',
+            regex: (field as any).extractByRegex ? `${traditionalRuleTypeLabel((field as any).traditionalRuleType)}已配置` : '未配置',
             strategy: fieldStrategyDescription
           }))"
         >
           <el-table-column prop="fieldName" label="字段" width="140" />
           <el-table-column prop="fieldCode" label="编码" width="150" />
           <el-table-column prop="ai" label="AI 取数" width="150" />
-          <el-table-column prop="regex" label="正则取数" width="160" />
+          <el-table-column prop="regex" label="传统规则" width="180" />
           <el-table-column prop="strategy" label="执行说明" min-width="260" />
         </el-table>
       </template>

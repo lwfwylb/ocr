@@ -628,6 +628,9 @@ public class ConfigWizardPayload {
         private Boolean extractRequired;
         private Boolean multiple;
         private Boolean extractByRegex;
+        private Boolean traditionalRuleEnabled;
+        private String traditionalRuleType;
+        private Map<String, Object> traditionalRuleConfig;
         private String targetColumn;
 
         public String getFieldCode() {
@@ -676,6 +679,30 @@ public class ConfigWizardPayload {
 
         public void setExtractByRegex(Boolean extractByRegex) {
             this.extractByRegex = extractByRegex;
+        }
+
+        public Boolean getTraditionalRuleEnabled() {
+            return traditionalRuleEnabled;
+        }
+
+        public void setTraditionalRuleEnabled(Boolean traditionalRuleEnabled) {
+            this.traditionalRuleEnabled = traditionalRuleEnabled;
+        }
+
+        public String getTraditionalRuleType() {
+            return traditionalRuleType;
+        }
+
+        public void setTraditionalRuleType(String traditionalRuleType) {
+            this.traditionalRuleType = traditionalRuleType;
+        }
+
+        public Map<String, Object> getTraditionalRuleConfig() {
+            return traditionalRuleConfig;
+        }
+
+        public void setTraditionalRuleConfig(Map<String, Object> traditionalRuleConfig) {
+            this.traditionalRuleConfig = traditionalRuleConfig;
         }
 
         public String getTargetColumn() {
@@ -813,6 +840,8 @@ public class ConfigWizardPayload {
     public static class RegexRule {
         private String fieldCode;
         private String ruleName;
+        private String ruleType;
+        private Map<String, Object> ruleConfig;
         private String regexPattern;
         private Integer regexGroup;
         private String regexFlags;
@@ -835,6 +864,22 @@ public class ConfigWizardPayload {
 
         public void setRuleName(String ruleName) {
             this.ruleName = ruleName;
+        }
+
+        public String getRuleType() {
+            return ruleType;
+        }
+
+        public void setRuleType(String ruleType) {
+            this.ruleType = ruleType;
+        }
+
+        public Map<String, Object> getRuleConfig() {
+            return ruleConfig;
+        }
+
+        public void setRuleConfig(Map<String, Object> ruleConfig) {
+            this.ruleConfig = ruleConfig;
         }
 
         public String getRegexPattern() {
