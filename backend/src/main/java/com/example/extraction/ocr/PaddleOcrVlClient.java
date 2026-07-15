@@ -6,14 +6,17 @@ import com.example.extraction.model.domain.OcrEngineConfigRecord;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import org.springframework.http.HttpEntity;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
+import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
+import org.springframework.web.client.HttpStatusCodeException;
+import org.springframework.web.client.RestTemplate;
 
 import java.io.IOException;
-import java.net.URI;
-import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
-import java.net.http.HttpResponse;
 import java.nio.file.Files;
 import java.time.Duration;
 import java.util.Base64;
@@ -57,29 +60,21 @@ public class PaddleOcrVlClient implements OcrEngineClient {
             payload.put("useLayoutDetection", boolParam(request, "useLayoutDetection", true));
             payload.put("layoutMergeBboxesMode", textParam(request, "layoutMergeBboxesMode", "large"));
 
-            HttpRequest httpRequest = HttpRequest.newBuilder(URI.create(engine.getBaseUrl()))
-                    .timeout(Duration.ofSeconds(timeoutSeconds(engine, 180)))
-                    .header("Content-Type", "application/json; charset=utf-8")
-                    .POST(HttpRequest.BodyPublishers.ofString(payload.toString()))
-                    .build();
-            HttpResponse<String> httpResponse = HttpClient.newBuilder()
-                    .connectTimeout(Duration.ofSeconds(Math.min(timeoutSeconds(engine, 180), 30)))
-                    .build()
-                    .send(httpRequest, HttpResponse.BodyHandlers.ofString());
-            if (httpResponse.statusCode() < 200 || httpResponse.statusCode() >= 300) {
-                throw new BusinessException("OCR_HTTP_" + httpResponse.statusCode(), "PaddleOCR-VL 调用失败：HTTP " + httpResponse.statusCode());
-            }
-            OcrParseResponse result = parseResponseBody(httpResponse.body());
+            HttpHeaders headers = new HttpHeaders();
+            headers.setContentType(MediaType.APPLICATION_JSON);
+            HttpEntity<String> entity = new HttpEntity<>(payload.toString(), headers);
+            ResponseEntity<String> httpResponse = restTemplate(engine).postForEntity(engine.getBaseUrl(), entity, String.class);
+            OcrParseResponse result = parseResponseBody(httpResponse.getBody());
             result.setEngineCode(engine.getEngineCode());
             result.setDurationMs(System.currentTimeMillis() - begin);
             return result;
         } catch (BusinessException e) {
             throw e;
+        } catch (HttpStatusCodeException e) {
+            throw new BusinessException("OCR_HTTP_" + e.getStatusCode().value(),
+                    "PaddleOCR-VL 调用失败：HTTP " + e.getStatusCode().value() + responseBodyMessage(e.getResponseBodyAsString()));
         } catch (IOException e) {
             throw new BusinessException("OCR_IO_ERROR", "PaddleOCR-VL 文件读取或响应解析失败：" + e.getMessage());
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            throw new BusinessException("OCR_INTERRUPTED", "PaddleOCR-VL 调用被中断");
         } catch (IllegalArgumentException e) {
             throw new BusinessException("OCR_400", "PaddleOCR-VL 服务地址不合法：" + e.getMessage());
         }
@@ -175,6 +170,25 @@ public class PaddleOcrVlClient implements OcrEngineClient {
 
     private int timeoutSeconds(OcrEngineConfigRecord engine, int fallback) {
         return engine.getTimeoutSeconds() == null || engine.getTimeoutSeconds() <= 0 ? fallback : engine.getTimeoutSeconds();
+    }
+
+    private RestTemplate restTemplate(OcrEngineConfigRecord engine) {
+        SimpleClientHttpRequestFactory factory = new SimpleClientHttpRequestFactory();
+        int timeout = timeoutSeconds(engine, 180);
+        factory.setConnectTimeout(Duration.ofSeconds(Math.min(timeout, 30)));
+        factory.setReadTimeout(Duration.ofSeconds(timeout));
+        return new RestTemplate(factory);
+    }
+
+    private String responseBodyMessage(String responseBody) {
+        if (!StringUtils.hasText(responseBody)) {
+            return "";
+        }
+        String compact = responseBody.replaceAll("\\s+", " ").trim();
+        if (compact.length() > 2000) {
+            compact = compact.substring(0, 2000) + "...";
+        }
+        return "，响应内容：" + compact;
     }
 
     private byte[] decodeBase64(String value) {
