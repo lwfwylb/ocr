@@ -81,6 +81,7 @@ const go = (path: string) => router.push(path)
           </template>
           <el-menu-item index="/models/ocr">OCR 引擎</el-menu-item>
           <el-menu-item index="/models/llm">LLM 配置</el-menu-item>
+          <el-menu-item index="/models/prompts">提示词模板</el-menu-item>
           <el-menu-item index="/models/logs">调用日志</el-menu-item>
         </el-sub-menu>
         <el-sub-menu index="/system">

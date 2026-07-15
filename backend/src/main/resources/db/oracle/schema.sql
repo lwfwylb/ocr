@@ -526,6 +526,19 @@ create unique index uk_llm_model_code on llm_model_config (model_code);
 create index idx_llm_model_status on llm_model_config (status);
 create index idx_llm_model_default on llm_model_config (default_model);
 
+create table prompt_template_config (
+  id varchar2(64) primary key,
+  template_type varchar2(30) not null,
+  template_name varchar2(100) not null,
+  template_content clob not null,
+  status varchar2(30) not null,
+  updated_by varchar2(100),
+  created_at timestamp not null,
+  updated_at timestamp not null
+);
+
+create unique index uk_prompt_template_type on prompt_template_config (template_type);
+
 create table ocr_engine_config (
   id varchar2(64) primary key,
   engine_code varchar2(128) not null,

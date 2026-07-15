@@ -522,6 +522,18 @@ create table if not exists llm_model_config (
   key idx_llm_model_default (default_model)
 );
 
+create table if not exists prompt_template_config (
+  id varchar(64) primary key,
+  template_type varchar(30) not null,
+  template_name varchar(100) not null,
+  template_content longtext not null,
+  status varchar(30) not null,
+  updated_by varchar(100),
+  created_at datetime not null,
+  updated_at datetime not null,
+  unique key uk_prompt_template_type (template_type)
+);
+
 create table if not exists ocr_engine_config (
   id varchar(64) primary key,
   engine_code varchar(128) not null,

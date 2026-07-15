@@ -14,7 +14,14 @@ import {
   type ConfigOptions,
   type ConfigValidateResult
 } from '../api/config'
-import { listLlmModelOptions, listOcrEngineOptions, type LlmModelOption, type OcrEngineOption } from '../api/model'
+import {
+  getPromptTemplateDefaults,
+  listLlmModelOptions,
+  listOcrEngineOptions,
+  type LlmModelOption,
+  type OcrEngineOption,
+  type PromptTemplateDefaults
+} from '../api/model'
 
 type TransformRuleType = 'DICT' | 'API' | 'SQL'
 type PreprocessStepType = 'PAGE_RANGE' | 'KEYWORD_FILTER' | 'PDF_TO_IMAGE'
@@ -232,7 +239,10 @@ const mappingProfileDrawerVisible = ref(false)
 const ddlPreviewVisible = ref(false)
 const aiEnabled = ref(true)
 const activeExtractTab = ref('ai')
-const aiSystemPrompt = ref('你是基金公司智能要素提取助手。请基于解析后的文档文本、表格和页面位置信息，按字段定义一次性提取全部业务要素。')
+const fallbackSystemPromptTemplate = '你是基金公司智能要素提取助手。请严格根据输入的文档内容提取信息，不允许编造。无法识别的字段返回null。请严格按用户提示词要求输出JSON，不输出解释性文字。'
+const fallbackUserPromptTemplate = '请从文档内容中提取要素：${fields}。要求无法识别的字段返回null，严格JSON格式输出。'
+const promptTemplateDefaults = ref<PromptTemplateDefaults | null>(null)
+const aiSystemPrompt = ref(fallbackSystemPromptTemplate)
 const aiUserPrompt = ref('')
 const promptAutoSync = ref(true)
 const promptOutdated = ref(false)
@@ -444,7 +454,9 @@ const fieldDrivenUserPrompt = computed(() => {
   const fieldsText = promptFieldItems.value.map((field) => field.promptText).join('、') || '请先维护提取字段'
   const multipleFields = promptFieldItems.value.filter((field) => field.multiple).map((field) => field.fieldCode)
   const multipleRequirement = multipleFields.length ? `多值字段 ${multipleFields.join('、')} 返回数组。` : ''
-  return `请从文档内容中提取要素：${fieldsText}。${multipleRequirement}要求无法识别的字段返回null，严格JSON格式输出。`
+  const template = promptTemplateDefaults.value?.userTemplate || fallbackUserPromptTemplate
+  const renderedFields = `${fieldsText}${multipleRequirement ? `。${multipleRequirement}` : ''}`
+  return template.split('${fields}').join(renderedFields)
 })
 const promptStatusLabel = computed(() => promptAutoSync.value ? '由字段配置自动生成' : promptOutdated.value ? '已人工调整，字段配置已变更' : '已人工调整')
 const promptStatusType = computed(() => promptAutoSync.value ? 'success' : promptOutdated.value ? 'warning' : 'info')
@@ -462,6 +474,10 @@ const regenerateAiUserPrompt = () => {
 const restoreAutoPrompt = () => {
   setAiUserPrompt(fieldDrivenUserPrompt.value, true)
   ElMessage.success('已恢复为字段配置自动生成')
+}
+const restoreDefaultSystemPrompt = () => {
+  aiSystemPrompt.value = promptTemplateDefaults.value?.systemTemplate || fallbackSystemPromptTemplate
+  ElMessage.success('已恢复默认系统提示词')
 }
 const handleAiUserPromptInput = (value: string) => {
   aiUserPrompt.value = value
@@ -1313,7 +1329,12 @@ const loadWizardOptions = async () => {
     options.value = await getConfigOptions()
     llmModelOptions.value = await listLlmModelOptions()
     ocrEngineOptions.value = await listOcrEngineOptions()
+    promptTemplateDefaults.value = await getPromptTemplateDefaults()
     const isCreateMode = !route.query.id
+    if (isCreateMode) {
+      aiSystemPrompt.value = promptTemplateDefaults.value.systemTemplate || fallbackSystemPromptTemplate
+      setAiUserPrompt(fieldDrivenUserPrompt.value, true)
+    }
     if (isCreateMode && !form.engineCode) {
       form.engineCode = ocrEngineOptions.value.find((item) => item.defaultEngine)?.engineCode || ''
     }
@@ -1871,7 +1892,13 @@ onMounted(async () => {
             </template>
             <el-form label-width="110px">
               <el-form-item label="系统提示词">
-                <el-input v-model="aiSystemPrompt" type="textarea" :rows="4" />
+                <div class="prompt-editor wide">
+                  <div class="prompt-editor-bar">
+                    <span class="muted">默认从模型中心提示词模板加载，保存配置后会固定在当前版本中。</span>
+                    <el-button size="small" @click="restoreDefaultSystemPrompt">恢复默认</el-button>
+                  </div>
+                  <el-input v-model="aiSystemPrompt" type="textarea" :rows="4" />
+                </div>
               </el-form-item>
               <el-form-item label="用户提示词">
                 <div class="prompt-editor wide">
@@ -1896,18 +1923,6 @@ onMounted(async () => {
                 </div>
               </el-form-item>
             </el-form>
-            <el-table :data="fields" height="260">
-              <el-table-column prop="fieldName" label="字段" width="120" />
-              <el-table-column prop="fieldCode" label="JSON Key" width="140" />
-              <el-table-column v-if="isStorageEnabled" prop="targetColumn" label="落库字段" min-width="150" />
-              <el-table-column label="提取必填" width="90">
-                <template #default="{ row }"><el-tag :type="row.extractRequired ? 'danger' : 'info'">{{ row.extractRequired ? '是' : '否' }}</el-tag></template>
-              </el-table-column>
-              <el-table-column label="多值" width="80">
-                <template #default="{ row }"><el-tag :type="row.multiple ? 'warning' : 'info'">{{ row.multiple ? '是' : '否' }}</el-tag></template>
-              </el-table-column>
-              <el-table-column prop="fieldDescription" label="字段说明" min-width="180" show-overflow-tooltip />
-            </el-table>
           </el-card>
           </el-tab-pane>
 

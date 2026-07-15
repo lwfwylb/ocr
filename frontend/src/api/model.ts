@@ -87,6 +87,32 @@ export function listLlmModelOptions() {
   return request<LlmModelOption[]>('/api/model/llm-configs/options')
 }
 
+export interface PromptTemplateDefaults {
+  systemTemplate: string
+  userTemplate: string
+  updatedAt?: string
+}
+
+export interface PromptTemplatePayload {
+  systemTemplate: string
+  userTemplate: string
+}
+
+export function getPromptTemplateDefaults() {
+  return request<PromptTemplateDefaults>('/api/model/prompt-templates/defaults')
+}
+
+export function updatePromptTemplateDefaults(payload: PromptTemplatePayload) {
+  return request<PromptTemplateDefaults>('/api/model/prompt-templates/defaults', {
+    method: 'PUT',
+    body: JSON.stringify(payload)
+  })
+}
+
+export function resetPromptTemplateDefaults() {
+  return request<PromptTemplateDefaults>('/api/model/prompt-templates/reset-defaults', { method: 'POST' })
+}
+
 export interface OcrEngineConfig {
   id: string
   engineCode: string
