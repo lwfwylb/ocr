@@ -470,42 +470,6 @@ const handleAiUserPromptInput = (value: string) => {
   promptAutoSync.value = value.trim() === fieldDrivenUserPrompt.value.trim()
   promptOutdated.value = false
 }
-const generatedPrompt = computed(() => {
-  const userRequirement = aiUserPrompt.value.trim() || fieldDrivenUserPrompt.value
-  const fieldLines = fields.value.length
-    ? fields.value.map((field: any, index: number) => {
-      const parts = [
-        `${index + 1}. 字段名称：${field.fieldName || field.fieldCode || '-'}`,
-        `   JSON Key：${field.fieldCode || '-'}`,
-        `   字段说明：${field.fieldDescription || '无'}`,
-        `   提取必填：${field.extractRequired ? '是' : '否'}`,
-        `   是否多值：${field.multiple ? '是' : '否'}`
-      ]
-      if (form.storageEnabled) {
-        parts.push(`   目标落库字段：${field.targetColumn || field.fieldCode || '-'}`)
-      }
-      return parts.join('\n')
-    }).join('\n')
-    : '暂无提取字段，请先在字段与落库配置中维护字段。'
-  const storageRequirement = form.storageEnabled
-    ? '当前配置已启用结果落库。JSON Key 为 AI 输出字段名，目标落库字段仅用于后续写入目标表，请确保输出 JSON Key 与字段清单一致。'
-    : '当前配置未启用结果落库。请仅按 JSON Key 输出结构化结果，不涉及目标表、落库字段或字段映射关系。'
-  return [
-    '用户补充要求：',
-    userRequirement,
-    '',
-    '字段输出要求：',
-    fieldLines,
-    '',
-    '输出约束：',
-    storageRequirement,
-    '请严格输出 JSON 对象；每个字段包含 value、confidence、evidence、sourcePage。confidence 使用 0 到 1 的小数；无法识别时 value 返回 null，并说明 evidence。'
-  ].join('\n')
-})
-const promptPreviewTip = computed(() => form.storageEnabled
-  ? '根据用户提示词、提取字段和字段映射自动生成，执行时用于约束 AI 输出 JSON。'
-  : '根据用户提示词和提取字段自动生成，执行时仅要求 AI 输出结构化 JSON，不涉及落库字段。'
-)
 watch(fieldDrivenUserPrompt, (nextPrompt, previousPrompt) => {
   if (promptAutoSync.value) {
     setAiUserPrompt(nextPrompt, true)
@@ -878,7 +842,7 @@ const buildWizardPayload = () => ({
     confidenceThreshold: form.confidenceThreshold,
     systemPrompt: aiSystemPrompt.value,
     userPrompt: aiUserPrompt.value,
-    generatedPromptPreview: generatedPrompt.value,
+    generatedPromptPreview: aiUserPrompt.value,
     outputJsonSchema: ''
   },
   regexRules: fields.value
@@ -1915,7 +1879,7 @@ onMounted(async () => {
                   <div class="prompt-editor-bar">
                     <div class="prompt-editor-status">
                       <el-tag size="small" :type="promptStatusType">{{ promptStatusLabel }}</el-tag>
-                      <span class="muted">默认根据字段配置生成，可按业务习惯手工调整。</span>
+                      <span class="muted">默认根据字段配置生成；执行时将拼接解析后的文档内容提交给 AI。</span>
                     </div>
                     <div class="header-actions">
                       <el-button size="small" @click="regenerateAiUserPrompt">按字段重新生成</el-button>
@@ -1939,12 +1903,6 @@ onMounted(async () => {
                     <el-table-column label="多值" width="70"><template #default="{ row }">{{ row.multiple ? '是' : '否' }}</template></el-table-column>
                     <el-table-column v-if="isStorageEnabled" prop="targetColumn" label="目标字段" min-width="150" />
                   </el-table>
-                </div>
-              </el-form-item>
-              <el-form-item label="自动生成提示词预览">
-                <div class="field-with-tip wide">
-                  <el-input type="textarea" :rows="10" :model-value="generatedPrompt" readonly />
-                  <span class="muted block">{{ promptPreviewTip }}</span>
                 </div>
               </el-form-item>
             </el-form>
