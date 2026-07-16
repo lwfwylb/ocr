@@ -585,6 +585,56 @@ body {
   gap: 10px;
 }
 
+.llm-test-layout {
+  display: grid;
+  grid-template-columns: 340px minmax(0, 1fr);
+  gap: 10px;
+}
+
+.llm-test-panel,
+.llm-test-result {
+  min-width: 0;
+}
+
+.llm-test-metrics {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.llm-test-metrics span {
+  min-width: 0;
+  padding: 7px 8px;
+  color: #475569;
+  background: #f8fafc;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.llm-test-metrics strong {
+  color: #0f172a;
+}
+
+.llm-test-pre {
+  min-height: 330px;
+  max-height: 460px;
+  overflow: auto;
+  margin: 0;
+  padding: 10px;
+  color: #1f2937;
+  background: #f8fafc;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  font-family: Consolas, Monaco, monospace;
+  font-size: 12px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
 .compare-pane {
   min-width: 0;
   border: 1px solid #dbe3ef;
@@ -1265,6 +1315,7 @@ body {
     .queue-dispatch-layout,
     .integration-layout,
     .ocr-compare-layout,
+    .llm-test-layout,
     .strategy-overview {
     grid-template-columns: 1fr;
   }

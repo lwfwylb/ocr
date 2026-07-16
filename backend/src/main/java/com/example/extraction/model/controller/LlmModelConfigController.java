@@ -4,6 +4,8 @@ import com.example.extraction.common.ApiResponse;
 import com.example.extraction.model.dto.LlmModelConfigRequest;
 import com.example.extraction.model.dto.LlmModelConfigResponse;
 import com.example.extraction.model.dto.LlmModelQueryRequest;
+import com.example.extraction.model.dto.LlmModelTestRequest;
+import com.example.extraction.model.dto.LlmModelTestResponse;
 import com.example.extraction.model.service.LlmModelConfigService;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -66,7 +68,7 @@ public class LlmModelConfigController {
     }
 
     @PostMapping("/{id}/test")
-    public ApiResponse<Map<String, Object>> test(@PathVariable("id") String id) {
-        return ApiResponse.success(llmModelConfigService.test(id));
+    public ApiResponse<LlmModelTestResponse> test(@PathVariable("id") String id, @RequestBody(required = false) LlmModelTestRequest request) {
+        return ApiResponse.success(llmModelConfigService.test(id, request));
     }
 }

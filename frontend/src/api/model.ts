@@ -35,7 +35,21 @@ export interface LlmModelTestResult {
   message: string
   modelCode: string
   modelIdentifier: string
+  durationMs?: number
+  requestPreview?: string
+  responsePreview?: string
+  contentPreview?: string
+  jsonValid?: boolean
+  inputTokens?: number
+  outputTokens?: number
+  totalTokens?: number
+  errorCode?: string
   checkedAt: string
+}
+
+export interface LlmModelTestPayload {
+  systemPrompt: string
+  userPrompt: string
 }
 
 export type LlmModelPayload = Omit<LlmModelConfig, 'id' | 'createdBy' | 'createdAt' | 'updatedAt'>
@@ -79,8 +93,11 @@ export function setDefaultLlmModelConfig(id: string) {
   return request<LlmModelConfig>(`/api/model/llm-configs/${id}/default`, { method: 'POST' })
 }
 
-export function testLlmModelConfig(id: string) {
-  return request<LlmModelTestResult>(`/api/model/llm-configs/${id}/test`, { method: 'POST' })
+export function testLlmModelConfig(id: string, payload: LlmModelTestPayload) {
+  return request<LlmModelTestResult>(`/api/model/llm-configs/${id}/test`, {
+    method: 'POST',
+    body: JSON.stringify(payload)
+  })
 }
 
 export function listLlmModelOptions() {

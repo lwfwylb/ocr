@@ -10,14 +10,23 @@ import {
   testLlmModelConfig,
   updateLlmModelConfig,
   type LlmModelConfig,
-  type LlmModelPayload
+  type LlmModelPayload,
+  type LlmModelTestResult
 } from '../api/model'
 
+const DEFAULT_SYSTEM_PROMPT = '你是一个严谨的要素提取助手。请只返回 JSON，不要输出解释、Markdown 或额外文本。'
+const DEFAULT_USER_PROMPT = '请从文本中提取要素：payee_account_name（付款方名称）、business_date（回执日期，转为 yyyyMMdd 格式）。要求无法识别的字段返回 null，严格 JSON 格式输出。文本：付款方：张三，回执日期：2026-07-16'
+
 const drawerVisible = ref(false)
+const testDialogVisible = ref(false)
 const loading = ref(false)
 const saving = ref(false)
+const testing = ref(false)
 const models = ref<LlmModelConfig[]>([])
 const editingId = ref('')
+const testingModel = ref<LlmModelConfig | null>(null)
+const testResult = ref<LlmModelTestResult | null>(null)
+const activeTestTab = ref('content')
 const query = reactive({
   keyword: '',
   provider: '',
@@ -39,6 +48,10 @@ const form = reactive<LlmModelPayload>({
   status: 'ENABLED',
   description: ''
 })
+const testForm = reactive({
+  systemPrompt: DEFAULT_SYSTEM_PROMPT,
+  userPrompt: DEFAULT_USER_PROMPT
+})
 
 const enabledCount = computed(() => models.value.filter((item) => item.status === 'ENABLED').length)
 const defaultModel = computed(() => models.value.find((item) => item.defaultModel))
@@ -47,6 +60,7 @@ const jsonSchemaRate = computed(() => {
   if (!models.value.length) return 0
   return Math.round((models.value.filter((item) => item.jsonSchemaRequired).length / models.value.length) * 100)
 })
+const passedModelCount = computed(() => models.value.filter((item) => item.status === 'ENABLED').length)
 
 const resetForm = () => {
   editingId.value = ''
@@ -148,12 +162,33 @@ const setDefault = async (model: LlmModelConfig) => {
   }
 }
 
-const testModel = async (model: LlmModelConfig) => {
+const openTestDialog = (model: LlmModelConfig) => {
+  testingModel.value = model
+  testResult.value = null
+  activeTestTab.value = 'content'
+  testForm.systemPrompt = DEFAULT_SYSTEM_PROMPT
+  testForm.userPrompt = DEFAULT_USER_PROMPT
+  testDialogVisible.value = true
+}
+
+const runTestModel = async () => {
+  if (!testingModel.value) return
+  testing.value = true
   try {
-    const result = await testLlmModelConfig(model.id)
-    ElMessage.success(result.message)
+    const result = await testLlmModelConfig(testingModel.value.id, {
+      systemPrompt: testForm.systemPrompt,
+      userPrompt: testForm.userPrompt
+    })
+    testResult.value = result
+    if (result.passed) {
+      ElMessage.success(result.message)
+    } else {
+      ElMessage.warning(result.message)
+    }
   } catch (error) {
-    ElMessage.error(error instanceof Error ? error.message : '测试连接失败')
+    ElMessage.error(error instanceof Error ? error.message : '测试调用失败')
+  } finally {
+    testing.value = false
   }
 }
 
@@ -173,8 +208,8 @@ onMounted(loadModels)
       <el-card shadow="never" class="metric-card"><span>LLM 配置</span><strong>{{ models.length }}</strong><em>模型接口</em></el-card>
       <el-card shadow="never" class="metric-card"><span>启用模型</span><strong>{{ enabledCount }}</strong><em>可被选择</em></el-card>
       <el-card shadow="never" class="metric-card"><span>默认模型</span><strong>{{ defaultModel ? 1 : 0 }}</strong><em>{{ defaultModel?.modelName || '未设置' }}</em></el-card>
-      <el-card shadow="never" class="metric-card"><span>强制 JSON</span><strong>{{ jsonSchemaRate }}%</strong><em>Schema 输出</em></el-card>
-      <el-card shadow="never" class="metric-card"><span>测试调用</span><strong>模拟</strong><em>暂不真实调用</em></el-card>
+      <el-card shadow="never" class="metric-card"><span>强制 JSON</span><strong>{{ jsonSchemaRate }}%</strong><em>结构化输出</em></el-card>
+      <el-card shadow="never" class="metric-card"><span>测试调用</span><strong>真实</strong><em>{{ passedModelCount }} 个启用模型可测试</em></el-card>
     </section>
 
     <el-card shadow="never">
@@ -231,7 +266,7 @@ onMounted(loadModels)
         <el-table-column label="操作" width="270" fixed="right">
           <template #default="{ row }">
             <el-button link type="primary" @click="openEdit(row)">配置</el-button>
-            <el-button link @click="testModel(row)">测试</el-button>
+            <el-button link @click="openTestDialog(row)">测试</el-button>
             <el-button link @click="setDefault(row)">设默认</el-button>
             <el-button link :type="row.status === 'ENABLED' ? 'danger' : 'success'" @click="toggleStatus(row)">
               {{ row.status === 'ENABLED' ? '停用' : '启用' }}
@@ -255,7 +290,7 @@ onMounted(loadModels)
         </el-form-item>
         <el-form-item label="模型调用标识"><el-input v-model="form.modelIdentifier" placeholder="如 qwen3.6-27b" /></el-form-item>
         <el-form-item label="接口地址" class="wide"><el-input v-model="form.baseUrl" placeholder="https://llm-gateway/v1/chat/completions" /></el-form-item>
-        <el-form-item label="密钥引用" class="wide"><el-input v-model="form.apiKeySecretRef" placeholder="如 secret://llm/qwen，不保存明文 Key" /></el-form-item>
+        <el-form-item label="密钥引用" class="wide"><el-input v-model="form.apiKeySecretRef" placeholder="可为空；或 env:OPENAI_API_KEY；或 Bearer xxx" /></el-form-item>
         <el-form-item label="温度"><el-input-number v-model="form.temperature" :min="0" :max="1" :step="0.01" /></el-form-item>
         <el-form-item label="最大 Token"><el-input-number v-model="form.maxTokens" :min="1" :max="128000" /></el-form-item>
         <el-form-item label="超时秒数"><el-input-number v-model="form.timeoutSeconds" :min="1" :max="600" /></el-form-item>
@@ -270,11 +305,69 @@ onMounted(loadModels)
         </el-form-item>
         <el-form-item label="说明" class="wide"><el-input v-model="form.description" type="textarea" :rows="3" /></el-form-item>
       </el-form>
-      <el-alert class="mb-12" title="第一版只维护调用配置和模拟测试；真实调用、密钥加密托管、Token 统计将在执行链路中接入。" type="info" :closable="false" />
+      <el-alert class="mb-12" title="测试调用按 OpenAI Compatible Chat Completions 协议发起。密钥引用为空时不加鉴权头，env: 前缀会读取环境变量。" type="info" :closable="false" />
       <template #footer>
         <el-button @click="drawerVisible = false">取消</el-button>
         <el-button type="primary" :loading="saving" @click="saveModel">保存</el-button>
       </template>
     </el-drawer>
+
+    <el-dialog v-model="testDialogVisible" title="LLM 测试调用" width="900px" destroy-on-close>
+      <div v-if="testingModel" class="llm-test-layout">
+        <el-card shadow="never" class="llm-test-panel">
+          <template #header>
+            <div class="card-header">
+              <span>{{ testingModel.modelName }}</span>
+              <el-tag :type="testingModel.jsonSchemaRequired ? 'success' : 'info'">{{ testingModel.jsonSchemaRequired ? '强制 JSON' : '普通输出' }}</el-tag>
+            </div>
+          </template>
+          <el-descriptions :column="1" border size="small">
+            <el-descriptions-item label="模型编码">{{ testingModel.modelCode }}</el-descriptions-item>
+            <el-descriptions-item label="调用标识">{{ testingModel.modelIdentifier }}</el-descriptions-item>
+            <el-descriptions-item label="接口地址">{{ testingModel.baseUrl }}</el-descriptions-item>
+          </el-descriptions>
+          <el-form label-position="top" class="mt-12">
+            <el-form-item label="系统提示词">
+              <el-input v-model="testForm.systemPrompt" type="textarea" :rows="4" />
+            </el-form-item>
+            <el-form-item label="用户提示词">
+              <el-input v-model="testForm.userPrompt" type="textarea" :rows="6" />
+            </el-form-item>
+          </el-form>
+          <el-button class="full-button" type="primary" :loading="testing" @click="runTestModel">开始测试</el-button>
+        </el-card>
+
+        <el-card shadow="never" class="llm-test-result">
+          <template #header>
+            <div class="card-header">
+              <span>测试结果</span>
+              <el-tag v-if="testResult" :type="testResult.passed ? 'success' : 'danger'">{{ testResult.passed ? '通过' : '未通过' }}</el-tag>
+            </div>
+          </template>
+          <el-empty v-if="!testResult" description="点击开始测试后查看模型响应" />
+          <template v-else>
+            <el-alert :type="testResult.passed ? 'success' : 'warning'" :title="testResult.message" :closable="false" class="mb-12" />
+            <div class="llm-test-metrics">
+              <span>耗时 <strong>{{ testResult.durationMs ?? '-' }}</strong> ms</span>
+              <span>JSON <strong>{{ testResult.jsonValid ? '通过' : '未通过' }}</strong></span>
+              <span>输入 Token <strong>{{ testResult.inputTokens ?? '-' }}</strong></span>
+              <span>输出 Token <strong>{{ testResult.outputTokens ?? '-' }}</strong></span>
+              <span>总 Token <strong>{{ testResult.totalTokens ?? '-' }}</strong></span>
+            </div>
+            <el-tabs v-model="activeTestTab" class="mt-12">
+              <el-tab-pane label="模型内容" name="content">
+                <pre class="llm-test-pre">{{ testResult.contentPreview || '无内容' }}</pre>
+              </el-tab-pane>
+              <el-tab-pane label="请求体" name="request">
+                <pre class="llm-test-pre">{{ testResult.requestPreview || '无内容' }}</pre>
+              </el-tab-pane>
+              <el-tab-pane label="原始响应" name="response">
+                <pre class="llm-test-pre">{{ testResult.responsePreview || '无内容' }}</pre>
+              </el-tab-pane>
+            </el-tabs>
+          </template>
+        </el-card>
+      </div>
+    </el-dialog>
   </div>
 </template>
