@@ -9,13 +9,14 @@ import {
   getConfigOptions,
   getExtractConfigDetail,
   listExtractConfigVersions,
-  listExtractConfigs,
+  pageExtractConfigs,
   publishExtractConfig,
   validateExtractConfig,
   type ConfigDetail,
   type ConfigOptions,
   type ConfigSummary
 } from '../api/config'
+import { createTablePage, pageParams, resetPage } from '../composables/useTablePage'
 
 type ConfigStatus = 'DRAFT' | 'TESTING' | 'PUBLISHED' | 'DISABLED'
 
@@ -50,6 +51,7 @@ const versionRows = ref<ConfigItem[]>([])
 const loading = ref(false)
 const detailLoading = ref(false)
 const versionLoading = ref(false)
+const page = createTablePage(20)
 const options = ref<ConfigOptions>({
   departments: [],
   roles: [],
@@ -88,6 +90,45 @@ const statusMap: Record<ConfigStatus, { label: string; type: 'success' | 'warnin
   PUBLISHED: { label: '已发布', type: 'success' },
   DISABLED: { label: '已停用', type: 'danger' }
 }
+
+const optionLabel = (items: Array<Record<string, any>> | undefined, value?: string) => {
+  if (!value) return '-'
+  const matched = (items || []).find((item) => item.value === value || item.label === value)
+  return matched?.label || value
+}
+
+const categoryLabel = (value?: string) => optionLabel(categoryOptions.value, value)
+
+const subCategoryLabel = (value?: string) => {
+  if (!value) return '-'
+  for (const category of categoryOptions.value) {
+    const matched = (category.children || []).find((item: Record<string, any>) => item.value === value || item.label === value)
+    if (matched) return matched.label || value
+  }
+  return value
+}
+
+const templateTypeLabel = (value?: string) => {
+  if (!value) return '-'
+  for (const category of categoryOptions.value) {
+    for (const child of category.children || []) {
+      const matched = (child.templates || []).find((item: any) => {
+        if (typeof item === 'string') return item === value
+        return item.value === value || item.label === value
+      })
+      if (matched) return typeof matched === 'string' ? matched : matched.label || matched.value || value
+    }
+  }
+  return value
+}
+
+const documentTypeLabel = (value?: string) => {
+  if (!value) return '-'
+  const fromDocumentTypes = optionLabel(options.value.documentTypes, value)
+  return fromDocumentTypes === value ? subCategoryLabel(value) : fromDocumentTypes
+}
+
+const departmentLabel = (value?: string) => optionLabel(options.value.departments, value)
 
 const toConfigItem = (item: ConfigSummary): ConfigItem => ({
   configId: item.id,
@@ -151,16 +192,18 @@ const versionTimeline = computed(() =>
 const loadConfigs = async () => {
   loading.value = true
   try {
-    const rows = await listExtractConfigs({
+    const result = await pageExtractConfigs({
       keyword: query.keyword,
       status: query.status,
       departmentId: query.department,
       documentType: query.documentType,
       category: query.category,
       subCategory: query.subCategory,
-      templateType: query.templateType
+      templateType: query.templateType,
+      ...pageParams(page)
     })
-    configs.value = rows.map(toConfigItem)
+    configs.value = result.records.map(toConfigItem)
+    page.total = result.total
   } catch (error) {
     configs.value = []
     ElMessage.error(error instanceof Error ? error.message : '配置列表加载失败')
@@ -296,6 +339,18 @@ const editConfig = (config: ConfigItem) => {
   router.push({ path: '/configs/wizard', query: { id: config.configId } })
 }
 
+const searchConfigs = () => {
+  resetPage(page)
+  loadConfigs()
+}
+
+const handlePageSizeChange = () => {
+  resetPage(page)
+  loadConfigs()
+}
+
+const handlePageChange = () => loadConfigs()
+
 const resetQuery = () => {
   query.keyword = ''
   query.category = ''
@@ -304,6 +359,7 @@ const resetQuery = () => {
   query.documentType = ''
   query.department = ''
   query.status = ''
+  resetPage(page)
   loadConfigs()
 }
 
@@ -377,7 +433,7 @@ onMounted(() => {
           </el-select>
         </el-form-item>
         <el-form-item>
-          <el-button type="primary" :loading="loading" @click="loadConfigs">查询</el-button>
+          <el-button type="primary" :loading="loading" @click="searchConfigs">查询</el-button>
           <el-button @click="resetQuery">重置</el-button>
         </el-form-item>
       </el-form>
@@ -396,11 +452,21 @@ onMounted(() => {
       <el-table v-loading="loading" :data="filteredConfigs" stripe>
         <el-table-column prop="configCode" label="配置编码" min-width="170" fixed />
         <el-table-column prop="configName" label="配置名称" min-width="220" fixed />
-        <el-table-column prop="category" label="业务分类" width="100" />
-        <el-table-column prop="subCategory" label="业务子类" width="100" />
-        <el-table-column prop="templateType" label="模板/表单类型" min-width="150" />
-        <el-table-column prop="documentType" label="文档类型" width="100" />
-        <el-table-column prop="department" label="部门" width="90" />
+        <el-table-column label="业务分类" width="100">
+          <template #default="{ row }">{{ categoryLabel(row.category) }}</template>
+        </el-table-column>
+        <el-table-column label="业务子类" width="110">
+          <template #default="{ row }">{{ subCategoryLabel(row.subCategory) }}</template>
+        </el-table-column>
+        <el-table-column label="模板/表单类型" min-width="150">
+          <template #default="{ row }">{{ templateTypeLabel(row.templateType) }}</template>
+        </el-table-column>
+        <el-table-column label="文档类型" width="110">
+          <template #default="{ row }">{{ documentTypeLabel(row.documentType) }}</template>
+        </el-table-column>
+        <el-table-column label="部门" width="100">
+          <template #default="{ row }">{{ departmentLabel(row.department) }}</template>
+        </el-table-column>
         <el-table-column prop="version" label="版本" width="80" />
         <el-table-column label="状态" width="92">
           <template #default="{ row }">
@@ -435,6 +501,17 @@ onMounted(() => {
           </template>
         </el-table-column>
       </el-table>
+      <el-pagination
+        v-model:current-page="page.pageNo"
+        v-model:page-size="page.pageSize"
+        class="table-pagination"
+        background
+        layout="total, sizes, prev, pager, next, jumper"
+        :page-sizes="[10, 20, 50, 100]"
+        :total="page.total"
+        @size-change="handlePageSizeChange"
+        @current-change="handlePageChange"
+      />
     </el-card>
 
     <el-drawer v-model="drawerVisible" title="配置详情" size="640px">
@@ -442,10 +519,10 @@ onMounted(() => {
         <el-descriptions v-loading="detailLoading" :column="1" border>
           <el-descriptions-item label="配置编号">{{ selectedConfig.configId }}</el-descriptions-item>
           <el-descriptions-item label="配置名称">{{ selectedConfig.configName }}</el-descriptions-item>
-          <el-descriptions-item label="业务分类">{{ selectedConfig.category }}</el-descriptions-item>
-          <el-descriptions-item label="业务子类">{{ selectedConfig.subCategory }}</el-descriptions-item>
-          <el-descriptions-item label="模板/表单类型">{{ selectedConfig.templateType }}</el-descriptions-item>
-          <el-descriptions-item label="文档类型">{{ selectedConfig.documentType }}</el-descriptions-item>
+          <el-descriptions-item label="业务分类">{{ categoryLabel(selectedConfig.category) }}</el-descriptions-item>
+          <el-descriptions-item label="业务子类">{{ subCategoryLabel(selectedConfig.subCategory) }}</el-descriptions-item>
+          <el-descriptions-item label="模板/表单类型">{{ templateTypeLabel(selectedConfig.templateType) }}</el-descriptions-item>
+          <el-descriptions-item label="文档类型">{{ documentTypeLabel(selectedConfig.documentType) }}</el-descriptions-item>
           <el-descriptions-item label="版本">{{ selectedConfig.version }}</el-descriptions-item>
           <el-descriptions-item label="状态">
             <el-tag :type="statusMap[selectedConfig.status].type">{{ statusMap[selectedConfig.status].label }}</el-tag>
@@ -484,7 +561,7 @@ onMounted(() => {
         <el-descriptions :column="2" border class="mb-12">
           <el-descriptions-item label="配置编码">{{ selectedVersionConfig.configCode }}</el-descriptions-item>
           <el-descriptions-item label="配置名称">{{ selectedVersionConfig.configName }}</el-descriptions-item>
-          <el-descriptions-item label="业务分类">{{ selectedVersionConfig.category }}</el-descriptions-item>
+          <el-descriptions-item label="业务分类">{{ categoryLabel(selectedVersionConfig.category) }}</el-descriptions-item>
           <el-descriptions-item label="目标表">{{ selectedVersionConfig.targetTable }}</el-descriptions-item>
         </el-descriptions>
         <el-table v-loading="versionLoading" :data="versionRows" stripe>

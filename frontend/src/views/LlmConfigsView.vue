@@ -5,7 +5,7 @@ import {
   createLlmModelConfig,
   disableLlmModelConfig,
   enableLlmModelConfig,
-  listLlmModelConfigs,
+  pageLlmModelConfigs,
   setDefaultLlmModelConfig,
   testLlmModelConfig,
   updateLlmModelConfig,
@@ -13,6 +13,7 @@ import {
   type LlmModelPayload,
   type LlmModelTestResult
 } from '../api/model'
+import { createTablePage, pageParams, resetPage } from '../composables/useTablePage'
 
 const DEFAULT_SYSTEM_PROMPT = '你是一个严谨的要素提取助手。请只返回 JSON，不要输出解释、Markdown 或额外文本。'
 const DEFAULT_USER_PROMPT = '请从文本中提取要素：payee_account_name（付款方名称）、business_date（回执日期，转为 yyyyMMdd 格式）。要求无法识别的字段返回 null，严格 JSON 格式输出。文本：付款方：张三，回执日期：2026-07-16'
@@ -22,6 +23,7 @@ const testDialogVisible = ref(false)
 const loading = ref(false)
 const saving = ref(false)
 const testing = ref(false)
+const page = createTablePage(20)
 const models = ref<LlmModelConfig[]>([])
 const editingId = ref('')
 const testingModel = ref<LlmModelConfig | null>(null)
@@ -85,7 +87,9 @@ const resetForm = () => {
 const loadModels = async () => {
   loading.value = true
   try {
-    models.value = await listLlmModelConfigs(query)
+    const result = await pageLlmModelConfigs({ ...query, ...pageParams(page) })
+    models.value = result.records
+    page.total = result.total
   } catch (error) {
     models.value = []
     ElMessage.error(error instanceof Error ? error.message : 'LLM 配置加载失败')
@@ -192,10 +196,23 @@ const runTestModel = async () => {
   }
 }
 
+const searchModels = () => {
+  resetPage(page)
+  loadModels()
+}
+
+const handlePageSizeChange = () => {
+  resetPage(page)
+  loadModels()
+}
+
+const handlePageChange = () => loadModels()
+
 const resetQuery = () => {
   query.keyword = ''
   query.provider = ''
   query.status = ''
+  resetPage(page)
   loadModels()
 }
 
@@ -229,7 +246,7 @@ onMounted(loadModels)
           </el-select>
         </el-form-item>
         <el-form-item>
-          <el-button type="primary" :loading="loading" @click="loadModels">查询</el-button>
+          <el-button type="primary" :loading="loading" @click="searchModels">查询</el-button>
           <el-button @click="resetQuery">重置</el-button>
         </el-form-item>
       </el-form>
@@ -274,6 +291,17 @@ onMounted(loadModels)
           </template>
         </el-table-column>
       </el-table>
+      <el-pagination
+        v-model:current-page="page.pageNo"
+        v-model:page-size="page.pageSize"
+        class="table-pagination"
+        background
+        layout="total, sizes, prev, pager, next, jumper"
+        :page-sizes="[10, 20, 50, 100]"
+        :total="page.total"
+        @size-change="handlePageSizeChange"
+        @current-change="handlePageChange"
+      />
     </el-card>
 
     <el-drawer v-model="drawerVisible" :title="editingId ? '编辑 LLM 配置' : '新增 LLM 配置'" size="640px">

@@ -8,7 +8,7 @@ import {
   createOcrEngineConfig,
   disableOcrEngineConfig,
   enableOcrEngineConfig,
-  listOcrEngineConfigs,
+  pageOcrEngineConfigs,
   setDefaultOcrEngineConfig,
   testOcrEngineParse,
   testOcrEngineConfig,
@@ -18,10 +18,12 @@ import {
   type OcrEngineParseTestResult
 } from '../api/model'
 import { API_BASE_URL } from '../api/http'
+import { createTablePage, pageParams, resetPage } from '../composables/useTablePage'
 
 const drawerVisible = ref(false)
 const loading = ref(false)
 const saving = ref(false)
+const page = createTablePage(20)
 const editingId = ref('')
 const engines = ref<OcrEngineConfig[]>([])
 const parseDialogVisible = ref(false)
@@ -125,7 +127,9 @@ const resetForm = () => {
 const loadEngines = async () => {
   loading.value = true
   try {
-    engines.value = await listOcrEngineConfigs(query)
+    const result = await pageOcrEngineConfigs({ ...query, ...pageParams(page) })
+    engines.value = result.records
+    page.total = result.total
   } catch (error) {
     engines.value = []
     ElMessage.error(error instanceof Error ? error.message : 'OCR 引擎加载失败')
@@ -333,11 +337,24 @@ const revokeCompareFileUrl = () => {
   }
 }
 
+const searchEngines = () => {
+  resetPage(page)
+  loadEngines()
+}
+
+const handlePageSizeChange = () => {
+  resetPage(page)
+  loadEngines()
+}
+
+const handlePageChange = () => loadEngines()
+
 const resetQuery = () => {
   query.keyword = ''
   query.provider = ''
   query.engineType = ''
   query.status = ''
+  resetPage(page)
   loadEngines()
 }
 
@@ -530,7 +547,7 @@ onBeforeUnmount(revokeCompareFileUrl)
           </el-select>
         </el-form-item>
         <el-form-item>
-          <el-button type="primary" :loading="loading" @click="loadEngines">查询</el-button>
+          <el-button type="primary" :loading="loading" @click="searchEngines">查询</el-button>
           <el-button @click="resetQuery">重置</el-button>
         </el-form-item>
       </el-form>
@@ -578,6 +595,17 @@ onBeforeUnmount(revokeCompareFileUrl)
           </template>
         </el-table-column>
       </el-table>
+      <el-pagination
+        v-model:current-page="page.pageNo"
+        v-model:page-size="page.pageSize"
+        class="table-pagination"
+        background
+        layout="total, sizes, prev, pager, next, jumper"
+        :page-sizes="[10, 20, 50, 100]"
+        :total="page.total"
+        @size-change="handlePageSizeChange"
+        @current-change="handlePageChange"
+      />
     </el-card>
 
     <el-drawer v-model="drawerVisible" :title="editingId ? '编辑 OCR 引擎' : '新增 OCR 引擎'" size="680px">

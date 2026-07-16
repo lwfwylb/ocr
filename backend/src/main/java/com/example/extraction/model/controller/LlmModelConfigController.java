@@ -1,6 +1,8 @@
 package com.example.extraction.model.controller;
 
 import com.example.extraction.common.ApiResponse;
+import com.example.extraction.common.PageResponse;
+import com.example.extraction.common.PageSupport;
 import com.example.extraction.model.dto.LlmModelConfigRequest;
 import com.example.extraction.model.dto.LlmModelConfigResponse;
 import com.example.extraction.model.dto.LlmModelQueryRequest;
@@ -28,8 +30,8 @@ public class LlmModelConfigController {
     }
 
     @GetMapping
-    public ApiResponse<List<LlmModelConfigResponse>> list(LlmModelQueryRequest query) {
-        return ApiResponse.success(llmModelConfigService.list(query));
+    public ApiResponse<PageResponse<LlmModelConfigResponse>> list(LlmModelQueryRequest query) {
+        return ApiResponse.success(PageSupport.page(query, () -> llmModelConfigService.list(query)));
     }
 
     @GetMapping("/options")

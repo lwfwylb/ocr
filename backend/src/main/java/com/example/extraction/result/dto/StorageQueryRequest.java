@@ -1,6 +1,8 @@
 package com.example.extraction.result.dto;
 
-public class StorageQueryRequest {
+import com.example.extraction.common.PageQuery;
+
+public class StorageQueryRequest extends PageQuery {
     private String keyword;
     private String targetTable;
     private String documentType;

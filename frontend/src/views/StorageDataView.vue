@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
-import { listStorageRecords, listStorageTables, type StorageRecord, type StorageTable } from '../api/storage'
+import { pageStorageRecords, listStorageTables, type StorageRecord, type StorageTable } from '../api/storage'
+import { createTablePage, pageParams, resetPage } from '../composables/useTablePage'
 
 const loadingTables = ref(false)
 const loadingRows = ref(false)
@@ -11,6 +12,7 @@ const drawerVisible = ref(false)
 const selectedRow = ref<StorageRecord | null>(null)
 const tables = ref<StorageTable[]>([])
 const rows = ref<StorageRecord[]>([])
+const page = createTablePage(20)
 const query = reactive({
   keyword: '',
   documentType: '',
@@ -60,13 +62,16 @@ const loadTables = async () => {
 const loadRows = async () => {
   loadingRows.value = true
   try {
-    rows.value = await listStorageRecords({
+    const result = await pageStorageRecords({
       keyword: query.keyword,
       targetTable: selectedTable.value,
       documentType: query.documentType,
       sourceType: query.sourceType,
-      storageStatus: query.storageStatus
+      storageStatus: query.storageStatus,
+      ...pageParams(page)
     })
+    rows.value = result.records
+    page.total = result.total
   } catch (error) {
     ElMessage.error(error instanceof Error ? error.message : '查询落库数据失败')
   } finally {
@@ -76,6 +81,7 @@ const loadRows = async () => {
 
 const selectTable = (table: StorageTable) => {
   selectedTable.value = table.tableName
+  resetPage(page)
 }
 
 const openDetail = (row: StorageRecord) => {
@@ -87,11 +93,24 @@ const exportRows = () => {
   ElMessage.success('已生成当前查询结果导出任务，后续接入导出记录接口')
 }
 
+const searchRows = () => {
+  resetPage(page)
+  loadRows()
+}
+
+const handlePageSizeChange = () => {
+  resetPage(page)
+  loadRows()
+}
+
+const handlePageChange = () => loadRows()
+
 const resetQuery = () => {
   query.keyword = ''
   query.documentType = ''
   query.sourceType = ''
   query.storageStatus = 'SUCCESS'
+  resetPage(page)
   loadRows()
 }
 
@@ -184,7 +203,7 @@ onMounted(async () => {
             </el-select>
           </el-form-item>
           <el-form-item>
-            <el-button type="primary" @click="loadRows">查询</el-button>
+            <el-button type="primary" @click="searchRows">查询</el-button>
             <el-button @click="resetQuery">重置</el-button>
           </el-form-item>
         </el-form>
@@ -222,6 +241,17 @@ onMounted(async () => {
             </template>
           </el-table-column>
         </el-table>
+        <el-pagination
+          v-model:current-page="page.pageNo"
+          v-model:page-size="page.pageSize"
+          class="table-pagination"
+          background
+          layout="total, sizes, prev, pager, next, jumper"
+          :page-sizes="[10, 20, 50, 100]"
+          :total="page.total"
+          @size-change="handlePageSizeChange"
+          @current-change="handlePageChange"
+        />
       </el-card>
     </div>
 

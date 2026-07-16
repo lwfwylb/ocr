@@ -1,6 +1,8 @@
 package com.example.extraction.integration.controller;
 
 import com.example.extraction.common.ApiResponse;
+import com.example.extraction.common.PageResponse;
+import com.example.extraction.common.PageSupport;
 import com.example.extraction.integration.dto.DownstreamServiceRequest;
 import com.example.extraction.integration.dto.DownstreamServiceResponse;
 import com.example.extraction.integration.dto.DownstreamSystemRequest;
@@ -29,13 +31,15 @@ public class DownstreamIntegrationController {
     }
 
     @GetMapping("/systems")
-    public ApiResponse<List<DownstreamSystemResponse>> systems(IntegrationQueryRequest query) {
-        return ApiResponse.success(integrationService.systems(query));
+    public ApiResponse<PageResponse<DownstreamSystemResponse>> systems(IntegrationQueryRequest query) {
+        integrationService.ensureDefaultsForList();
+        return ApiResponse.success(PageSupport.page(query, () -> integrationService.systemsWithoutDefaults(query)));
     }
 
     @GetMapping("/services")
-    public ApiResponse<List<DownstreamServiceResponse>> services(IntegrationQueryRequest query) {
-        return ApiResponse.success(integrationService.services(query));
+    public ApiResponse<PageResponse<DownstreamServiceResponse>> services(IntegrationQueryRequest query) {
+        integrationService.ensureDefaultsForList();
+        return ApiResponse.success(PageSupport.page(query, () -> integrationService.servicesWithoutDefaults(query)));
     }
 
     @PostMapping("/systems")

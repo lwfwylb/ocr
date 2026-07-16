@@ -1,6 +1,9 @@
 package com.example.extraction.system.controller;
 
 import com.example.extraction.common.ApiResponse;
+import com.example.extraction.common.PageQuery;
+import com.example.extraction.common.PageResponse;
+import com.example.extraction.common.PageSupport;
 import com.example.extraction.system.dto.DataPolicyRequest;
 import com.example.extraction.system.dto.DataPolicyResponse;
 import com.example.extraction.system.dto.PermissionNodeResponse;
@@ -33,10 +36,12 @@ public class SystemAccessController {
     }
 
     @GetMapping("/users")
-    public ApiResponse<List<UserResponse>> users(@RequestParam(value = "keyword", required = false) String keyword,
+    public ApiResponse<PageResponse<UserResponse>> users(@RequestParam(value = "keyword", required = false) String keyword,
                                                  @RequestParam(value = "departmentId", required = false) String departmentId,
-                                                 @RequestParam(value = "status", required = false) String status) {
-        return ApiResponse.success(accessService.users(keyword, departmentId, status));
+                                                 @RequestParam(value = "status", required = false) String status,
+                                                 PageQuery pageQuery) {
+        accessService.ensureDefaultsForList();
+        return ApiResponse.success(PageSupport.page(pageQuery, () -> accessService.usersWithoutDefaults(keyword, departmentId, status)));
     }
 
     @PostMapping("/users")
@@ -60,9 +65,11 @@ public class SystemAccessController {
     }
 
     @GetMapping("/roles")
-    public ApiResponse<List<RoleResponse>> roles(@RequestParam(value = "keyword", required = false) String keyword,
-                                                 @RequestParam(value = "status", required = false) String status) {
-        return ApiResponse.success(accessService.roles(keyword, status));
+    public ApiResponse<PageResponse<RoleResponse>> roles(@RequestParam(value = "keyword", required = false) String keyword,
+                                                 @RequestParam(value = "status", required = false) String status,
+                                                 PageQuery pageQuery) {
+        accessService.ensureDefaultsForList();
+        return ApiResponse.success(PageSupport.page(pageQuery, () -> accessService.rolesWithoutDefaults(keyword, status)));
     }
 
     @PostMapping("/roles")
@@ -108,10 +115,12 @@ public class SystemAccessController {
     }
 
     @GetMapping("/data-policies")
-    public ApiResponse<List<DataPolicyResponse>> dataPolicies(@RequestParam(value = "keyword", required = false) String keyword,
+    public ApiResponse<PageResponse<DataPolicyResponse>> dataPolicies(@RequestParam(value = "keyword", required = false) String keyword,
                                                               @RequestParam(value = "subjectType", required = false) String subjectType,
-                                                              @RequestParam(value = "status", required = false) String status) {
-        return ApiResponse.success(accessService.dataPolicies(keyword, subjectType, status));
+                                                              @RequestParam(value = "status", required = false) String status,
+                                                              PageQuery pageQuery) {
+        accessService.ensureDefaultsForList();
+        return ApiResponse.success(PageSupport.page(pageQuery, () -> accessService.dataPoliciesWithoutDefaults(keyword, subjectType, status)));
     }
 
     @PostMapping("/data-policies")

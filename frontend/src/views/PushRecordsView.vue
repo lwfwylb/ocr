@@ -2,18 +2,20 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
-  listPushRecords,
+  pagePushRecords,
   markPushRecordSuccess,
   retryPushRecord,
   type PushMethod,
   type PushRecord,
   type PushStatus
 } from '../api/push'
+import { createTablePage, pageParams, resetPage } from '../composables/useTablePage'
 
 const records = ref<PushRecord[]>([])
 const loading = ref(false)
 const drawerVisible = ref(false)
 const selectedRecord = ref<PushRecord | null>(null)
+const page = createTablePage(20)
 const query = reactive({
   keyword: '',
   targetSystem: '',
@@ -49,7 +51,7 @@ const serviceOptions = computed(() => {
 })
 
 const metrics = computed(() => {
-  const total = records.value.length
+  const total = page.total
   const success = records.value.filter((item) => item.status === 'SUCCESS').length
   const failed = records.value.filter((item) => item.status === 'FAILED').length
   const waiting = records.value.filter((item) => ['PENDING', 'RETRYING'].includes(item.status)).length
@@ -60,7 +62,9 @@ const metrics = computed(() => {
 const loadRecords = async () => {
   loading.value = true
   try {
-    records.value = await listPushRecords(query)
+    const result = await pagePushRecords({ ...query, ...pageParams(page) })
+    records.value = result.records
+    page.total = result.total
   } catch (error) {
     ElMessage.error(error instanceof Error ? error.message : '查询推送记录失败')
   } finally {
@@ -126,12 +130,25 @@ const replaceRecord = (record: PushRecord) => {
   }
 }
 
+const searchRecords = () => {
+  resetPage(page)
+  loadRecords()
+}
+
+const handlePageSizeChange = () => {
+  resetPage(page)
+  loadRecords()
+}
+
+const handlePageChange = () => loadRecords()
+
 const resetQuery = () => {
   query.keyword = ''
   query.targetSystem = ''
   query.serviceCode = ''
   query.status = ''
   query.pushMethod = ''
+  resetPage(page)
   loadRecords()
 }
 
@@ -183,7 +200,7 @@ onMounted(loadRecords)
           </el-select>
         </el-form-item>
         <el-form-item>
-          <el-button type="primary" @click="loadRecords">查询</el-button>
+          <el-button type="primary" @click="searchRecords">查询</el-button>
           <el-button @click="resetQuery">重置</el-button>
         </el-form-item>
       </el-form>
@@ -230,6 +247,17 @@ onMounted(loadRecords)
           </template>
         </el-table-column>
       </el-table>
+      <el-pagination
+        v-model:current-page="page.pageNo"
+        v-model:page-size="page.pageSize"
+        class="table-pagination"
+        background
+        layout="total, sizes, prev, pager, next, jumper"
+        :page-sizes="[10, 20, 50, 100]"
+        :total="page.total"
+        @size-change="handlePageSizeChange"
+        @current-change="handlePageChange"
+      />
     </el-card>
 
     <el-drawer v-model="drawerVisible" title="推送详情" size="680px">

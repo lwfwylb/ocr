@@ -4,13 +4,14 @@ import { ElMessage } from 'element-plus'
 import { API_BASE_URL } from '../api/http'
 import {
   getTraceDetail,
-  listTraces,
+  pageTraces,
   type DocumentArtifact,
   type DocumentArtifactStep,
   type TraceDetail,
   type TraceStage,
   type TraceSummary
 } from '../api/trace'
+import { createTablePage, pageParams, resetPage } from '../composables/useTablePage'
 
 type TagType = 'success' | 'warning' | 'danger' | 'info' | 'primary'
 
@@ -19,6 +20,7 @@ const loadingList = ref(false)
 const loadingDetail = ref(false)
 const records = ref<TraceSummary[]>([])
 const detail = ref<TraceDetail | null>(null)
+const page = createTablePage(20)
 const query = reactive({
   keyword: '',
   sourceType: '',
@@ -77,7 +79,9 @@ const artifactStepRows = computed(() => detail.value?.artifactSteps || [])
 const loadList = async (preferredTraceId?: string) => {
   loadingList.value = true
   try {
-    records.value = await listTraces(query)
+    const result = await pageTraces({ ...query, ...pageParams(page) })
+    records.value = result.records
+    page.total = result.total
     const nextTraceId = preferredTraceId || selectedTraceId.value || records.value[0]?.traceId || ''
     if (nextTraceId) {
       await selectTrace(nextTraceId)
@@ -104,10 +108,23 @@ const selectTrace = async (traceId: string) => {
   }
 }
 
+const searchList = () => {
+  resetPage(page)
+  loadList()
+}
+
+const handlePageSizeChange = () => {
+  resetPage(page)
+  loadList()
+}
+
+const handlePageChange = () => loadList()
+
 const resetQuery = () => {
   query.keyword = ''
   query.sourceType = ''
   query.status = ''
+  resetPage(page)
   loadList()
 }
 
@@ -195,7 +212,7 @@ onMounted(() => loadList())
             <el-option label="失败" value="FAILED" />
           </el-select>
         </el-form-item>
-        <el-button type="primary" @click="loadList()">查询</el-button>
+        <el-button type="primary" @click="searchList">查询</el-button>
         <el-button @click="resetQuery">重置</el-button>
       </el-form>
 
@@ -213,6 +230,18 @@ onMounted(() => loadList())
           <em>{{ record.currentStage || '-' }} / {{ record.updatedAt || '-' }}</em>
         </button>
       </div>
+      <el-pagination
+        v-model:current-page="page.pageNo"
+        v-model:page-size="page.pageSize"
+        class="table-pagination"
+        small
+        background
+        layout="total, prev, pager, next"
+        :page-sizes="[10, 20, 50, 100]"
+        :total="page.total"
+        @size-change="handlePageSizeChange"
+        @current-change="handlePageChange"
+      />
     </el-card>
 
     <div class="page-stack" v-loading="loadingDetail">

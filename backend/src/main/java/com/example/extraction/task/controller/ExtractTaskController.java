@@ -1,6 +1,8 @@
 package com.example.extraction.task.controller;
 
 import com.example.extraction.common.ApiResponse;
+import com.example.extraction.common.PageResponse;
+import com.example.extraction.common.PageSupport;
 import com.example.extraction.task.dto.TaskDispatchRequest;
 import com.example.extraction.task.dto.TaskQueryRequest;
 import com.example.extraction.task.dto.TaskResponse;
@@ -31,13 +33,13 @@ public class ExtractTaskController {
     }
 
     @GetMapping
-    public ApiResponse<List<TaskResponse>> list(TaskQueryRequest query) {
-        return ApiResponse.success(extractTaskService.list(query));
+    public ApiResponse<PageResponse<TaskResponse>> list(TaskQueryRequest query) {
+        return ApiResponse.success(PageSupport.page(query, () -> extractTaskService.list(query)));
     }
 
     @GetMapping("/failed")
-    public ApiResponse<List<TaskResponse>> failed(TaskQueryRequest query) {
-        return ApiResponse.success(extractTaskService.failed(query));
+    public ApiResponse<PageResponse<TaskResponse>> failed(TaskQueryRequest query) {
+        return ApiResponse.success(PageSupport.page(query, () -> extractTaskService.failed(query)));
     }
 
     @GetMapping("/{taskId}")

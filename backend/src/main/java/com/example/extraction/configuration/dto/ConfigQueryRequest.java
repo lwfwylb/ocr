@@ -1,6 +1,8 @@
 package com.example.extraction.configuration.dto;
 
-public class ConfigQueryRequest {
+import com.example.extraction.common.PageQuery;
+
+public class ConfigQueryRequest extends PageQuery {
     private String keyword;
     private String status;
     private String departmentId;

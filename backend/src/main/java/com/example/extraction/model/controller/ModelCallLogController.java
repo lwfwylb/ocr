@@ -1,6 +1,8 @@
 package com.example.extraction.model.controller;
 
 import com.example.extraction.common.ApiResponse;
+import com.example.extraction.common.PageResponse;
+import com.example.extraction.common.PageSupport;
 import com.example.extraction.model.dto.ModelCallLogQueryRequest;
 import com.example.extraction.model.dto.ModelCallLogResponse;
 import com.example.extraction.model.service.ModelCallLogService;
@@ -21,8 +23,8 @@ public class ModelCallLogController {
     }
 
     @GetMapping
-    public ApiResponse<List<ModelCallLogResponse>> list(ModelCallLogQueryRequest query) {
-        return ApiResponse.success(modelCallLogService.list(query));
+    public ApiResponse<PageResponse<ModelCallLogResponse>> list(ModelCallLogQueryRequest query) {
+        return ApiResponse.success(PageSupport.page(query, () -> modelCallLogService.list(query)));
     }
 
     @GetMapping("/{id}")

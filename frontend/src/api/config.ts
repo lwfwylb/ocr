@@ -1,4 +1,4 @@
-import { request } from './http'
+import { pageRecords, request, type PageQuery, type PageResponse } from './http'
 
 export interface ConfigSummary {
   id: string
@@ -80,13 +80,17 @@ export interface ResultTableDetail {
   columns: ResultTableColumnOption[]
 }
 
-export function listExtractConfigs(params: Record<string, string>) {
+export function pageExtractConfigs(params: Record<string, unknown> & PageQuery) {
   const searchParams = new URLSearchParams()
   Object.entries(params).forEach(([key, value]) => {
-    if (value) searchParams.set(key, value)
+    if (value) searchParams.set(key, String(value))
   })
   const query = searchParams.toString()
-  return request<ConfigSummary[]>(`/api/config/extract-configs${query ? `?${query}` : ''}`)
+  return request<PageResponse<ConfigSummary>>(`/api/config/extract-configs${query ? `?${query}` : ''}`)
+}
+
+export async function listExtractConfigs(params: Record<string, unknown> & PageQuery) {
+  return pageRecords(await pageExtractConfigs({ pageSize: 200, ...params }))
 }
 
 export function getExtractConfigDetail(id: string) {

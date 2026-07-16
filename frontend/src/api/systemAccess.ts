@@ -1,4 +1,4 @@
-import { request } from './http'
+import { pageRecords, request, toQuery, type PageResponse } from './http'
 
 export interface SystemUser {
   id: string
@@ -78,17 +78,12 @@ export interface DataPolicy {
 
 export type DataPolicyPayload = Omit<DataPolicy, 'id' | 'scopeSummary' | 'createdAt' | 'updatedAt'>
 
-const toQuery = (params: Record<string, any> = {}) => {
-  const search = new URLSearchParams()
-  Object.entries(params).forEach(([key, value]) => {
-    if (value !== undefined && value !== null && value !== '') search.set(key, String(value))
-  })
-  const query = search.toString()
-  return query ? `?${query}` : ''
+export function pageSystemUsers(params: Record<string, any> = {}) {
+  return request<PageResponse<SystemUser>>(`/api/system/access/users${toQuery(params)}`)
 }
 
-export function listSystemUsers(params: Record<string, any> = {}) {
-  return request<SystemUser[]>(`/api/system/access/users${toQuery(params)}`)
+export async function listSystemUsers(params: Record<string, any> = {}) {
+  return pageRecords(await pageSystemUsers({ pageSize: 200, ...params }))
 }
 
 export function createSystemUser(payload: SystemUserPayload) {
@@ -107,8 +102,12 @@ export function disableSystemUser(id: string) {
   return request<SystemUser>(`/api/system/access/users/${id}/disable`, { method: 'POST' })
 }
 
-export function listSystemRoles(params: Record<string, any> = {}) {
-  return request<SystemRole[]>(`/api/system/access/roles${toQuery(params)}`)
+export function pageSystemRoles(params: Record<string, any> = {}) {
+  return request<PageResponse<SystemRole>>(`/api/system/access/roles${toQuery(params)}`)
+}
+
+export async function listSystemRoles(params: Record<string, any> = {}) {
+  return pageRecords(await pageSystemRoles({ pageSize: 200, ...params }))
 }
 
 export function createSystemRole(payload: SystemRolePayload) {
@@ -146,8 +145,12 @@ export function saveRolePermissions(roleId: string, permissionCodes: string[]) {
   })
 }
 
-export function listDataPolicies(params: Record<string, any> = {}) {
-  return request<DataPolicy[]>(`/api/system/access/data-policies${toQuery(params)}`)
+export function pageDataPolicies(params: Record<string, any> = {}) {
+  return request<PageResponse<DataPolicy>>(`/api/system/access/data-policies${toQuery(params)}`)
+}
+
+export async function listDataPolicies(params: Record<string, any> = {}) {
+  return pageRecords(await pageDataPolicies({ pageSize: 200, ...params }))
 }
 
 export function createDataPolicy(payload: DataPolicyPayload) {

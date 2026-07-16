@@ -1,6 +1,8 @@
 package com.example.extraction.model.dto;
 
-public class LlmModelQueryRequest {
+import com.example.extraction.common.PageQuery;
+
+public class LlmModelQueryRequest extends PageQuery {
     private String keyword;
     private String provider;
     private String status;

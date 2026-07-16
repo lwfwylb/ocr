@@ -1,6 +1,8 @@
 package com.example.extraction.result.controller;
 
 import com.example.extraction.common.ApiResponse;
+import com.example.extraction.common.PageResponse;
+import com.example.extraction.common.PageSupport;
 import com.example.extraction.result.dto.ResultSummaryResponse;
 import com.example.extraction.result.dto.ReviewDetailResponse;
 import com.example.extraction.result.dto.ReviewQueryRequest;
@@ -25,8 +27,8 @@ public class ReviewController {
     }
 
     @GetMapping
-    public ApiResponse<List<ResultSummaryResponse>> list(ReviewQueryRequest query) {
-        return ApiResponse.success(reviewService.list(query));
+    public ApiResponse<PageResponse<ResultSummaryResponse>> list(ReviewQueryRequest query) {
+        return ApiResponse.success(PageSupport.page(query, () -> reviewService.list(query)));
     }
 
     @GetMapping("/{taskId}")

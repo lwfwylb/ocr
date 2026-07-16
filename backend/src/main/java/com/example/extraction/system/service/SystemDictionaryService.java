@@ -35,6 +35,15 @@ public class SystemDictionaryService {
     }
 
     @Transactional
+    public void ensureDefaultsForList() {
+        ensureDefaults();
+    }
+
+    public List<DictTypeResponse> typesWithoutDefaults(String keyword, String status) {
+        return dictionaryMapper.selectTypes(keyword, status).stream().map(this::toTypeResponse).toList();
+    }
+
+    @Transactional
     public DictTypeResponse createType(DictTypeRequest request) {
         ensureDefaults();
         validateTypeRequest(request);
@@ -90,6 +99,11 @@ public class SystemDictionaryService {
     @Transactional
     public List<DictItemResponse> items(String dictCode, String parentValue, String keyword, Boolean enabled) {
         ensureDefaults();
+        String enabledFlag = enabled == null ? null : (enabled ? "1" : "0");
+        return dictionaryMapper.selectItems(dictCode, parentValue, keyword, enabledFlag).stream().map(this::toItemResponse).toList();
+    }
+
+    public List<DictItemResponse> itemsWithoutDefaults(String dictCode, String parentValue, String keyword, Boolean enabled) {
         String enabledFlag = enabled == null ? null : (enabled ? "1" : "0");
         return dictionaryMapper.selectItems(dictCode, parentValue, keyword, enabledFlag).stream().map(this::toItemResponse).toList();
     }

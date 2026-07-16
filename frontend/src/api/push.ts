@@ -1,4 +1,4 @@
-import { request } from './http'
+import { pageRecords, request, toQuery, type PageQuery, type PageResponse } from './http'
 
 export type PushStatus = 'SUCCESS' | 'PENDING' | 'FAILED' | 'RETRYING' | string
 export type PushMethod = 'HTTP' | 'MICROSERVICE' | 'MQ' | string
@@ -34,6 +34,8 @@ export interface PushQuery {
   serviceCode?: string
   status?: string
   pushMethod?: string
+  pageNo?: number | string
+  pageSize?: number | string
 }
 
 export interface PushExecutePayload {
@@ -45,17 +47,12 @@ export interface PushExecutePayload {
   operator?: string
 }
 
-function toQuery(params: PushQuery) {
-  const searchParams = new URLSearchParams()
-  Object.entries(params).forEach(([key, value]) => {
-    if (value) searchParams.set(key, value)
-  })
-  const query = searchParams.toString()
-  return query ? `?${query}` : ''
+export function pagePushRecords(params: PushQuery & PageQuery = {}) {
+  return request<PageResponse<PushRecord>>(`/api/push-records${toQuery(params)}`)
 }
 
-export function listPushRecords(params: PushQuery = {}) {
-  return request<PushRecord[]>(`/api/push-records${toQuery(params)}`)
+export async function listPushRecords(params: PushQuery & PageQuery = {}) {
+  return pageRecords(await pagePushRecords({ pageSize: 200, ...params }))
 }
 
 export function pushResultToDownstream(taskId: string, payload: PushExecutePayload = {}) {

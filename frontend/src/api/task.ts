@@ -1,4 +1,4 @@
-import { request } from './http'
+import { pageRecords, request, toQuery, type PageQuery, type PageResponse } from './http'
 
 export interface ExtractTask {
   id: string
@@ -68,6 +68,8 @@ export interface TaskQuery {
   departmentId?: string
   priority?: string
   status?: string
+  pageNo?: number | string
+  pageSize?: number | string
 }
 
 export interface TaskDispatchPayload {
@@ -84,21 +86,20 @@ export interface TaskRetryPayload {
   reason?: string
 }
 
-function toQuery(params: TaskQuery) {
-  const searchParams = new URLSearchParams()
-  Object.entries(params).forEach(([key, value]) => {
-    if (value) searchParams.set(key, value)
-  })
-  const query = searchParams.toString()
-  return query ? `?${query}` : ''
+export function pageTasks(params: TaskQuery & PageQuery) {
+  return request<PageResponse<ExtractTask>>(`/api/tasks${toQuery(params)}`)
 }
 
-export function listTasks(params: TaskQuery) {
-  return request<ExtractTask[]>(`/api/tasks${toQuery(params)}`)
+export async function listTasks(params: TaskQuery & PageQuery) {
+  return pageRecords(await pageTasks({ pageSize: 200, ...params }))
 }
 
-export function listFailedTasks(params: TaskQuery) {
-  return request<ExtractTask[]>(`/api/tasks/failed${toQuery(params)}`)
+export function pageFailedTasks(params: TaskQuery & PageQuery) {
+  return request<PageResponse<ExtractTask>>(`/api/tasks/failed${toQuery(params)}`)
+}
+
+export async function listFailedTasks(params: TaskQuery & PageQuery) {
+  return pageRecords(await pageFailedTasks({ pageSize: 200, ...params }))
 }
 
 export function getTaskDetail(taskId: string) {

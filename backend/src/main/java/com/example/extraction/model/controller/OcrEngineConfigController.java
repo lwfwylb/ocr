@@ -1,6 +1,8 @@
 package com.example.extraction.model.controller;
 
 import com.example.extraction.common.ApiResponse;
+import com.example.extraction.common.PageResponse;
+import com.example.extraction.common.PageSupport;
 import com.example.extraction.model.dto.OcrEngineConfigRequest;
 import com.example.extraction.model.dto.OcrEngineConfigResponse;
 import com.example.extraction.model.dto.OcrEngineQueryRequest;
@@ -39,8 +41,8 @@ public class OcrEngineConfigController {
     }
 
     @GetMapping
-    public ApiResponse<List<OcrEngineConfigResponse>> list(OcrEngineQueryRequest query) {
-        return ApiResponse.success(ocrEngineConfigService.list(query));
+    public ApiResponse<PageResponse<OcrEngineConfigResponse>> list(OcrEngineQueryRequest query) {
+        return ApiResponse.success(PageSupport.page(query, () -> ocrEngineConfigService.list(query)));
     }
 
     @GetMapping("/options")

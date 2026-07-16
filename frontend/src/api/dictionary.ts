@@ -1,4 +1,4 @@
-import { request } from './http'
+import { pageRecords, request, toQuery, type PageResponse } from './http'
 
 export interface DictType {
   id: string
@@ -31,17 +31,12 @@ export interface DictItem {
 export type DictTypePayload = Omit<DictType, 'id' | 'createdBy' | 'createdAt' | 'updatedAt'>
 export type DictItemPayload = Omit<DictItem, 'id' | 'createdBy' | 'createdAt' | 'updatedAt'>
 
-const toQuery = (params: Record<string, any> = {}) => {
-  const searchParams = new URLSearchParams()
-  Object.entries(params).forEach(([key, value]) => {
-    if (value !== undefined && value !== null && value !== '') searchParams.set(key, String(value))
-  })
-  const query = searchParams.toString()
-  return query ? `?${query}` : ''
+export function pageDictTypes(params: Record<string, any> = {}) {
+  return request<PageResponse<DictType>>(`/api/system/dictionaries/types${toQuery(params)}`)
 }
 
-export function listDictTypes(params: Record<string, any> = {}) {
-  return request<DictType[]>(`/api/system/dictionaries/types${toQuery(params)}`)
+export async function listDictTypes(params: Record<string, any> = {}) {
+  return pageRecords(await pageDictTypes({ pageSize: 200, ...params }))
 }
 
 export function createDictType(payload: DictTypePayload) {
@@ -70,8 +65,12 @@ export function deleteDictType(id: string) {
   return request<void>(`/api/system/dictionaries/types/${id}`, { method: 'DELETE' })
 }
 
-export function listDictItems(params: Record<string, any> = {}) {
-  return request<DictItem[]>(`/api/system/dictionaries/items${toQuery(params)}`)
+export function pageDictItems(params: Record<string, any> = {}) {
+  return request<PageResponse<DictItem>>(`/api/system/dictionaries/items${toQuery(params)}`)
+}
+
+export async function listDictItems(params: Record<string, any> = {}) {
+  return pageRecords(await pageDictItems({ pageSize: 200, ...params }))
 }
 
 export function createDictItem(payload: DictItemPayload) {

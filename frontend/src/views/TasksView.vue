@@ -10,12 +10,13 @@ import {
   executeTask,
   getTaskDetail,
   listTaskStageLogs,
-  listTasks,
+  pageTasks,
   retryTask,
   type ExtractTask,
   type TaskDispatchPayload,
   type TaskStageLog
 } from '../api/task'
+import { createTablePage, pageParams, resetPage } from '../composables/useTablePage'
 
 const router = useRouter()
 const loading = ref(false)
@@ -26,6 +27,7 @@ const dispatchTarget = ref<ExtractTask | null>(null)
 const tasks = ref<ExtractTask[]>([])
 const stageLogs = ref<TaskStageLog[]>([])
 const taskArtifacts = ref<DocumentArtifact[]>([])
+const page = createTablePage(20)
 
 const query = reactive({
   keyword: '',
@@ -60,7 +62,7 @@ const priorityMap: Record<string, { label: string; type: 'success' | 'warning' |
   LOW: { label: '低', type: 'info' }
 }
 
-const totalCount = computed(() => tasks.value.length)
+const totalCount = computed(() => page.total)
 const queuedCount = computed(() => tasks.value.filter((item) => item.status === 'QUEUED').length)
 const failedCount = computed(() => tasks.value.filter((item) => item.status === 'FAILED').length)
 const acceleratedCount = computed(() => tasks.value.filter((item) => item.manualAccelerated).length)
@@ -68,7 +70,9 @@ const acceleratedCount = computed(() => tasks.value.filter((item) => item.manual
 const loadTasks = async () => {
   loading.value = true
   try {
-    tasks.value = await listTasks(query)
+    const result = await pageTasks({ ...query, ...pageParams(page) })
+    tasks.value = result.records
+    page.total = result.total
   } catch (error) {
     tasks.value = []
     ElMessage.error(error instanceof Error ? error.message : '任务列表加载失败')
@@ -77,6 +81,18 @@ const loadTasks = async () => {
   }
 }
 
+const searchTasks = () => {
+  resetPage(page)
+  loadTasks()
+}
+
+const handlePageSizeChange = () => {
+  resetPage(page)
+  loadTasks()
+}
+
+const handlePageChange = () => loadTasks()
+
 const resetQuery = () => {
   query.keyword = ''
   query.sourceType = ''
@@ -84,6 +100,7 @@ const resetQuery = () => {
   query.departmentId = ''
   query.priority = ''
   query.status = ''
+  resetPage(page)
   loadTasks()
 }
 
@@ -254,7 +271,7 @@ onMounted(loadTasks)
           </el-select>
         </el-form-item>
         <el-form-item>
-          <el-button type="primary" :loading="loading" @click="loadTasks">查询</el-button>
+          <el-button type="primary" :loading="loading" @click="searchTasks">查询</el-button>
           <el-button @click="resetQuery">重置</el-button>
         </el-form-item>
       </el-form>
@@ -308,6 +325,17 @@ onMounted(loadTasks)
           </template>
         </el-table-column>
       </el-table>
+      <el-pagination
+        v-model:current-page="page.pageNo"
+        v-model:page-size="page.pageSize"
+        class="table-pagination"
+        background
+        layout="total, sizes, prev, pager, next, jumper"
+        :page-sizes="[10, 20, 50, 100]"
+        :total="page.total"
+        @size-change="handlePageSizeChange"
+        @current-change="handlePageChange"
+      />
     </el-card>
 
     <el-drawer v-model="drawerVisible" title="任务详情" size="760px">

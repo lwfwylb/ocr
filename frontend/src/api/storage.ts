@@ -1,4 +1,4 @@
-import { request } from './http'
+import { pageRecords, request, toQuery, type PageQuery, type PageResponse } from './http'
 
 export interface StorageTable {
   tableName: string
@@ -37,6 +37,8 @@ export interface StorageQuery {
   documentType?: string
   sourceType?: string
   storageStatus?: string
+  pageNo?: number | string
+  pageSize?: number | string
 }
 
 export interface StorageExecutePayload {
@@ -44,21 +46,16 @@ export interface StorageExecutePayload {
   duplicateStrategy?: string
 }
 
-function toQuery(params: object) {
-  const searchParams = new URLSearchParams()
-  Object.entries(params).forEach(([key, value]) => {
-    if (value) searchParams.set(key, String(value))
-  })
-  const query = searchParams.toString()
-  return query ? `?${query}` : ''
-}
-
 export function listStorageTables(keyword?: string) {
   return request<StorageTable[]>(`/api/storage/tables${toQuery({ keyword })}`)
 }
 
-export function listStorageRecords(params: StorageQuery) {
-  return request<StorageRecord[]>(`/api/storage/records${toQuery(params)}`)
+export function pageStorageRecords(params: StorageQuery & PageQuery) {
+  return request<PageResponse<StorageRecord>>(`/api/storage/records${toQuery(params)}`)
+}
+
+export async function listStorageRecords(params: StorageQuery & PageQuery) {
+  return pageRecords(await pageStorageRecords({ pageSize: 200, ...params }))
 }
 
 export function executeStorage(taskId: string, payload: StorageExecutePayload = {}) {

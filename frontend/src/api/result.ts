@@ -1,4 +1,4 @@
-import { request } from './http'
+import { pageRecords, request, toQuery, type PageQuery, type PageResponse } from './http'
 
 export interface ResultSummary {
   taskId: string
@@ -64,19 +64,16 @@ export interface ResultQuery {
   departmentId?: string
   sourceType?: string
   resultStatus?: string
+  pageNo?: number | string
+  pageSize?: number | string
 }
 
-function toQuery(params: ResultQuery) {
-  const searchParams = new URLSearchParams()
-  Object.entries(params).forEach(([key, value]) => {
-    if (value) searchParams.set(key, value)
-  })
-  const query = searchParams.toString()
-  return query ? `?${query}` : ''
+export function pageResults(params: ResultQuery & PageQuery) {
+  return request<PageResponse<ResultSummary>>(`/api/results${toQuery(params)}`)
 }
 
-export function listResults(params: ResultQuery) {
-  return request<ResultSummary[]>(`/api/results${toQuery(params)}`)
+export async function listResults(params: ResultQuery & PageQuery) {
+  return pageRecords(await pageResults({ pageSize: 200, ...params }))
 }
 
 export function getResultDetail(taskId: string) {

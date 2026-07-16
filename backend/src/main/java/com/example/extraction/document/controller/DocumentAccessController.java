@@ -1,6 +1,8 @@
 package com.example.extraction.document.controller;
 
 import com.example.extraction.common.ApiResponse;
+import com.example.extraction.common.PageResponse;
+import com.example.extraction.common.PageSupport;
 import com.example.extraction.document.dto.DocumentAccessQueryRequest;
 import com.example.extraction.document.dto.DocumentAccessRequest;
 import com.example.extraction.document.dto.DocumentAccessResponse;
@@ -28,13 +30,13 @@ public class DocumentAccessController {
     }
 
     @GetMapping("/access-records")
-    public ApiResponse<List<DocumentAccessResponse>> list(DocumentAccessQueryRequest query) {
-        return ApiResponse.success(documentAccessService.list(query));
+    public ApiResponse<PageResponse<DocumentAccessResponse>> list(DocumentAccessQueryRequest query) {
+        return ApiResponse.success(PageSupport.page(query, () -> documentAccessService.list(query)));
     }
 
     @GetMapping("/pending-confirm")
-    public ApiResponse<List<DocumentAccessResponse>> pendingConfirm(DocumentAccessQueryRequest query) {
-        return ApiResponse.success(documentAccessService.pendingConfirm(query));
+    public ApiResponse<PageResponse<DocumentAccessResponse>> pendingConfirm(DocumentAccessQueryRequest query) {
+        return ApiResponse.success(PageSupport.page(query, () -> documentAccessService.pendingConfirm(query)));
     }
 
     @GetMapping("/access-records/{id}")

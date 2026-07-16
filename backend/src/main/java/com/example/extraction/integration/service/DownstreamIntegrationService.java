@@ -47,8 +47,25 @@ public class DownstreamIntegrationService {
     }
 
     @Transactional
+    public void ensureDefaultsForList() {
+        ensureDefaults();
+    }
+
+    public List<DownstreamSystemResponse> systemsWithoutDefaults(IntegrationQueryRequest query) {
+        List<DownstreamSystemConfigRecord> systems = integrationMapper.selectSystems(query);
+        List<DownstreamServiceConfigRecord> services = integrationMapper.selectServices(new IntegrationQueryRequest());
+        return systems.stream()
+                .map(system -> toSystemResponse(system, services))
+                .toList();
+    }
+
+    @Transactional
     public List<DownstreamServiceResponse> services(IntegrationQueryRequest query) {
         ensureDefaults();
+        return integrationMapper.selectServices(query).stream().map(this::toServiceResponse).toList();
+    }
+
+    public List<DownstreamServiceResponse> servicesWithoutDefaults(IntegrationQueryRequest query) {
         return integrationMapper.selectServices(query).stream().map(this::toServiceResponse).toList();
     }
 
