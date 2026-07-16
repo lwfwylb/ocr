@@ -1,4 +1,4 @@
-import { request } from './http'
+import { pageRecords, request, toQuery, type PageResponse } from './http'
 
 export type IntegrationServiceType = 'HTTP' | 'MICROSERVICE' | 'MQ' | string
 
@@ -48,6 +48,8 @@ export interface IntegrationQuery {
   serviceType?: string
   status?: string
   systemCode?: string
+  pageNo?: number | string
+  pageSize?: number | string
 }
 
 export interface DownstreamSystemPayload {
@@ -75,21 +77,20 @@ export interface DownstreamServicePayload {
   enabled?: boolean
 }
 
-function toQuery(params: IntegrationQuery) {
-  const searchParams = new URLSearchParams()
-  Object.entries(params).forEach(([key, value]) => {
-    if (value) searchParams.set(key, value)
-  })
-  const query = searchParams.toString()
-  return query ? `?${query}` : ''
+export function pageIntegrationSystems(params: IntegrationQuery = {}) {
+  return request<PageResponse<DownstreamSystem>>(`/api/integrations/systems${toQuery(params)}`)
 }
 
-export function listIntegrationSystems(params: IntegrationQuery = {}) {
-  return request<DownstreamSystem[]>(`/api/integrations/systems${toQuery(params)}`)
+export async function listIntegrationSystems(params: IntegrationQuery = {}) {
+  return pageRecords(await pageIntegrationSystems({ pageSize: 200, ...params }))
 }
 
-export function listIntegrationServices(params: IntegrationQuery = {}) {
-  return request<DownstreamService[]>(`/api/integrations/services${toQuery(params)}`)
+export function pageIntegrationServices(params: IntegrationQuery = {}) {
+  return request<PageResponse<DownstreamService>>(`/api/integrations/services${toQuery(params)}`)
+}
+
+export async function listIntegrationServices(params: IntegrationQuery = {}) {
+  return pageRecords(await pageIntegrationServices({ pageSize: 200, ...params }))
 }
 
 export function createIntegrationSystem(payload: DownstreamSystemPayload) {

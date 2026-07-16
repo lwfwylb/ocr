@@ -4,15 +4,17 @@ import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import {
   getDocumentAccessRecord,
-  listDocumentAccessRecords,
+  pageDocumentAccessRecords,
   rematchDocument,
   type DocumentAccessRecord
 } from '../api/document'
+import { createTablePage, pageParams, resetPage } from '../composables/useTablePage'
 
 const router = useRouter()
 const drawerVisible = ref(false)
 const loading = ref(false)
 const detailLoading = ref(false)
+const page = createTablePage(20)
 const selectedRecord = ref<DocumentAccessRecord | null>(null)
 const query = reactive({
   keyword: '',
@@ -40,7 +42,7 @@ const accessStatusMap = {
   REJECTED: { label: '已拒绝', type: 'danger' }
 } as const
 
-const totalCount = computed(() => records.value.length)
+const totalCount = computed(() => page.total)
 const matchedCount = computed(() => records.value.filter((item) => item.matchStatus === 'MATCHED').length)
 const pendingCount = computed(() => records.value.filter((item) => item.accessStatus === 'PENDING_CONFIRM').length)
 const apiCount = computed(() => records.value.filter((item) => item.sourceType === 'BUSINESS_API').length)
@@ -55,7 +57,9 @@ const formatSize = (size?: number) => {
 const loadRecords = async () => {
   loading.value = true
   try {
-    records.value = await listDocumentAccessRecords(query)
+    const result = await pageDocumentAccessRecords({ ...query, ...pageParams(page) })
+    records.value = result.records
+    page.total = result.total
   } catch (error) {
     records.value = []
     ElMessage.error(error instanceof Error ? error.message : '接入记录加载失败')
@@ -77,11 +81,24 @@ const openDetail = async (record: DocumentAccessRecord) => {
   }
 }
 
+const searchRecords = () => {
+  resetPage(page)
+  loadRecords()
+}
+
+const handlePageSizeChange = () => {
+  resetPage(page)
+  loadRecords()
+}
+
+const handlePageChange = () => loadRecords()
+
 const resetQuery = () => {
   query.keyword = ''
   query.sourceType = ''
   query.matchStatus = ''
   query.departmentId = ''
+  resetPage(page)
   loadRecords()
 }
 
@@ -139,7 +156,7 @@ onMounted(loadRecords)
           </el-select>
         </el-form-item>
         <el-form-item>
-          <el-button type="primary" :loading="loading" @click="loadRecords">查询</el-button>
+          <el-button type="primary" :loading="loading" @click="searchRecords">查询</el-button>
           <el-button @click="resetQuery">重置</el-button>
         </el-form-item>
       </el-form>
@@ -190,6 +207,17 @@ onMounted(loadRecords)
           </template>
         </el-table-column>
       </el-table>
+      <el-pagination
+        v-model:current-page="page.pageNo"
+        v-model:page-size="page.pageSize"
+        class="table-pagination"
+        background
+        layout="total, sizes, prev, pager, next, jumper"
+        :page-sizes="[10, 20, 50, 100]"
+        :total="page.total"
+        @size-change="handlePageSizeChange"
+        @current-change="handlePageChange"
+      />
     </el-card>
 
     <el-drawer v-model="drawerVisible" title="接入详情" size="620px">

@@ -1,4 +1,4 @@
-import { request } from './http'
+import { pageRecords, request, toQuery, type PageResponse } from './http'
 import type { ResultDetail } from './result'
 import type { ReviewLog } from './review'
 import type { StorageRecord } from './storage'
@@ -94,19 +94,16 @@ export interface TraceQuery {
   keyword?: string
   sourceType?: string
   status?: string
+  pageNo?: number
+  pageSize?: number
 }
 
-function toQuery(params: TraceQuery) {
-  const searchParams = new URLSearchParams()
-  Object.entries(params).forEach(([key, value]) => {
-    if (value) searchParams.set(key, value)
-  })
-  const query = searchParams.toString()
-  return query ? `?${query}` : ''
+export function pageTraces(params: TraceQuery) {
+  return request<PageResponse<TraceSummary>>(`/api/traces${toQuery(params)}`)
 }
 
-export function listTraces(params: TraceQuery) {
-  return request<TraceSummary[]>(`/api/traces${toQuery(params)}`)
+export async function listTraces(params: TraceQuery) {
+  return pageRecords(await pageTraces({ pageSize: 200, ...params }))
 }
 
 export function getTraceDetail(traceId: string) {

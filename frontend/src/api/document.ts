@@ -1,4 +1,4 @@
-import { request } from './http'
+import { pageRecords, request, toQuery, type PageQuery, type PageResponse } from './http'
 
 export interface DocumentAccessRecord {
   id: string
@@ -57,21 +57,20 @@ export interface DocumentConfirmPayload {
   comment?: string
 }
 
-function toQuery(params: Record<string, string>) {
-  const searchParams = new URLSearchParams()
-  Object.entries(params).forEach(([key, value]) => {
-    if (value) searchParams.set(key, value)
-  })
-  const query = searchParams.toString()
-  return query ? `?${query}` : ''
+export function pageDocumentAccessRecords(params: Record<string, unknown> & PageQuery) {
+  return request<PageResponse<DocumentAccessRecord>>(`/api/documents/access-records${toQuery(params)}`)
 }
 
-export function listDocumentAccessRecords(params: Record<string, string>) {
-  return request<DocumentAccessRecord[]>(`/api/documents/access-records${toQuery(params)}`)
+export async function listDocumentAccessRecords(params: Record<string, unknown> & PageQuery) {
+  return pageRecords(await pageDocumentAccessRecords({ pageSize: 200, ...params }))
 }
 
-export function listPendingDocuments(params: Record<string, string>) {
-  return request<DocumentAccessRecord[]>(`/api/documents/pending-confirm${toQuery(params)}`)
+export function pagePendingDocuments(params: Record<string, unknown> & PageQuery) {
+  return request<PageResponse<DocumentAccessRecord>>(`/api/documents/pending-confirm${toQuery(params)}`)
+}
+
+export async function listPendingDocuments(params: Record<string, unknown> & PageQuery) {
+  return pageRecords(await pagePendingDocuments({ pageSize: 200, ...params }))
 }
 
 export function getDocumentAccessRecord(id: string) {

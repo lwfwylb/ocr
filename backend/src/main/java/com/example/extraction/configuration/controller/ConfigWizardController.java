@@ -1,6 +1,8 @@
 package com.example.extraction.configuration.controller;
 
 import com.example.extraction.common.ApiResponse;
+import com.example.extraction.common.PageResponse;
+import com.example.extraction.common.PageSupport;
 import com.example.extraction.configuration.dto.ConfigDetailResponse;
 import com.example.extraction.configuration.dto.ConfigOptionsResponse;
 import com.example.extraction.configuration.dto.ConfigQueryRequest;
@@ -33,8 +35,8 @@ public class ConfigWizardController {
     }
 
     @GetMapping("/extract-configs")
-    public ApiResponse<List<ConfigSummaryResponse>> list(ConfigQueryRequest query) {
-        return ApiResponse.success(configWizardService.list(query));
+    public ApiResponse<PageResponse<ConfigSummaryResponse>> list(ConfigQueryRequest query) {
+        return ApiResponse.success(PageSupport.page(query, () -> configWizardService.list(query)));
     }
 
     @GetMapping("/extract-configs/effective")

@@ -1,6 +1,8 @@
 package com.example.extraction.document.dto;
 
-public class DocumentAccessQueryRequest {
+import com.example.extraction.common.PageQuery;
+
+public class DocumentAccessQueryRequest extends PageQuery {
     private String keyword;
     private String sourceType;
     private String matchStatus;

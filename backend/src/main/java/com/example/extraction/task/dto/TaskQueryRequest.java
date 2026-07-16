@@ -1,6 +1,8 @@
 package com.example.extraction.task.dto;
 
-public class TaskQueryRequest {
+import com.example.extraction.common.PageQuery;
+
+public class TaskQueryRequest extends PageQuery {
     private String keyword;
     private String sourceType;
     private String documentType;

@@ -1,6 +1,8 @@
 package com.example.extraction.trace.controller;
 
 import com.example.extraction.common.ApiResponse;
+import com.example.extraction.common.PageResponse;
+import com.example.extraction.common.PageSupport;
 import com.example.extraction.trace.dto.TraceDetailResponse;
 import com.example.extraction.trace.dto.TraceQueryRequest;
 import com.example.extraction.trace.dto.TraceSummaryResponse;
@@ -22,8 +24,8 @@ public class TraceMonitorController {
     }
 
     @GetMapping
-    public ApiResponse<List<TraceSummaryResponse>> list(TraceQueryRequest query) {
-        return ApiResponse.success(traceMonitorService.list(query));
+    public ApiResponse<PageResponse<TraceSummaryResponse>> list(TraceQueryRequest query) {
+        return ApiResponse.success(PageSupport.page(query, () -> traceMonitorService.list(query)));
     }
 
     @GetMapping("/{traceId}")

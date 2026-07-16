@@ -1,4 +1,4 @@
-import { request } from './http'
+import { pageRecords, request, toQuery, type PageQuery, type PageResponse } from './http'
 
 export type ModelCallType = 'OCR' | 'LLM' | string
 export type ModelCallStatus = 'SUCCESS' | 'FAILED' | string
@@ -32,19 +32,16 @@ export interface ModelCallLogQuery {
   status?: string
   stageCode?: string
   modelCode?: string
+  pageNo?: number | string
+  pageSize?: number | string
 }
 
-function toQuery(params: ModelCallLogQuery) {
-  const searchParams = new URLSearchParams()
-  Object.entries(params).forEach(([key, value]) => {
-    if (value) searchParams.set(key, value)
-  })
-  const query = searchParams.toString()
-  return query ? `?${query}` : ''
+export function pageModelCallLogs(params: ModelCallLogQuery & PageQuery = {}) {
+  return request<PageResponse<ModelCallLog>>(`/api/model-call-logs${toQuery(params)}`)
 }
 
-export function listModelCallLogs(params: ModelCallLogQuery = {}) {
-  return request<ModelCallLog[]>(`/api/model-call-logs${toQuery(params)}`)
+export async function listModelCallLogs(params: ModelCallLogQuery & PageQuery = {}) {
+  return pageRecords(await pageModelCallLogs({ pageSize: 200, ...params }))
 }
 
 export function getModelCallLogDetail(id: string) {

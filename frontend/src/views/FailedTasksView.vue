@@ -2,7 +2,8 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { listFailedTasks, retryTask, type ExtractTask } from '../api/task'
+import { pageFailedTasks, retryTask, type ExtractTask } from '../api/task'
+import { createTablePage, pageParams, resetPage } from '../composables/useTablePage'
 
 type RetryMode = 'FROM_FAILED_STAGE' | 'REPARSE' | 'REEXTRACT' | 'FULL_RETRY'
 
@@ -12,6 +13,7 @@ const drawerVisible = ref(false)
 const retryDialogVisible = ref(false)
 const selectedTask = ref<ExtractTask | null>(null)
 const failedTasks = ref<ExtractTask[]>([])
+const page = createTablePage(20)
 
 const retryForm = reactive({
   retryMode: 'FROM_FAILED_STAGE' as RetryMode,
@@ -39,7 +41,9 @@ const priorityMap = {
 const loadFailedTasks = async () => {
   loading.value = true
   try {
-    failedTasks.value = await listFailedTasks(query)
+    const result = await pageFailedTasks({ ...query, ...pageParams(page) })
+    failedTasks.value = result.records
+    page.total = result.total
   } catch (error) {
     failedTasks.value = []
     ElMessage.error(error instanceof Error ? error.message : '失败任务加载失败')
@@ -48,10 +52,23 @@ const loadFailedTasks = async () => {
   }
 }
 
+const searchFailedTasks = () => {
+  resetPage(page)
+  loadFailedTasks()
+}
+
+const handlePageSizeChange = () => {
+  resetPage(page)
+  loadFailedTasks()
+}
+
+const handlePageChange = () => loadFailedTasks()
+
 const resetQuery = () => {
   query.keyword = ''
   query.departmentId = ''
   query.priority = ''
+  resetPage(page)
   loadFailedTasks()
 }
 
@@ -115,7 +132,7 @@ onMounted(loadFailedTasks)
           </el-select>
         </el-form-item>
         <el-form-item>
-          <el-button type="primary" :loading="loading" @click="loadFailedTasks">查询</el-button>
+          <el-button type="primary" :loading="loading" @click="searchFailedTasks">查询</el-button>
           <el-button @click="resetQuery">重置</el-button>
         </el-form-item>
       </el-form>
@@ -159,6 +176,17 @@ onMounted(loadFailedTasks)
           </template>
         </el-table-column>
       </el-table>
+      <el-pagination
+        v-model:current-page="page.pageNo"
+        v-model:page-size="page.pageSize"
+        class="table-pagination"
+        background
+        layout="total, sizes, prev, pager, next, jumper"
+        :page-sizes="[10, 20, 50, 100]"
+        :total="page.total"
+        @size-change="handlePageSizeChange"
+        @current-change="handlePageChange"
+      />
     </el-card>
 
     <el-drawer v-model="drawerVisible" title="失败详情" size="620px">

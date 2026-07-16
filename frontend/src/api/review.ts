@@ -1,4 +1,4 @@
-import { request } from './http'
+import { pageRecords, request, toQuery, type PageQuery, type PageResponse } from './http'
 import type { ResultSummary } from './result'
 
 export interface ReviewField {
@@ -34,6 +34,8 @@ export interface ReviewQuery {
   departmentId?: string
   documentType?: string
   sourceType?: string
+  pageNo?: number | string
+  pageSize?: number | string
 }
 
 export interface ReviewSubmitPayload {
@@ -45,17 +47,12 @@ export interface ReviewSubmitPayload {
   reviewer?: string
 }
 
-function toQuery(params: ReviewQuery) {
-  const searchParams = new URLSearchParams()
-  Object.entries(params).forEach(([key, value]) => {
-    if (value) searchParams.set(key, value)
-  })
-  const query = searchParams.toString()
-  return query ? `?${query}` : ''
+export function pageReviewTasks(params: ReviewQuery & PageQuery) {
+  return request<PageResponse<ResultSummary>>(`/api/reviews${toQuery(params)}`)
 }
 
-export function listReviewTasks(params: ReviewQuery) {
-  return request<ResultSummary[]>(`/api/reviews${toQuery(params)}`)
+export async function listReviewTasks(params: ReviewQuery & PageQuery) {
+  return pageRecords(await pageReviewTasks({ pageSize: 200, ...params }))
 }
 
 export function getReviewDetail(taskId: string) {

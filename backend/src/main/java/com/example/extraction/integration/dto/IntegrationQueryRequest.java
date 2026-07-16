@@ -1,6 +1,8 @@
 package com.example.extraction.integration.dto;
 
-public class IntegrationQueryRequest {
+import com.example.extraction.common.PageQuery;
+
+public class IntegrationQueryRequest extends PageQuery {
     private String keyword;
     private String ownerDepartmentId;
     private String serviceType;

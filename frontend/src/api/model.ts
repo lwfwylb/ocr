@@ -1,4 +1,4 @@
-import { request } from './http'
+import { pageRecords, request, type PageQuery, type PageResponse } from './http'
 
 export interface LlmModelConfig {
   id: string
@@ -54,13 +54,17 @@ export interface LlmModelTestPayload {
 
 export type LlmModelPayload = Omit<LlmModelConfig, 'id' | 'createdBy' | 'createdAt' | 'updatedAt'>
 
-export function listLlmModelConfigs(params: Record<string, string>) {
+export function pageLlmModelConfigs(params: Record<string, unknown> & PageQuery) {
   const searchParams = new URLSearchParams()
   Object.entries(params).forEach(([key, value]) => {
-    if (value) searchParams.set(key, value)
+    if (value) searchParams.set(key, String(value))
   })
   const query = searchParams.toString()
-  return request<LlmModelConfig[]>(`/api/model/llm-configs${query ? `?${query}` : ''}`)
+  return request<PageResponse<LlmModelConfig>>(`/api/model/llm-configs${query ? `?${query}` : ''}`)
+}
+
+export async function listLlmModelConfigs(params: Record<string, unknown> & PageQuery) {
+  return pageRecords(await pageLlmModelConfigs({ pageSize: 200, ...params }))
 }
 
 export function getLlmModelConfig(id: string) {
@@ -196,13 +200,17 @@ export interface OcrEngineParseTestResult {
 
 export type OcrEnginePayload = Omit<OcrEngineConfig, 'id' | 'createdBy' | 'createdAt' | 'updatedAt'>
 
-export function listOcrEngineConfigs(params: Record<string, string>) {
+export function pageOcrEngineConfigs(params: Record<string, unknown> & PageQuery) {
   const searchParams = new URLSearchParams()
   Object.entries(params).forEach(([key, value]) => {
-    if (value) searchParams.set(key, value)
+    if (value) searchParams.set(key, String(value))
   })
   const query = searchParams.toString()
-  return request<OcrEngineConfig[]>(`/api/model/ocr-engines${query ? `?${query}` : ''}`)
+  return request<PageResponse<OcrEngineConfig>>(`/api/model/ocr-engines${query ? `?${query}` : ''}`)
+}
+
+export async function listOcrEngineConfigs(params: Record<string, unknown> & PageQuery) {
+  return pageRecords(await pageOcrEngineConfigs({ pageSize: 200, ...params }))
 }
 
 export function getOcrEngineConfig(id: string) {

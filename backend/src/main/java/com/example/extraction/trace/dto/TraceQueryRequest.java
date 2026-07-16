@@ -1,6 +1,8 @@
 package com.example.extraction.trace.dto;
 
-public class TraceQueryRequest {
+import com.example.extraction.common.PageQuery;
+
+public class TraceQueryRequest extends PageQuery {
     private String keyword;
     private String sourceType;
     private String status;

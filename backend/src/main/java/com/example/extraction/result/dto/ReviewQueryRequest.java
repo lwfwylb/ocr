@@ -1,6 +1,8 @@
 package com.example.extraction.result.dto;
 
-public class ReviewQueryRequest {
+import com.example.extraction.common.PageQuery;
+
+public class ReviewQueryRequest extends PageQuery {
     private String keyword;
     private String departmentId;
     private String documentType;

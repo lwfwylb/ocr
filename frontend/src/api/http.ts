@@ -6,6 +6,32 @@ interface ApiResponse<T> {
   data: T
 }
 
+export interface PageResponse<T> {
+  records: T[]
+  total: number
+  pageNo: number
+  pageSize: number
+  pages: number
+}
+
+export interface PageQuery {
+  pageNo?: number | string
+  pageSize?: number | string
+}
+
+export function toQuery(params: object = {}) {
+  const searchParams = new URLSearchParams()
+  Object.entries(params).forEach(([key, value]) => {
+    if (value !== undefined && value !== null && value !== '') searchParams.set(key, String(value))
+  })
+  const query = searchParams.toString()
+  return query ? `?${query}` : ''
+}
+
+export function pageRecords<T>(page: PageResponse<T>) {
+  return page.records || []
+}
+
 export async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const isFormData = options.body instanceof FormData
   const response = await fetch(`${API_BASE_URL}${path}`, {

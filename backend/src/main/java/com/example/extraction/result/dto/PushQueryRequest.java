@@ -1,6 +1,8 @@
 package com.example.extraction.result.dto;
 
-public class PushQueryRequest {
+import com.example.extraction.common.PageQuery;
+
+public class PushQueryRequest extends PageQuery {
     private String keyword;
     private String targetSystem;
     private String serviceCode;

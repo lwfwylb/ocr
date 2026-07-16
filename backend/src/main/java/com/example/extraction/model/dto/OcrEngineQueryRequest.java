@@ -1,6 +1,8 @@
 package com.example.extraction.model.dto;
 
-public class OcrEngineQueryRequest {
+import com.example.extraction.common.PageQuery;
+
+public class OcrEngineQueryRequest extends PageQuery {
     private String keyword;
     private String provider;
     private String engineType;

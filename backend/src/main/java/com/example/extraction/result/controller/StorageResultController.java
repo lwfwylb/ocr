@@ -1,6 +1,8 @@
 package com.example.extraction.result.controller;
 
 import com.example.extraction.common.ApiResponse;
+import com.example.extraction.common.PageResponse;
+import com.example.extraction.common.PageSupport;
 import com.example.extraction.result.dto.StorageExecuteRequest;
 import com.example.extraction.result.dto.StorageQueryRequest;
 import com.example.extraction.result.dto.StorageRecordResponse;
@@ -31,8 +33,8 @@ public class StorageResultController {
     }
 
     @GetMapping("/records")
-    public ApiResponse<List<StorageRecordResponse>> records(StorageQueryRequest query) {
-        return ApiResponse.success(storageResultService.records(query));
+    public ApiResponse<PageResponse<StorageRecordResponse>> records(StorageQueryRequest query) {
+        return ApiResponse.success(PageSupport.page(query, () -> storageResultService.records(query)));
     }
 
     @PostMapping("/records/{taskId}/execute")

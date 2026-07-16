@@ -1,6 +1,9 @@
 package com.example.extraction.system.controller;
 
 import com.example.extraction.common.ApiResponse;
+import com.example.extraction.common.PageQuery;
+import com.example.extraction.common.PageResponse;
+import com.example.extraction.common.PageSupport;
 import com.example.extraction.system.dto.DictItemRequest;
 import com.example.extraction.system.dto.DictItemResponse;
 import com.example.extraction.system.dto.DictTypeRequest;
@@ -29,9 +32,11 @@ public class SystemDictionaryController {
     }
 
     @GetMapping("/types")
-    public ApiResponse<List<DictTypeResponse>> types(@RequestParam(value = "keyword", required = false) String keyword,
-                                                     @RequestParam(value = "status", required = false) String status) {
-        return ApiResponse.success(dictionaryService.types(keyword, status));
+    public ApiResponse<PageResponse<DictTypeResponse>> types(@RequestParam(value = "keyword", required = false) String keyword,
+                                                     @RequestParam(value = "status", required = false) String status,
+                                                     PageQuery pageQuery) {
+        dictionaryService.ensureDefaultsForList();
+        return ApiResponse.success(PageSupport.page(pageQuery, () -> dictionaryService.typesWithoutDefaults(keyword, status)));
     }
 
     @PostMapping("/types")
@@ -61,11 +66,13 @@ public class SystemDictionaryController {
     }
 
     @GetMapping("/items")
-    public ApiResponse<List<DictItemResponse>> items(@RequestParam(value = "dictCode", required = false) String dictCode,
+    public ApiResponse<PageResponse<DictItemResponse>> items(@RequestParam(value = "dictCode", required = false) String dictCode,
                                                      @RequestParam(value = "parentValue", required = false) String parentValue,
                                                      @RequestParam(value = "keyword", required = false) String keyword,
-                                                     @RequestParam(value = "enabled", required = false) Boolean enabled) {
-        return ApiResponse.success(dictionaryService.items(dictCode, parentValue, keyword, enabled));
+                                                     @RequestParam(value = "enabled", required = false) Boolean enabled,
+                                                     PageQuery pageQuery) {
+        dictionaryService.ensureDefaultsForList();
+        return ApiResponse.success(PageSupport.page(pageQuery, () -> dictionaryService.itemsWithoutDefaults(dictCode, parentValue, keyword, enabled)));
     }
 
     @PostMapping("/items")

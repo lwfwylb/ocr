@@ -1,6 +1,8 @@
 package com.example.extraction.result.controller;
 
 import com.example.extraction.common.ApiResponse;
+import com.example.extraction.common.PageResponse;
+import com.example.extraction.common.PageSupport;
 import com.example.extraction.result.dto.ResultDetailResponse;
 import com.example.extraction.result.dto.ResultQueryRequest;
 import com.example.extraction.result.dto.ResultSummaryResponse;
@@ -22,8 +24,8 @@ public class ExtractionResultController {
     }
 
     @GetMapping
-    public ApiResponse<List<ResultSummaryResponse>> list(ResultQueryRequest query) {
-        return ApiResponse.success(extractionResultService.list(query));
+    public ApiResponse<PageResponse<ResultSummaryResponse>> list(ResultQueryRequest query) {
+        return ApiResponse.success(PageSupport.page(query, () -> extractionResultService.list(query)));
     }
 
     @GetMapping("/{taskId}")

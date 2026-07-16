@@ -1022,6 +1022,12 @@ body {
   align-items: center;
 }
 
+.table-pagination {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 10px;
+}
+
 .role-permission-layout {
   display: grid;
   grid-template-columns: 300px minmax(0, 1fr);

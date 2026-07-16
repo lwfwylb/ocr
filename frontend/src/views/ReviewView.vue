@@ -6,13 +6,14 @@ import ConfidenceTag from '../components/ConfidenceTag.vue'
 import {
   approveReview,
   getReviewDetail,
-  listReviewTasks,
+  pageReviewTasks,
   rejectReview,
   saveReviewDraft,
   type ReviewDetail,
   type ReviewField,
   type ReviewSubmitPayload
 } from '../api/review'
+import { createTablePage, pageParams, resetPage } from '../composables/useTablePage'
 import type { ResultSummary } from '../api/result'
 
 interface EditableField extends ReviewField {
@@ -27,6 +28,7 @@ const activeField = ref('')
 const activeTab = ref('fields')
 const tasks = ref<ResultSummary[]>([])
 const selectedTaskId = ref('')
+const page = createTablePage(20)
 const detail = ref<ReviewDetail | null>(null)
 const fields = ref<EditableField[]>([])
 const reviewForm = reactive({
@@ -72,7 +74,9 @@ const parseText = computed(() => detail.value?.parseText || '暂无解析文本�
 const loadTasks = async (preferredTaskId?: string) => {
   loading.value = true
   try {
-    tasks.value = await listReviewTasks(query)
+    const result = await pageReviewTasks({ ...query, ...pageParams(page) })
+    tasks.value = result.records
+    page.total = result.total
     const routeTaskId = typeof route.params.reviewTaskId === 'string' ? route.params.reviewTaskId : ''
     const routeMatched = tasks.value.some((item) => item.taskId === routeTaskId)
     const nextTaskId = preferredTaskId || (routeMatched ? routeTaskId : '') || tasks.value[0]?.taskId || ''
@@ -162,11 +166,24 @@ const reject = async () => {
   }
 }
 
+const searchTasks = () => {
+  resetPage(page)
+  loadTasks()
+}
+
+const handlePageSizeChange = () => {
+  resetPage(page)
+  loadTasks()
+}
+
+const handlePageChange = () => loadTasks()
+
 const resetQuery = () => {
   query.keyword = ''
   query.departmentId = ''
   query.documentType = ''
   query.sourceType = ''
+  resetPage(page)
   loadTasks()
 }
 
@@ -213,7 +230,7 @@ onMounted(() => loadTasks())
           <el-input v-model="query.documentType" placeholder="如：银行回单" clearable />
         </el-form-item>
         <el-form-item>
-          <el-button type="primary" @click="loadTasks()">查询</el-button>
+          <el-button type="primary" @click="searchTasks">查询</el-button>
           <el-button @click="resetQuery">重置</el-button>
         </el-form-item>
       </el-form>
@@ -245,6 +262,18 @@ onMounted(() => loadTasks())
             </div>
           </button>
         </el-scrollbar>
+        <el-pagination
+          v-model:current-page="page.pageNo"
+          v-model:page-size="page.pageSize"
+          class="table-pagination"
+          small
+          background
+          layout="total, prev, pager, next"
+          :page-sizes="[10, 20, 50, 100]"
+          :total="page.total"
+          @size-change="handlePageSizeChange"
+          @current-change="handlePageChange"
+        />
       </el-card>
 
       <el-card shadow="never" class="review-detail" v-loading="detailLoading">

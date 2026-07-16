@@ -48,6 +48,15 @@ public class SystemAccessService {
     }
 
     @Transactional
+    public void ensureDefaultsForList() {
+        ensureDefaults();
+    }
+
+    public List<UserResponse> usersWithoutDefaults(String keyword, String departmentId, String status) {
+        return accessMapper.selectUsers(keyword, departmentId, status).stream().map(this::toUserResponse).toList();
+    }
+
+    @Transactional
     public UserResponse createUser(UserRequest request) {
         ensureDefaults();
         validateUser(request);
@@ -90,6 +99,10 @@ public class SystemAccessService {
     @Transactional
     public List<RoleResponse> roles(String keyword, String status) {
         ensureDefaults();
+        return accessMapper.selectRoles(keyword, status).stream().map(this::toRoleResponse).toList();
+    }
+
+    public List<RoleResponse> rolesWithoutDefaults(String keyword, String status) {
         return accessMapper.selectRoles(keyword, status).stream().map(this::toRoleResponse).toList();
     }
 
@@ -197,6 +210,10 @@ public class SystemAccessService {
     @Transactional
     public List<DataPolicyResponse> dataPolicies(String keyword, String subjectType, String status) {
         ensureDefaults();
+        return accessMapper.selectDataPolicies(keyword, subjectType, status).stream().map(this::toDataPolicyResponse).toList();
+    }
+
+    public List<DataPolicyResponse> dataPoliciesWithoutDefaults(String keyword, String subjectType, String status) {
         return accessMapper.selectDataPolicies(keyword, subjectType, status).stream().map(this::toDataPolicyResponse).toList();
     }
 

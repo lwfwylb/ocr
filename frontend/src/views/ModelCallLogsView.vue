@@ -4,11 +4,12 @@ import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import {
   getModelCallLogDetail,
-  listModelCallLogs,
+  pageModelCallLogs,
   type ModelCallLog,
   type ModelCallStatus,
   type ModelCallType
 } from '../api/modelCallLog'
+import { createTablePage, pageParams, resetPage } from '../composables/useTablePage'
 
 type TagType = 'success' | 'warning' | 'danger' | 'info' | 'primary'
 
@@ -16,6 +17,7 @@ const router = useRouter()
 const loading = ref(false)
 const detailLoading = ref(false)
 const drawerVisible = ref(false)
+const page = createTablePage(20)
 const logs = ref<ModelCallLog[]>([])
 const selectedLog = ref<ModelCallLog | null>(null)
 const query = reactive({
@@ -54,7 +56,9 @@ const metrics = computed(() => {
 const loadLogs = async () => {
   loading.value = true
   try {
-    logs.value = await listModelCallLogs(query)
+    const result = await pageModelCallLogs({ ...query, ...pageParams(page) })
+    logs.value = result.records
+    page.total = result.total
   } catch (error) {
     ElMessage.error(error instanceof Error ? error.message : '查询调用日志失败')
   } finally {
@@ -88,11 +92,24 @@ const copyTraceId = async (traceId?: string) => {
   }
 }
 
+const searchLogs = () => {
+  resetPage(page)
+  loadLogs()
+}
+
+const handlePageSizeChange = () => {
+  resetPage(page)
+  loadLogs()
+}
+
+const handlePageChange = () => loadLogs()
+
 const resetQuery = () => {
   query.keyword = ''
   query.callType = ''
   query.status = ''
   query.stageCode = ''
+  resetPage(page)
   loadLogs()
 }
 
@@ -150,7 +167,7 @@ onMounted(loadLogs)
           </el-select>
         </el-form-item>
         <el-form-item>
-          <el-button type="primary" @click="loadLogs">查询</el-button>
+          <el-button type="primary" @click="searchLogs">查询</el-button>
           <el-button @click="resetQuery">重置</el-button>
         </el-form-item>
       </el-form>
@@ -197,6 +214,17 @@ onMounted(loadLogs)
           </template>
         </el-table-column>
       </el-table>
+      <el-pagination
+        v-model:current-page="page.pageNo"
+        v-model:page-size="page.pageSize"
+        class="table-pagination"
+        background
+        layout="total, sizes, prev, pager, next, jumper"
+        :page-sizes="[10, 20, 50, 100]"
+        :total="page.total"
+        @size-change="handlePageSizeChange"
+        @current-change="handlePageChange"
+      />
     </el-card>
 
     <el-drawer v-model="drawerVisible" title="调用详情" size="680px">

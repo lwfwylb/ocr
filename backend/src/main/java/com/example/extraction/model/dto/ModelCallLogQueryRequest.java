@@ -1,6 +1,8 @@
 package com.example.extraction.model.dto;
 
-public class ModelCallLogQueryRequest {
+import com.example.extraction.common.PageQuery;
+
+public class ModelCallLogQueryRequest extends PageQuery {
     private String keyword;
     private String callType;
     private String status;

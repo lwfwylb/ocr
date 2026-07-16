@@ -2,7 +2,8 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import ConfidenceTag from '../components/ConfidenceTag.vue'
-import { getResultDetail, listResults, type ResultDetail, type ResultSummary } from '../api/result'
+import { getResultDetail, pageResults, type ResultDetail, type ResultSummary } from '../api/result'
+import { createTablePage, pageParams, resetPage } from '../composables/useTablePage'
 import { executeStorage } from '../api/storage'
 import { pushResultToDownstream } from '../api/push'
 
@@ -26,6 +27,7 @@ const drawerVisible = ref(false)
 const loading = ref(false)
 const detailLoading = ref(false)
 const activeTab = ref('fields')
+const page = createTablePage(20)
 const selectedResult = ref<ResultSummary | null>(null)
 const selectedDetail = ref<ResultDetail | null>(null)
 const query = reactive({
@@ -65,7 +67,7 @@ const departmentMap: Record<string, string> = {
 }
 
 const metrics = computed(() => {
-  const total = results.value.length
+  const total = page.total
   const stored = results.value.filter((item) => ['STORED', 'PUSHED'].includes(item.resultStatus)).length
   const waitReview = results.value.filter((item) => item.resultStatus === 'WAIT_REVIEW').length
   const pushed = results.value.filter((item) => item.resultStatus === 'PUSHED').length
@@ -132,7 +134,9 @@ const storageRows = computed(() => {
 const loadResults = async () => {
   loading.value = true
   try {
-    results.value = await listResults(query)
+    const result = await pageResults({ ...query, ...pageParams(page) })
+    results.value = result.records
+    page.total = result.total
   } catch (error) {
     ElMessage.error(error instanceof Error ? error.message : '查询提取结果失败')
   } finally {
@@ -192,12 +196,25 @@ const executeStorageForResult = async (row: ResultSummary) => {
   }
 }
 
+const searchResults = () => {
+  resetPage(page)
+  loadResults()
+}
+
+const handlePageSizeChange = () => {
+  resetPage(page)
+  loadResults()
+}
+
+const handlePageChange = () => loadResults()
+
 const resetQuery = () => {
   query.keyword = ''
   query.documentType = ''
   query.departmentId = ''
   query.sourceType = ''
   query.resultStatus = ''
+  resetPage(page)
   loadResults()
 }
 
@@ -277,7 +294,7 @@ onMounted(loadResults)
           </el-select>
         </el-form-item>
         <el-form-item>
-          <el-button type="primary" @click="loadResults">查询</el-button>
+          <el-button type="primary" @click="searchResults">查询</el-button>
           <el-button @click="resetQuery">重置</el-button>
         </el-form-item>
       </el-form>
@@ -326,6 +343,17 @@ onMounted(loadResults)
           </template>
         </el-table-column>
       </el-table>
+      <el-pagination
+        v-model:current-page="page.pageNo"
+        v-model:page-size="page.pageSize"
+        class="table-pagination"
+        background
+        layout="total, sizes, prev, pager, next, jumper"
+        :page-sizes="[10, 20, 50, 100]"
+        :total="page.total"
+        @size-change="handlePageSizeChange"
+        @current-change="handlePageChange"
+      />
     </el-card>
 
     <el-drawer v-model="drawerVisible" title="结果详情" size="760px">

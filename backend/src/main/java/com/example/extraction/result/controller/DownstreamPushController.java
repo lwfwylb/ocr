@@ -1,6 +1,8 @@
 package com.example.extraction.result.controller;
 
 import com.example.extraction.common.ApiResponse;
+import com.example.extraction.common.PageResponse;
+import com.example.extraction.common.PageSupport;
 import com.example.extraction.result.dto.PushExecuteRequest;
 import com.example.extraction.result.dto.PushQueryRequest;
 import com.example.extraction.result.dto.PushRecordResponse;
@@ -24,8 +26,8 @@ public class DownstreamPushController {
     }
 
     @GetMapping
-    public ApiResponse<List<PushRecordResponse>> list(PushQueryRequest query) {
-        return ApiResponse.success(downstreamPushService.list(query));
+    public ApiResponse<PageResponse<PushRecordResponse>> list(PushQueryRequest query) {
+        return ApiResponse.success(PageSupport.page(query, () -> downstreamPushService.list(query)));
     }
 
     @PostMapping("/{taskId}/push")
