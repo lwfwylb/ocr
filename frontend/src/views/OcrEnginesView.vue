@@ -56,7 +56,7 @@ const form = reactive<OcrEnginePayload>({
   priority: 100,
   timeoutSeconds: 120,
   retryCount: 2,
-  supportedFileTypes: 'pdf,png,jpg,jpeg,tif,tiff',
+  supportedFileTypes: 'pdf,jpg,jpeg,png,bmp,tif,tiff',
   outputFormat: 'Markdown',
   maxPagesPerCall: 20,
   engineParamsJson: '',
@@ -73,22 +73,28 @@ const adapterTypeOptions = [
   { label: 'PaddleOCR-VL', value: 'PADDLE_OCR_VL' },
   { label: 'MinerU', value: 'MINERU' }
 ]
+const minerUSupportedExtensions = ['pdf', 'png', 'jpg', 'jpeg', 'jp2', 'webp', 'gif', 'bmp', 'tif', 'tiff', 'docx', 'pptx', 'xlsx']
+const paddleSupportedExtensions = ['pdf', 'jpg', 'jpeg', 'png', 'bmp', 'tif', 'tiff']
+const supportedFileTypesByAdapter = (adapterType?: string) =>
+  adapterType === 'MINERU' ? minerUSupportedExtensions.join(',') : paddleSupportedExtensions.join(',')
 const adapterTypeText = (value?: string) => adapterTypeOptions.find((item) => item.value === value)?.label || value || '-'
 const parseStatusType = computed(() => parseTestResult.value?.passed ? 'success' : 'error')
 const markdownSource = computed(() => parseTestResult.value?.markdownText || parseTestResult.value?.markdownPreview || '')
 const renderedMarkdownHtml = computed(() => renderMarkdown(markdownSource.value))
 const isMinerUParseTest = computed(() => parseTestEngine.value?.adapterType === 'MINERU')
-const parseUploadAccept = computed(() => isMinerUParseTest.value ? '.pdf' : '.pdf,.png,.jpg,.jpeg')
+const parseUploadAccept = computed(() => isMinerUParseTest.value
+  ? minerUSupportedExtensions.map((item) => `.${item}`).join(',')
+  : paddleSupportedExtensions.map((item) => `.${item}`).join(','))
 const parseUploadTip = computed(() => isMinerUParseTest.value
-  ? 'MinerU 试识别当前仅支持 PDF，测试不写入正式任务链路。'
-  : '支持 PDF、PNG、JPG、JPEG，测试不写入正式任务链路。')
+  ? 'MinerU 试识别支持 PDF、常见图片、DOCX、PPTX、XLSX，测试不写入正式任务链路。'
+  : 'PaddleOCR-VL 试识别支持 PDF、JPG、JPEG、PNG、BMP、TIF、TIFF，测试不写入正式任务链路。')
 const compareFileName = computed(() => parseTestFile.value?.name || '-')
 const compareFileKind = computed(() => {
   const file = parseTestFile.value
   const name = file?.name.toLowerCase() || ''
   const type = file?.type.toLowerCase() || ''
   if (name.endsWith('.pdf') || type.includes('pdf')) return 'pdf'
-  if (/\.(png|jpg|jpeg|gif|webp|bmp)$/i.test(name) || type.startsWith('image/')) return 'image'
+  if (/\.(png|jpg|jpeg|jp2|webp|gif|bmp|tif|tiff)$/i.test(name) || type.startsWith('image/')) return 'image'
   return 'unknown'
 })
 
@@ -107,7 +113,7 @@ const resetForm = () => {
     priority: 100,
     timeoutSeconds: 120,
     retryCount: 2,
-    supportedFileTypes: 'pdf,png,jpg,jpeg,tif,tiff',
+    supportedFileTypes: supportedFileTypesByAdapter('PADDLE_OCR_VL'),
     outputFormat: 'Markdown',
     maxPagesPerCall: 20,
     engineParamsJson: '',
@@ -148,7 +154,7 @@ const openEdit = (engine: OcrEngineConfig) => {
     priority: engine.priority,
     timeoutSeconds: engine.timeoutSeconds,
     retryCount: engine.retryCount,
-    supportedFileTypes: engine.supportedFileTypes || 'pdf,png,jpg,jpeg,tif,tiff',
+    supportedFileTypes: engine.supportedFileTypes || supportedFileTypesByAdapter(engine.adapterType),
     outputFormat: 'Markdown',
     maxPagesPerCall: engine.maxPagesPerCall || 20,
     engineParamsJson: engine.engineParamsJson || '',
@@ -156,6 +162,15 @@ const openEdit = (engine: OcrEngineConfig) => {
     description: engine.description || ''
   })
   drawerVisible.value = true
+}
+
+const handleAdapterTypeChange = (adapterType: string) => {
+  const current = form.supportedFileTypes || ''
+  const paddleDefault = supportedFileTypesByAdapter('PADDLE_OCR_VL')
+  const minerUDefault = supportedFileTypesByAdapter('MINERU')
+  if (!current || current === paddleDefault || current === minerUDefault) {
+    form.supportedFileTypes = supportedFileTypesByAdapter(adapterType)
+  }
 }
 
 const saveEngine = async () => {
@@ -218,12 +233,28 @@ const openParseTest = (engine: OcrEngineConfig) => {
   parseDialogVisible.value = true
 }
 
+const fileExtension = (fileName?: string) => {
+  const name = fileName || ''
+  const index = name.lastIndexOf('.')
+  return index >= 0 ? name.slice(index + 1).toLowerCase() : ''
+}
+
+const isMinerUSupportedFile = (fileName?: string) => minerUSupportedExtensions.includes(fileExtension(fileName))
+const isPaddleSupportedFile = (fileName?: string) => paddleSupportedExtensions.includes(fileExtension(fileName))
+
 const handleParseFileChange = (uploadFile: UploadFile) => {
-  if (isMinerUParseTest.value && uploadFile.raw && !uploadFile.raw.name.toLowerCase().endsWith('.pdf')) {
+  if (isMinerUParseTest.value && uploadFile.raw && !isMinerUSupportedFile(uploadFile.raw.name)) {
     parseTestFile.value = null
     parseTestResult.value = null
     closeCompareDialog()
-    ElMessage.warning('MinerU 试识别当前仅支持上传 PDF 文件')
+    ElMessage.warning('MinerU 试识别支持 PDF、常见图片、DOCX、PPTX、XLSX，请上传支持的样本文档')
+    return
+  }
+  if (!isMinerUParseTest.value && uploadFile.raw && !isPaddleSupportedFile(uploadFile.raw.name)) {
+    parseTestFile.value = null
+    parseTestResult.value = null
+    closeCompareDialog()
+    ElMessage.warning('PaddleOCR-VL 试识别支持 PDF、JPG、JPEG、PNG、BMP、TIF、TIFF，请上传支持的样本文档')
     return
   }
   parseTestFile.value = uploadFile.raw || null
@@ -245,8 +276,12 @@ const runParseTest = async () => {
     ElMessage.warning('请先上传样本文档')
     return
   }
-  if (isMinerUParseTest.value && !parseTestFile.value.name.toLowerCase().endsWith('.pdf')) {
-    ElMessage.warning('MinerU 试识别当前仅支持上传 PDF 文件')
+  if (isMinerUParseTest.value && !isMinerUSupportedFile(parseTestFile.value.name)) {
+    ElMessage.warning('MinerU 试识别支持 PDF、常见图片、DOCX、PPTX、XLSX，请上传支持的样本文档')
+    return
+  }
+  if (!isMinerUParseTest.value && !isPaddleSupportedFile(parseTestFile.value.name)) {
+    ElMessage.warning('PaddleOCR-VL 试识别支持 PDF、JPG、JPEG、PNG、BMP、TIF、TIFF，请上传支持的样本文档')
     return
   }
   parseTesting.value = true
@@ -545,7 +580,7 @@ onBeforeUnmount(revokeCompareFileUrl)
         <el-form-item label="引擎编码"><el-input v-model="form.engineCode" placeholder="如 paddleocr_vl" /></el-form-item>
         <el-form-item label="引擎名称"><el-input v-model="form.engineName" placeholder="如 PaddleOCR-VL-1.6" /></el-form-item>
         <el-form-item label="适配器类型">
-          <el-select v-model="form.adapterType" placeholder="请选择适配器类型">
+          <el-select v-model="form.adapterType" placeholder="请选择适配器类型" @change="handleAdapterTypeChange">
             <el-option v-for="item in adapterTypeOptions" :key="item.value" :label="item.label" :value="item.value" />
           </el-select>
         </el-form-item>
@@ -573,7 +608,7 @@ onBeforeUnmount(revokeCompareFileUrl)
           </el-select>
         </el-form-item>
         <el-form-item label="密钥引用"><el-input v-model="form.apiKeySecretRef" placeholder="如 secret://ocr/paddle" /></el-form-item>
-        <el-form-item label="支持文件" class="wide"><el-input v-model="form.supportedFileTypes" placeholder="pdf,png,jpg,jpeg,tif,tiff" /></el-form-item>
+        <el-form-item label="支持文件" class="wide"><el-input v-model="form.supportedFileTypes" placeholder="pdf,jpg,jpeg,png,bmp,tif,tiff" /></el-form-item>
         <el-form-item label="输出格式"><el-input v-model="form.outputFormat" disabled /></el-form-item>
         <el-form-item label="单次最大页数"><el-input-number v-model="form.maxPagesPerCall" :min="1" :max="1000" /></el-form-item>
         <el-form-item label="调度优先级"><el-input-number v-model="form.priority" :min="0" :max="999" /></el-form-item>
@@ -601,7 +636,7 @@ onBeforeUnmount(revokeCompareFileUrl)
       </template>
     </el-drawer>
 
-    <el-dialog v-model="parseDialogVisible" title="OCR 文档试识别" width="920px" destroy-on-close>
+    <el-dialog v-model="parseDialogVisible" title="OCR 文档试识别" width="92vw" class="ocr-parse-dialog" destroy-on-close>
       <div class="parse-test-layout">
         <section class="parse-test-side">
           <el-descriptions :column="1" border size="small">

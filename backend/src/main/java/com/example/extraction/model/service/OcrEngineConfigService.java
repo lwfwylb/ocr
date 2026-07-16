@@ -238,7 +238,7 @@ public class OcrEngineConfigService {
         record.setPriority(request.getPriority() == null ? 100 : request.getPriority());
         record.setTimeoutSeconds(request.getTimeoutSeconds() == null ? 120 : request.getTimeoutSeconds());
         record.setRetryCount(request.getRetryCount() == null ? 2 : request.getRetryCount());
-        record.setSupportedFileTypes(StringUtils.hasText(request.getSupportedFileTypes()) ? request.getSupportedFileTypes() : "pdf,png,jpg,jpeg,tif,tiff");
+        record.setSupportedFileTypes(StringUtils.hasText(request.getSupportedFileTypes()) ? request.getSupportedFileTypes() : defaultSupportedFileTypes(record.getAdapterType()));
         record.setOutputFormat("Markdown");
         record.setMaxPagesPerCall(request.getMaxPagesPerCall());
         record.setEngineParamsJson(request.getEngineParamsJson());
@@ -289,6 +289,12 @@ public class OcrEngineConfigService {
             return "PADDLE_OCR_VL";
         }
         return null;
+    }
+
+    private String defaultSupportedFileTypes(String adapterType) {
+        return "MINERU".equalsIgnoreCase(adapterType)
+                ? "pdf,png,jpg,jpeg,jp2,webp,gif,bmp,tif,tiff,docx,pptx,xlsx"
+                : "pdf,jpg,jpeg,png,bmp,tif,tiff";
     }
 
     private String preview(String value, int maxLength) {

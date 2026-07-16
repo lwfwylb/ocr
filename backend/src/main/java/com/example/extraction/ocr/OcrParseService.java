@@ -99,8 +99,11 @@ public class OcrParseService {
         if (file == null || file.isEmpty()) {
             throw new BusinessException("OCR_TEST_400", "请上传样本文档");
         }
-        if (isMinerUEngine(engine) && !isPdfFile(file)) {
-            throw new BusinessException("OCR_TEST_400", "MinerU 试识别当前仅支持 PDF 文件，请上传 PDF 样本文档");
+        if (isMinerUEngine(engine) && !isMinerUSupportedFile(file)) {
+            throw new BusinessException("OCR_TEST_400", "MinerU 试识别支持 PDF、常见图片、DOCX、PPTX、XLSX，请上传支持的样本文档");
+        }
+        if (isPaddleOcrVlEngine(engine) && !isPaddleSupportedFile(file)) {
+            throw new BusinessException("OCR_TEST_400", "PaddleOCR-VL 试识别支持 PDF、JPG、JPEG、PNG、BMP、TIF、TIFF，请上传支持的样本文档");
         }
         OcrEngineClient client = clientFor(engine);
         ConfigWizardPayload payload = mergeEngineParams(new ConfigWizardPayload(), engine);
@@ -350,8 +353,33 @@ public class OcrParseService {
         if (!StringUtils.hasText(contentType)) {
             return null;
         }
+        contentType = contentType.toLowerCase();
         if (contentType.contains("pdf")) {
             return "pdf";
+        }
+        if (contentType.contains("wordprocessingml") || contentType.contains("msword")) {
+            return "docx";
+        }
+        if (contentType.contains("presentationml") || contentType.contains("powerpoint")) {
+            return "pptx";
+        }
+        if (contentType.contains("spreadsheetml") || contentType.contains("excel")) {
+            return "xlsx";
+        }
+        if (contentType.contains("jp2") || contentType.contains("jpeg2000")) {
+            return "jp2";
+        }
+        if (contentType.contains("webp")) {
+            return "webp";
+        }
+        if (contentType.contains("gif")) {
+            return "gif";
+        }
+        if (contentType.contains("bmp")) {
+            return "bmp";
+        }
+        if (contentType.contains("tiff") || contentType.contains("tif")) {
+            return "tiff";
         }
         if (contentType.contains("png")) {
             return "png";
@@ -367,11 +395,15 @@ public class OcrParseService {
         return value.replaceAll("[^a-zA-Z0-9._-]", "_");
     }
 
-    private boolean isPdfFile(MultipartFile file) {
-        String fileName = file.getOriginalFilename();
-        String contentType = file.getContentType();
-        return (StringUtils.hasText(fileName) && fileName.toLowerCase().endsWith(".pdf"))
-                || (StringUtils.hasText(contentType) && contentType.toLowerCase().contains("pdf"));
+    private boolean isMinerUSupportedFile(MultipartFile file) {
+        String ext = firstText(fileExt(file.getOriginalFilename()), contentTypeExt(file.getContentType()));
+        return List.of("pdf", "png", "jpg", "jpeg", "jp2", "webp", "gif", "bmp", "tif", "tiff", "docx", "pptx", "xlsx")
+                .contains(ext == null ? "" : ext.toLowerCase());
+    }
+
+    private boolean isPaddleSupportedFile(MultipartFile file) {
+        String ext = firstText(fileExt(file.getOriginalFilename()), contentTypeExt(file.getContentType()));
+        return List.of("pdf", "jpg", "jpeg", "png", "bmp", "tif", "tiff").contains(ext == null ? "" : ext.toLowerCase());
     }
 
     private boolean isMinerUEngine(OcrEngineConfigRecord engine) {
@@ -380,6 +412,14 @@ public class OcrParseService {
                 + firstText(engine.getProvider(), "") + " "
                 + firstText(engine.getEngineCode(), "")).toLowerCase();
         return joined.contains("mineru") || joined.contains("miner_u");
+    }
+
+    private boolean isPaddleOcrVlEngine(OcrEngineConfigRecord engine) {
+        String joined = (firstText(engine.getAdapterType(), "") + " "
+                + firstText(engine.getEngineType(), "") + " "
+                + firstText(engine.getProvider(), "") + " "
+                + firstText(engine.getEngineCode(), "")).toLowerCase();
+        return joined.contains("paddle") || joined.contains("paddleocr") || joined.contains("paddle_ocr_vl");
     }
 
     private String firstText(String... values) {

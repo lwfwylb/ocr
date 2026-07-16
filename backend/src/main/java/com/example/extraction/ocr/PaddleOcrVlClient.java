@@ -216,6 +216,12 @@ public class PaddleOcrVlClient implements OcrEngineClient {
         if (lower.endsWith(".webp")) {
             return "image/webp";
         }
+        if (lower.endsWith(".bmp")) {
+            return "image/bmp";
+        }
+        if (lower.endsWith(".tif") || lower.endsWith(".tiff")) {
+            return "image/tiff";
+        }
         return fallback;
     }
 

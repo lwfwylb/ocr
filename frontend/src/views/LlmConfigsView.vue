@@ -312,7 +312,7 @@ onMounted(loadModels)
       </template>
     </el-drawer>
 
-    <el-dialog v-model="testDialogVisible" title="LLM 测试调用" width="900px" destroy-on-close>
+    <el-dialog v-model="testDialogVisible" title="LLM 测试调用" width="92vw" class="llm-test-dialog" destroy-on-close>
       <div v-if="testingModel" class="llm-test-layout">
         <el-card shadow="never" class="llm-test-panel">
           <template #header>

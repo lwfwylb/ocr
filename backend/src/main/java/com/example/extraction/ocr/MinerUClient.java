@@ -52,12 +52,11 @@ public class MinerUClient implements OcrEngineClient {
         long begin = System.currentTimeMillis();
         try {
             byte[] fileContent = Files.readAllBytes(request.getInputPath());
-            RestTemplate restTemplate = restTemplate(engine);
             HttpHeaders headers = new HttpHeaders();
             headers.setContentType(MediaType.MULTIPART_FORM_DATA);
             HttpEntity<MultiValueMap<String, Object>> entity = new HttpEntity<>(
                     multipartBody(request.getInputFileName(), fileContent, contentType(request), request), headers);
-            ResponseEntity<String> httpResponse = restTemplate.postForEntity(engine.getBaseUrl(), entity, String.class);
+            ResponseEntity<String> httpResponse = restTemplate(engine).postForEntity(engine.getBaseUrl(), entity, String.class);
             OcrParseResponse result = parseResponseBody(httpResponse.getBody());
             result.setEngineCode(engine.getEngineCode());
             result.setDurationMs(System.currentTimeMillis() - begin);
@@ -175,6 +174,30 @@ public class MinerUClient implements OcrEngineClient {
         if (fileType.contains("pdf") || fileName.endsWith(".pdf")) {
             return "application/pdf";
         }
+        if (fileType.contains("wordprocessingml") || fileName.endsWith(".docx")) {
+            return "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+        }
+        if (fileType.contains("presentationml") || fileName.endsWith(".pptx")) {
+            return "application/vnd.openxmlformats-officedocument.presentationml.presentation";
+        }
+        if (fileType.contains("spreadsheetml") || fileName.endsWith(".xlsx")) {
+            return "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+        }
+        if (fileType.contains("jp2") || fileType.contains("jpeg2000") || fileName.endsWith(".jp2")) {
+            return "image/jp2";
+        }
+        if (fileType.contains("webp") || fileName.endsWith(".webp")) {
+            return "image/webp";
+        }
+        if (fileType.contains("gif") || fileName.endsWith(".gif")) {
+            return "image/gif";
+        }
+        if (fileType.contains("bmp") || fileName.endsWith(".bmp")) {
+            return "image/bmp";
+        }
+        if (fileType.contains("tiff") || fileType.contains("tif") || fileName.endsWith(".tif") || fileName.endsWith(".tiff")) {
+            return "image/tiff";
+        }
         if (fileType.contains("png") || fileName.endsWith(".png")) {
             return "image/png";
         }
@@ -246,8 +269,20 @@ public class MinerUClient implements OcrEngineClient {
         if (lower.endsWith(".png")) {
             return "image/png";
         }
+        if (lower.endsWith(".jp2")) {
+            return "image/jp2";
+        }
         if (lower.endsWith(".webp")) {
             return "image/webp";
+        }
+        if (lower.endsWith(".gif")) {
+            return "image/gif";
+        }
+        if (lower.endsWith(".bmp")) {
+            return "image/bmp";
+        }
+        if (lower.endsWith(".tif") || lower.endsWith(".tiff")) {
+            return "image/tiff";
         }
         return fallback;
     }
