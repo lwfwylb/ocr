@@ -470,9 +470,14 @@ const escapeHtml = (value: string) => String(value || '')
 
 const escapeAttribute = (value: string) => escapeHtml(value).replace(/`/g, '&#96;')
 
+const normalizeOcrLatexText = (source: string) => source
+  .replace(/\$\s*\\underline\{\s*\\text\{([^{}]*)\}\s*\}\s*\$/g, '<span class="ocr-latex-underline">$1</span>')
+  .replace(/\$\s*\\underline\{([^{}]*)\}\s*\$/g, '<span class="ocr-latex-underline">$1</span>')
+  .replace(/\$\s*\\text\{([^{}]*)\}\s*\$/g, '$1')
+
 const renderMarkdown = (source: string) => {
   if (!source) return ''
-  const html = markdownParser.render(resolveApiAssetUrls(source))
+  const html = markdownParser.render(normalizeOcrLatexText(resolveApiAssetUrls(source)))
   return DOMPurify.sanitize(html, {
     USE_PROFILES: { html: true },
     ADD_TAGS: ['table', 'thead', 'tbody', 'tr', 'th', 'td', 'div', 'span', 'img'],

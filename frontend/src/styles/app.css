@@ -536,6 +536,12 @@ body {
   border-top: 1px solid #e5e7eb;
 }
 
+.ocr-latex-underline {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  text-decoration-thickness: 1px;
+}
+
 .markdown-table-wrap {
   overflow-x: auto;
   margin: 8px 0;
