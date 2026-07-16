@@ -25,9 +25,9 @@ mybatis:
     log-impl: org.apache.ibatis.logging.stdout.StdOutImpl
 
 pagehelper:
-  helper-dialect: auto
-  reasonable: false
-  support-methods-arguments: false
+  helper-dialect: mysql
+  reasonable: true
+  support-methods-arguments: true
 
 app:
   cors:
