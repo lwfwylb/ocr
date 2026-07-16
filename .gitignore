@@ -11,3 +11,4 @@ data/uploads/
 .DS_Store
 Thumbs.db
 frontend/node_modules/.vite/
+backend/data/
