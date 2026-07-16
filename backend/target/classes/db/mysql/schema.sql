@@ -22,6 +22,130 @@ create table if not exists extract_config (
   key idx_extract_config_document_type (document_type)
 );
 
+create table if not exists sys_dict_type (
+  id varchar(64) primary key,
+  dict_code varchar(128) not null,
+  dict_name varchar(200) not null,
+  usage_scene varchar(200),
+  status varchar(30) not null,
+  sort_no int,
+  remark varchar(1000),
+  created_by varchar(100),
+  created_at datetime not null,
+  updated_at datetime not null,
+  unique key uk_sys_dict_type_code (dict_code),
+  key idx_sys_dict_type_status (status)
+);
+
+create table if not exists sys_dict_item (
+  id varchar(64) primary key,
+  dict_code varchar(128) not null,
+  item_value varchar(200) not null,
+  item_label varchar(200) not null,
+  parent_value varchar(200),
+  sort_no int,
+  enabled char(1) default '1',
+  extra_json longtext,
+  remark varchar(1000),
+  created_by varchar(100),
+  created_at datetime not null,
+  updated_at datetime not null,
+  unique key uk_sys_dict_item_value (dict_code, item_value),
+  key idx_sys_dict_item_dict (dict_code, enabled),
+  key idx_sys_dict_item_parent (dict_code, parent_value)
+);
+
+create table if not exists sys_role (
+  id varchar(64) primary key,
+  role_code varchar(100) not null,
+  role_name varchar(200) not null,
+  description varchar(500),
+  status varchar(30) default 'ENABLED',
+  sort_no int default 100,
+  created_at datetime,
+  updated_at datetime,
+  unique key uk_sys_role_code (role_code),
+  key idx_sys_role_status (status)
+);
+
+create table if not exists sys_user (
+  id varchar(64) primary key,
+  user_code varchar(100),
+  user_name varchar(200) not null,
+  account varchar(120) not null,
+  department_id varchar(120),
+  auth_mode varchar(30) default 'LOCAL',
+  status varchar(30) default 'ENABLED',
+  email varchar(200),
+  mobile varchar(60),
+  last_login datetime,
+  created_at datetime,
+  updated_at datetime,
+  unique key uk_sys_user_account (account),
+  key idx_sys_user_department (department_id),
+  key idx_sys_user_status (status)
+);
+
+create table if not exists sys_user_department_role (
+  id varchar(64) primary key,
+  user_id varchar(64) not null,
+  department_id varchar(120),
+  role_id varchar(64) not null,
+  created_at datetime,
+  unique key uk_sys_user_dept_role (user_id, department_id, role_id),
+  key idx_sys_user_role_user (user_id),
+  key idx_sys_user_role_role (role_id)
+);
+
+create table if not exists sys_permission (
+  id varchar(64) primary key,
+  permission_code varchar(120) not null,
+  permission_name varchar(200) not null,
+  permission_type varchar(30) not null,
+  parent_code varchar(120),
+  route_path varchar(300),
+  sort_no int default 100,
+  status varchar(30) default 'ENABLED',
+  created_at datetime,
+  updated_at datetime,
+  unique key uk_sys_permission_code (permission_code),
+  key idx_sys_permission_parent (parent_code)
+);
+
+create table if not exists sys_role_permission (
+  id varchar(64) primary key,
+  role_id varchar(64) not null,
+  permission_code varchar(120) not null,
+  created_at datetime,
+  unique key uk_sys_role_permission (role_id, permission_code),
+  key idx_sys_role_permission_role (role_id)
+);
+
+create table if not exists sys_data_policy (
+  id varchar(64) primary key,
+  policy_name varchar(200) not null,
+  subject_type varchar(30) not null,
+  subject_id varchar(64),
+  subject_name varchar(200),
+  data_scope varchar(60) not null,
+  allow_export char(1) default '0',
+  status varchar(30) default 'ENABLED',
+  created_at datetime,
+  updated_at datetime,
+  key idx_sys_data_policy_subject (subject_type, subject_id),
+  key idx_sys_data_policy_status (status)
+);
+
+create table if not exists sys_data_policy_scope (
+  id varchar(64) primary key,
+  policy_id varchar(64) not null,
+  scope_type varchar(60) not null,
+  scope_value varchar(300) not null,
+  scope_label varchar(300),
+  key idx_sys_data_policy_scope_policy (policy_id),
+  key idx_sys_data_policy_scope_type (scope_type, scope_value)
+);
+
 create table if not exists parse_config (
   id varchar(64) primary key,
   extract_config_id varchar(64),
@@ -372,4 +496,360 @@ create table if not exists validation_test_stage_log (
   duration_ms bigint,
   expire_at datetime,
   cleaned char(1) default '0'
+);
+
+create table if not exists llm_model_config (
+  id varchar(64) primary key,
+  model_code varchar(128) not null,
+  model_name varchar(200) not null,
+  provider varchar(100) not null,
+  base_url varchar(500) not null,
+  api_key_secret_ref varchar(200),
+  model_identifier varchar(200) not null,
+  temperature decimal(5,3) default 0.100,
+  max_tokens int default 4096,
+  timeout_seconds int default 120,
+  retry_count int default 1,
+  json_schema_required char(1) default '1',
+  default_model char(1) default '0',
+  status varchar(30) not null,
+  description varchar(1000),
+  created_by varchar(100),
+  created_at datetime not null,
+  updated_at datetime not null,
+  unique key uk_llm_model_code (model_code),
+  key idx_llm_model_status (status),
+  key idx_llm_model_default (default_model)
+);
+
+create table if not exists prompt_template_config (
+  id varchar(64) primary key,
+  template_type varchar(30) not null,
+  template_name varchar(100) not null,
+  template_content longtext not null,
+  status varchar(30) not null,
+  updated_by varchar(100),
+  created_at datetime not null,
+  updated_at datetime not null,
+  unique key uk_prompt_template_type (template_type)
+);
+
+create table if not exists ocr_engine_config (
+  id varchar(64) primary key,
+  engine_code varchar(128) not null,
+  engine_name varchar(200) not null,
+  engine_type varchar(100) not null,
+  adapter_type varchar(50),
+  provider varchar(100) not null,
+  base_url varchar(500) not null,
+  auth_mode varchar(50),
+  api_key_secret_ref varchar(200),
+  default_engine char(1) default '0',
+  priority int default 100,
+  timeout_seconds int default 120,
+  retry_count int default 2,
+  supported_file_types varchar(500),
+  output_format varchar(50) default 'Markdown',
+  max_pages_per_call int,
+  engine_params_json longtext,
+  status varchar(30) not null,
+  description varchar(1000),
+  created_by varchar(100),
+  created_at datetime not null,
+  updated_at datetime not null,
+  unique key uk_ocr_engine_code (engine_code),
+  key idx_ocr_engine_status (status),
+  key idx_ocr_engine_default (default_engine)
+);
+
+create table if not exists model_call_log (
+  id varchar(64) primary key,
+  call_id varchar(128) not null,
+  trace_id varchar(128),
+  task_id varchar(128),
+  config_id varchar(64),
+  call_type varchar(30) not null,
+  stage_code varchar(50),
+  stage_name varchar(100),
+  provider varchar(100),
+  model_code varchar(128),
+  model_name varchar(200),
+  request_summary varchar(1000),
+  response_summary varchar(1000),
+  prompt_preview longtext,
+  input_tokens int,
+  output_tokens int,
+  duration_ms bigint,
+  status varchar(30) not null,
+  error_message varchar(1000),
+  created_at datetime not null,
+  unique key uk_model_call_log_call (call_id),
+  key idx_model_call_log_trace (trace_id),
+  key idx_model_call_log_task (task_id),
+  key idx_model_call_log_type_status (call_type, status),
+  key idx_model_call_log_model (model_code),
+  key idx_model_call_log_created (created_at)
+);
+
+create table if not exists document_access_record (
+  id varchar(64) primary key,
+  trace_id varchar(128) not null,
+  document_id varchar(128) not null,
+  task_id varchar(128),
+  file_name varchar(500) not null,
+  file_type varchar(50),
+  file_size bigint,
+  storage_path varchar(1000),
+  source_type varchar(50) not null,
+  source_system varchar(200),
+  business_no varchar(200),
+  department_id varchar(100) not null,
+  category varchar(100),
+  sub_category varchar(100),
+  template_type varchar(160),
+  document_type varchar(100),
+  priority varchar(20),
+  match_status varchar(30) not null,
+  access_status varchar(30) not null,
+  matched_config_id varchar(64),
+  matched_config_name varchar(200),
+  matched_config_version int,
+  match_message varchar(1000),
+  confirm_comment varchar(1000),
+  created_by varchar(100),
+  confirmed_at datetime null,
+  created_at datetime not null,
+  updated_at datetime not null,
+  unique key uk_document_access_trace (trace_id),
+  unique key uk_document_access_doc (document_id),
+  key idx_document_access_status (access_status, match_status),
+  key idx_document_access_source (source_type, source_system),
+  key idx_document_access_department (department_id),
+  key idx_document_access_config (matched_config_id)
+);
+
+create table if not exists extract_task (
+  id varchar(64) primary key,
+  task_id varchar(128) not null,
+  trace_id varchar(128) not null,
+  document_id varchar(128) not null,
+  access_record_id varchar(64),
+  config_id varchar(64),
+  config_name varchar(200),
+  config_version int,
+  file_name varchar(500) not null,
+  file_type varchar(50),
+  file_size bigint,
+  storage_path varchar(1000),
+  source_type varchar(50),
+  source_system varchar(200),
+  business_no varchar(200),
+  department_id varchar(100) not null,
+  category varchar(100),
+  sub_category varchar(100),
+  template_type varchar(160),
+  document_type varchar(100),
+  priority varchar(20) not null,
+  status varchar(30) not null,
+  current_stage varchar(100),
+  progress int default 0,
+  queue_level varchar(20),
+  queue_name varchar(200),
+  queue_capacity int,
+  queue_position int,
+  waiting_minutes int,
+  estimated_start_at varchar(100),
+  manual_accelerated char(1) default '0',
+  dispatch_reason varchar(1000),
+  error_code varchar(100),
+  error_message varchar(1000),
+  failed_stage varchar(100),
+  retry_count int default 0,
+  max_retry int default 3,
+  failed_at datetime null,
+  created_at datetime not null,
+  updated_at datetime not null,
+  unique key uk_extract_task_id (task_id),
+  key idx_extract_task_trace (trace_id),
+  key idx_extract_task_status (status),
+  key idx_extract_task_queue (department_id, queue_level, queue_position),
+  key idx_extract_task_config (config_id),
+  key idx_extract_task_failed (status, failed_at)
+);
+
+create table if not exists task_stage_log (
+  id varchar(64) primary key,
+  task_id varchar(128) not null,
+  trace_id varchar(128) not null,
+  stage_code varchar(50) not null,
+  stage_name varchar(100) not null,
+  status varchar(30) not null,
+  input_summary varchar(1000),
+  output_summary varchar(1000),
+  error_code varchar(100),
+  error_message varchar(1000),
+  started_at datetime,
+  ended_at datetime,
+  duration_ms bigint,
+  created_at datetime not null,
+  key idx_task_stage_log_task (task_id),
+  key idx_task_stage_log_trace (trace_id),
+  key idx_task_stage_log_status (status)
+);
+
+create table if not exists document_parse_result (
+  id varchar(64) primary key,
+  task_id varchar(128) not null,
+  trace_id varchar(128) not null,
+  document_id varchar(128) not null,
+  engine_code varchar(128),
+  parse_text longtext,
+  parse_markdown_path varchar(1000),
+  page_count int,
+  status varchar(30) not null,
+  created_at datetime not null,
+  updated_at datetime not null,
+  unique key uk_document_parse_task (task_id),
+  key idx_document_parse_trace (trace_id)
+);
+
+create table if not exists document_artifact (
+  id varchar(64) primary key,
+  trace_id varchar(128) not null,
+  task_id varchar(128),
+  document_id varchar(128),
+  parent_id varchar(64),
+  artifact_type varchar(32) not null,
+  stage_code varchar(32) not null,
+  file_name varchar(255),
+  file_ext varchar(32),
+  mime_type varchar(128),
+  storage_path varchar(1000),
+  preview_path varchar(1000),
+  file_size bigint,
+  checksum varchar(128),
+  page_no int,
+  page_range varchar(128),
+  sort_no int,
+  status varchar(32),
+  metadata_json longtext,
+  created_at datetime not null,
+  updated_at datetime not null,
+  key idx_document_artifact_trace (trace_id),
+  key idx_document_artifact_task (task_id),
+  key idx_document_artifact_parent (parent_id),
+  key idx_document_artifact_type (artifact_type, stage_code)
+);
+
+create table if not exists document_artifact_step (
+  id varchar(64) primary key,
+  trace_id varchar(128) not null,
+  task_id varchar(128),
+  step_code varchar(64),
+  step_name varchar(128),
+  step_type varchar(64),
+  input_artifact_ids longtext,
+  output_artifact_ids longtext,
+  config_json longtext,
+  status varchar(32),
+  error_message varchar(1000),
+  started_at datetime,
+  ended_at datetime,
+  duration_ms bigint,
+  created_at datetime not null,
+  key idx_artifact_step_trace (trace_id),
+  key idx_artifact_step_task (task_id),
+  key idx_artifact_step_code (step_code)
+);
+
+create table if not exists extract_result_record (
+  id varchar(64) primary key,
+  task_id varchar(128) not null,
+  trace_id varchar(128) not null,
+  document_id varchar(128) not null,
+  config_id varchar(64),
+  result_json longtext,
+  confidence_json longtext,
+  overall_confidence decimal(8,6),
+  need_review char(1) default '0',
+  status varchar(30) not null,
+  field_count int,
+  target_table varchar(200),
+  mapping_profile varchar(200),
+  created_at datetime not null,
+  updated_at datetime not null,
+  unique key uk_extract_result_task (task_id),
+  key idx_extract_result_trace (trace_id),
+  key idx_extract_result_status (status),
+  key idx_extract_result_config (config_id)
+);
+
+create table if not exists extract_review_log (
+  id varchar(64) primary key,
+  task_id varchar(128) not null,
+  trace_id varchar(128) not null,
+  action varchar(50) not null,
+  before_json longtext,
+  after_json longtext,
+  comment_text varchar(1000),
+  reviewer varchar(100),
+  created_at datetime not null,
+  key idx_extract_review_task (task_id),
+  key idx_extract_review_trace (trace_id),
+  key idx_extract_review_action (action)
+);
+
+create table if not exists storage_result_record (
+  id varchar(64) primary key,
+  task_id varchar(128) not null,
+  trace_id varchar(128) not null,
+  document_id varchar(128) not null,
+  config_id varchar(64),
+  target_table varchar(200) not null,
+  mapping_profile varchar(200),
+  storage_json longtext not null,
+  unique_key_json longtext,
+  storage_status varchar(30) not null,
+  duplicate_strategy varchar(50),
+  error_message varchar(1000),
+  stored_by varchar(100),
+  stored_at datetime,
+  created_at datetime not null,
+  updated_at datetime not null,
+  unique key uk_storage_result_task (task_id),
+  key idx_storage_result_trace (trace_id),
+  key idx_storage_result_table (target_table),
+  key idx_storage_result_status (storage_status),
+  key idx_storage_result_config (config_id)
+);
+
+create table if not exists downstream_push_record (
+  id varchar(64) primary key,
+  push_id varchar(128) not null,
+  trace_id varchar(128) not null,
+  task_id varchar(128) not null,
+  document_id varchar(128),
+  config_id varchar(64),
+  target_system varchar(200),
+  service_code varchar(128),
+  service_name varchar(200),
+  push_method varchar(50),
+  trigger_type varchar(50),
+  idempotent_key varchar(500),
+  request_payload longtext,
+  response_payload longtext,
+  status varchar(30) not null,
+  retry_count int default 0,
+  max_retry int default 3,
+  response_code varchar(100),
+  response_message varchar(1000),
+  pushed_at datetime,
+  created_at datetime not null,
+  updated_at datetime not null,
+  unique key uk_downstream_push_id (push_id),
+  key idx_downstream_push_trace (trace_id),
+  key idx_downstream_push_task (task_id),
+  key idx_downstream_push_status (status),
+  key idx_downstream_push_service (service_code),
+  key idx_downstream_push_idempotent (idempotent_key)
 );

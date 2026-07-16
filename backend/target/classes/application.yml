@@ -9,14 +9,37 @@ spring:
   jackson:
     default-property-inclusion: non_null
     time-zone: Asia/Shanghai
+    deserialization:
+      fail-on-unknown-properties: false
+  servlet:
+    multipart:
+      max-file-size: 100MB
+      max-request-size: 120MB
+  mvc:
+    log-request-details: true
 
 mybatis:
   mapper-locations: classpath*:mapper/**/*.xml
   configuration:
     map-underscore-to-camel-case: true
+    log-impl: org.apache.ibatis.logging.stdout.StdOutImpl
 
 app:
   cors:
     allowed-origins:
       - http://127.0.0.1:5170
       - http://localhost:5170
+  storage:
+    upload-dir: data/uploads
+    artifact-dir: data/artifacts
+
+logging:
+  level:
+    root: info
+    web: debug
+    sql: debug
+    com.example.reits.backend.mapper: debug
+    org.mybatis: debug
+    org.apache.ibatis: debug
+    org.springframework.web: debug
+    org.springframework.web.servlet.DispatcherServlet: debug

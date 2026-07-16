@@ -33,6 +33,7 @@
         select <include refid="BaseColumns"/>
         from extract_config
         <where>
+            and status != 'DELETED'
             <if test="query.keyword != null and query.keyword != ''">
                 and (config_name like #{keywordLike}
                 or config_code like #{keywordLike}
@@ -47,6 +48,15 @@
             <if test="query.documentType != null and query.documentType != ''">
                 and document_type = #{query.documentType}
             </if>
+            <if test="query.category != null and query.category != ''">
+                and category = #{query.category}
+            </if>
+            <if test="query.subCategory != null and query.subCategory != ''">
+                and sub_category = #{query.subCategory}
+            </if>
+            <if test="query.templateType != null and query.templateType != ''">
+                and template_type = #{query.templateType}
+            </if>
         </where>
         order by updated_at desc
     </select>
@@ -55,6 +65,74 @@
         select <include refid="BaseColumns"/>
         from extract_config
         where id = #{id}
+    </select>
+
+    <select id="selectByConfigCode" resultMap="ExtractConfigRecordMap">
+        select <include refid="BaseColumns"/>
+        from extract_config
+        where config_code = #{configCode}
+          and status != 'DELETED'
+        order by version desc
+    </select>
+
+    <select id="selectByConfigName" resultMap="ExtractConfigRecordMap">
+        select <include refid="BaseColumns"/>
+        from extract_config
+        where config_name = #{configName}
+          and status != 'DELETED'
+        order by version desc
+    </select>
+
+    <select id="selectPublishedByConfigName" resultMap="ExtractConfigRecordMap">
+        select <include refid="BaseColumns"/>
+        from extract_config
+        where config_name = #{configName}
+          and status = 'PUBLISHED'
+        order by published_at desc, version desc
+    </select>
+
+    <select id="selectPublishedCandidates" resultMap="ExtractConfigRecordMap">
+        select <include refid="BaseColumns"/>
+        from extract_config
+        where status = 'PUBLISHED'
+        <if test="departmentId != null and departmentId != ''">
+          and department_id = #{departmentId}
+        </if>
+        <if test="category != null and category != ''">
+          and category = #{category}
+        </if>
+        <if test="subCategory != null and subCategory != ''">
+          and sub_category = #{subCategory}
+        </if>
+        <if test="templateType != null and templateType != ''">
+          and template_type = #{templateType}
+        </if>
+        <if test="documentType != null and documentType != ''">
+          and document_type = #{documentType}
+        </if>
+        order by published_at desc, version desc
+    </select>
+
+    <select id="selectEditableVersions" resultMap="ExtractConfigRecordMap">
+        select <include refid="BaseColumns"/>
+        from extract_config
+        where config_code = #{configCode}
+          and status in ('DRAFT', 'TESTING')
+        order by version desc
+    </select>
+
+    <select id="countPayloadReferences" resultType="java.lang.Integer">
+        <bind name="keywordLike" value="'%' + keyword + '%'"/>
+        select count(1)
+        from extract_config
+        where status != 'DELETED'
+          and config_payload like #{keywordLike}
+    </select>
+
+    <select id="selectMaxVersion" resultType="java.lang.Integer">
+        select max(version)
+        from extract_config
+        where config_code = #{configCode}
     </select>
 
     <insert id="insert" parameterType="com.example.extraction.configuration.domain.ExtractConfigRecord">
@@ -90,6 +168,15 @@
         set status = #{status},
             updated_at = current_timestamp
         where id = #{id}
+    </update>
+
+    <update id="disablePublishedByConfigCode">
+        update extract_config
+        set status = 'DISABLED',
+            updated_at = current_timestamp
+        where config_code = #{configCode}
+          and id != #{excludeId}
+          and status = 'PUBLISHED'
     </update>
 
     <update id="publish">
