@@ -1,13 +1,14 @@
 package com.example.extraction.task.service;
 
+import com.example.extraction.artifact.service.DocumentArtifactService;
 import com.example.extraction.common.BusinessException;
 import com.example.extraction.common.IdGenerator;
-import com.example.extraction.artifact.service.DocumentArtifactService;
 import com.example.extraction.mapper.ExtractTaskMapper;
 import com.example.extraction.mapper.TaskStageLogMapper;
 import com.example.extraction.model.service.ModelCallLogService;
 import com.example.extraction.ocr.OcrParseService;
 import com.example.extraction.ocr.OcrTaskParseResult;
+import com.example.extraction.result.domain.ExtractResultRecord;
 import com.example.extraction.result.service.ExtractionResultService;
 import com.example.extraction.task.domain.ExtractTaskRecord;
 import com.example.extraction.task.domain.TaskStageLogRecord;
@@ -98,41 +99,21 @@ public class TaskExecutionService {
 
             runningStage = "要素提取";
             updateState(task, "EXTRACTING", "要素提取", 55, null, null);
-            boolean needReview = shouldReview(task);
-            BigDecimal confidence = needReview ? new BigDecimal("0.86") : new BigDecimal("0.92");
-            extractionResultService.saveExtractResult(task, confidence, needReview);
-            modelCallLogService.logLlmSuccess(task,
-                    "EXTRACT",
-                    "要素提取",
-                    "按配置字段生成 JSON 提取请求",
-                    "模拟 LLM 提取成功，置信度 " + confidence,
-                    "请根据已配置的提取字段和目标表映射，输出 JSON 结果。",
-                    1200,
-                    420,
-                    980L);
-            logSuccess(task, "EXTRACT", "要素提取", "按生效配置执行 AI/正则提取", "模拟提取完成，置信度 " + confidence);
+            ExtractResultRecord result = extractionResultService.saveExtractResult(task, new BigDecimal("0.92"), false);
+            logSuccess(task, "EXTRACT", "要素提取", "按生效配置执行 AI/正则提取", "提取完成，置信度 " + result.getOverallConfidence());
 
             runningStage = "加工校验";
             updateState(task, "EXTRACTING", "加工校验", 80, null, null);
-            logSuccess(task, "VALIDATE", "加工校验", "执行字典转换、SQL/API 取数和必填校验", "模拟加工校验通过");
+            logSuccess(task, "VALIDATE", "加工校验", "执行字典转换、SQL/API 取数和必填校验", "加工校验完成");
 
-            if (shouldFail(task)) {
-                modelCallLogService.logFailure(task,
-                        "LLM",
-                        "EXTRACT",
-                        "要素提取",
-                        "模拟失败文件触发的提取请求",
-                        "模拟执行失败",
-                        650L);
-                fail(task, "SIMULATED_FAILED", "模拟执行失败，请在失败任务中重试");
-            } else if (shouldReview(task)) {
+            if ("1".equals(result.getNeedReview())) {
                 runningStage = "复核判断";
                 updateState(task, "WAIT_REVIEW", "等待人工复核", 90, null, null);
-                logSuccess(task, "REVIEW_DECISION", "复核判断", "根据置信度和校验结果判断", "模拟命中复核阈值，进入人工复核");
+                logSuccess(task, "REVIEW_DECISION", "复核判断", "根据置信度和校验结果判断", "命中复核条件，进入人工复核");
             } else {
                 runningStage = "执行完成";
                 updateState(task, "COMPLETED", "执行完成", 100, null, null);
-                logSuccess(task, "COMPLETE", "执行完成", "写入模拟结果", "任务模拟执行完成");
+                logSuccess(task, "COMPLETE", "执行完成", "写入提取结果", "任务执行完成");
             }
             return extractTaskService.detail(taskId);
         } catch (BusinessException e) {
@@ -152,16 +133,6 @@ public class TaskExecutionService {
             fail(task, "EXECUTION_LINKAGE_ERROR", runningStage + "依赖异常：" + firstText(e.getMessage(), e.getClass().getSimpleName()));
             return extractTaskService.detail(taskId);
         }
-    }
-
-    private boolean shouldReview(ExtractTaskRecord task) {
-        String fileName = task.getFileName() == null ? "" : task.getFileName().toLowerCase();
-        return "LOW".equals(task.getPriority()) || fileName.contains("low") || fileName.contains("review");
-    }
-
-    private boolean shouldFail(ExtractTaskRecord task) {
-        String fileName = task.getFileName() == null ? "" : task.getFileName().toLowerCase();
-        return fileName.contains("fail") || fileName.contains("error");
     }
 
     private void logParseModelFailure(ExtractTaskRecord task, String runningStage, String errorMessage) {
@@ -204,22 +175,22 @@ public class TaskExecutionService {
                           String inputSummary, String outputSummary, String errorCode, String errorMessage) {
         LocalDateTime startedAt = LocalDateTime.now().minusSeconds(1);
         LocalDateTime endedAt = LocalDateTime.now();
-        TaskStageLogRecord log = new TaskStageLogRecord();
-        log.setId(IdGenerator.nextId("TSL"));
-        log.setTaskId(task.getTaskId());
-        log.setTraceId(firstText(task.getTraceId(), task.getTaskId(), "UNKNOWN_TRACE"));
-        log.setStageCode(stageCode);
-        log.setStageName(stageName);
-        log.setStatus(status);
-        log.setInputSummary(inputSummary);
-        log.setOutputSummary(outputSummary);
-        log.setErrorCode(errorCode);
-        log.setErrorMessage(errorMessage);
-        log.setStartedAt(startedAt);
-        log.setEndedAt(endedAt);
-        log.setDurationMs(Duration.between(startedAt, endedAt).toMillis());
-        log.setCreatedAt(endedAt);
-        taskStageLogMapper.insert(log);
+        TaskStageLogRecord stageLog = new TaskStageLogRecord();
+        stageLog.setId(IdGenerator.nextId("TSL"));
+        stageLog.setTaskId(task.getTaskId());
+        stageLog.setTraceId(firstText(task.getTraceId(), task.getTaskId(), "UNKNOWN_TRACE"));
+        stageLog.setStageCode(stageCode);
+        stageLog.setStageName(stageName);
+        stageLog.setStatus(status);
+        stageLog.setInputSummary(inputSummary);
+        stageLog.setOutputSummary(outputSummary);
+        stageLog.setErrorCode(errorCode);
+        stageLog.setErrorMessage(errorMessage);
+        stageLog.setStartedAt(startedAt);
+        stageLog.setEndedAt(endedAt);
+        stageLog.setDurationMs(Duration.between(startedAt, endedAt).toMillis());
+        stageLog.setCreatedAt(endedAt);
+        taskStageLogMapper.insert(stageLog);
     }
 
     private TaskStageLogResponse toResponse(TaskStageLogRecord record) {

@@ -9,6 +9,9 @@ import com.example.extraction.mapper.DocumentArtifactMapper;
 import com.example.extraction.mapper.DocumentParseResultMapper;
 import com.example.extraction.mapper.ExtractConfigMapper;
 import com.example.extraction.mapper.ExtractResultMapper;
+import com.example.extraction.model.dto.LlmInvokeResponse;
+import com.example.extraction.model.service.LlmInvokeService;
+import com.example.extraction.model.service.ModelCallLogService;
 import com.example.extraction.result.domain.DocumentParseResultRecord;
 import com.example.extraction.result.domain.ExtractResultRecord;
 import com.example.extraction.result.dto.ResultDetailResponse;
@@ -19,6 +22,7 @@ import com.example.extraction.result.dto.StoragePreviewResponse;
 import com.example.extraction.task.domain.ExtractTaskRecord;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
@@ -45,17 +49,23 @@ public class ExtractionResultService {
     private final ExtractResultMapper extractResultMapper;
     private final ExtractConfigMapper extractConfigMapper;
     private final DocumentArtifactMapper documentArtifactMapper;
+    private final LlmInvokeService llmInvokeService;
+    private final ModelCallLogService modelCallLogService;
     private final ObjectMapper objectMapper;
 
     public ExtractionResultService(DocumentParseResultMapper documentParseResultMapper,
                                    ExtractResultMapper extractResultMapper,
                                    ExtractConfigMapper extractConfigMapper,
                                    DocumentArtifactMapper documentArtifactMapper,
+                                   LlmInvokeService llmInvokeService,
+                                   ModelCallLogService modelCallLogService,
                                    ObjectMapper objectMapper) {
         this.documentParseResultMapper = documentParseResultMapper;
         this.extractResultMapper = extractResultMapper;
         this.extractConfigMapper = extractConfigMapper;
         this.documentArtifactMapper = documentArtifactMapper;
+        this.llmInvokeService = llmInvokeService;
+        this.modelCallLogService = modelCallLogService;
         this.objectMapper = objectMapper;
     }
 
@@ -113,7 +123,7 @@ public class ExtractionResultService {
         return record;
     }
 
-    public void saveExtractResult(ExtractTaskRecord task, BigDecimal confidence, boolean needReview) {
+    public ExtractResultRecord saveExtractResult(ExtractTaskRecord task, BigDecimal confidence, boolean needReview) {
         ConfigWizardPayload payload = readConfigPayload(task.getConfigId());
         DocumentParseResultRecord parseResult = documentParseResultMapper.selectByTaskId(task.getTaskId());
         String parseText = parseResult == null ? buildParseText(task) : parseResult.getParseText();
@@ -125,7 +135,8 @@ public class ExtractionResultService {
         boolean finalNeedReview = needReview
                 || transformOutcome.reviewRequired()
                 || minConfidence.compareTo(threshold) < 0
-                || hasForceReviewField(payload, transformOutcome.result());
+                || hasForceReviewField(payload, transformOutcome.result())
+                || hasExtractionErrorWithoutResult(transformOutcome.result());
 
         ExtractResultRecord record = new ExtractResultRecord();
         record.setId(IdGenerator.nextId("ERR"));
@@ -148,6 +159,7 @@ public class ExtractionResultService {
         } else {
             extractResultMapper.update(record);
         }
+        return record;
     }
 
     public void markFailed(ExtractTaskRecord task, String errorCode, String errorMessage) {
@@ -518,6 +530,7 @@ public class ExtractionResultService {
             attachRegexDiagnostics(result, payload, regexExtraction);
         }
         attachExtractionFailure(result, primaryAttempt, fallbackAttempt);
+        fillMissingRequiredFields(payload, result, confidenceJson);
 
         if (countBusinessFields(result) == 0) {
             fillMissingRequiredFields(payload, result, confidenceJson);
@@ -529,8 +542,9 @@ public class ExtractionResultService {
 
     private ExtractionAttempt tryAiExtraction(ExtractTaskRecord task, ConfigWizardPayload payload, BigDecimal baseConfidence) {
         try {
-            return ExtractionAttempt.success(buildSimulatedExtraction(task, payload, baseConfidence));
+            return ExtractionAttempt.success(buildAiExtraction(task, payload, baseConfidence));
         } catch (RuntimeException e) {
+            modelCallLogService.logFailure(task, "LLM", "EXTRACT", "要素提取", "按配置提示词和解析文本调用 AI 提取", firstText(e.getMessage(), e.getClass().getSimpleName()), 0L);
             return ExtractionAttempt.failed("AI提取执行异常：" + firstText(e.getMessage(), e.getClass().getSimpleName()));
         }
     }
@@ -667,6 +681,9 @@ public class ExtractionResultService {
     }
 
     private void fillMissingRequiredFields(ConfigWizardPayload payload, Map<String, Object> result, Map<String, Object> confidenceJson) {
+        if ("ARRAY".equals(result.get("_ai_output_mode"))) {
+            return;
+        }
         for (FieldPlan plan : buildFieldPlans(payload)) {
             if (!Boolean.TRUE.equals(plan.requiredForStorage())) {
                 continue;
@@ -703,6 +720,115 @@ public class ExtractionResultService {
 
     private SimulatedExtraction emptyExtraction() {
         return new SimulatedExtraction(new LinkedHashMap<>(), new LinkedHashMap<>(), BigDecimal.ZERO, BigDecimal.ZERO);
+    }
+
+    private SimulatedExtraction buildAiExtraction(ExtractTaskRecord task, ConfigWizardPayload payload, BigDecimal baseConfidence) {
+        ConfigWizardPayload.ExtractStrategy strategy = payload == null ? null : payload.getExtractStrategy();
+        String modelCode = strategy == null ? null : strategy.getLlmModelCode();
+        String systemPrompt = strategy == null ? null : strategy.getSystemPrompt();
+        String userPrompt = buildAiUserPrompt(task, strategy);
+
+        LlmInvokeResponse response = llmInvokeService.invoke(modelCode, systemPrompt, userPrompt, true);
+        modelCallLogService.logLlmSuccess(task, response.getModel(), "EXTRACT", "要素提取",
+                "按配置提示词和解析文本调用 AI 提取", summarizeAiResponse(response), compactPreview(userPrompt, 4000),
+                response.getInputTokens(), response.getOutputTokens(), response.getDurationMs());
+
+        Map<String, Object> normalizedResult = parseAndNormalizeAiJson(response.getJsonContent(), payload);
+        Map<String, Object> confidenceJson = buildAiConfidence(normalizedResult, payload, baseConfidence);
+        BigDecimal overall = overallConfidence(confidenceJson, baseConfidence);
+        BigDecimal min = minConfidence(confidenceJson, overall);
+        return new SimulatedExtraction(normalizedResult, confidenceJson, overall, min);
+    }
+
+    private String buildAiUserPrompt(ExtractTaskRecord task, ConfigWizardPayload.ExtractStrategy strategy) {
+        String configuredPrompt = strategy == null ? null : strategy.getUserPrompt();
+        String basePrompt = firstText(configuredPrompt, "请从文档内容中提取配置字段。要求无法识别的字段返回 null，严格 JSON 格式输出。");
+        DocumentParseResultRecord parseResult = documentParseResultMapper.selectByTaskId(task.getTaskId());
+        String parseText = parseResult == null ? null : parseResult.getParseText();
+        if (!StringUtils.hasText(parseText)) {
+            parseText = buildParseText(task);
+        }
+        return basePrompt + "\n\n以下为待解析文档内容：\n```markdown\n" + firstText(parseText, "") + "\n```";
+    }
+
+    private Map<String, Object> parseAndNormalizeAiJson(String jsonContent, ConfigWizardPayload payload) {
+        try {
+            JsonNode root = objectMapper.readTree(jsonContent);
+            String outputMode = payload == null || payload.getExtractStrategy() == null ? "SINGLE" : firstText(payload.getExtractStrategy().getOutputMode(), "SINGLE");
+            if (root.isArray()) {
+                if (!"ARRAY".equals(outputMode)) {
+                    throw new BusinessException("AI_JSON_MODE_MISMATCH", "AI 返回数组对象，但提取策略配置为单对象");
+                }
+                List<Object> rows = new ArrayList<>();
+                for (JsonNode item : root) {
+                    if (item.isObject()) {
+                        rows.add(normalizeAiObject(objectMapper.convertValue(item, new TypeReference<Map<String, Object>>() {}), payload));
+                    } else {
+                        rows.add(objectMapper.convertValue(item, Object.class));
+                    }
+                }
+                Map<String, Object> result = new LinkedHashMap<>();
+                result.put("items", rows);
+                result.put("_ai_output_mode", "ARRAY");
+                return result;
+            }
+            if (root.isObject()) {
+                if ("ARRAY".equals(outputMode)) {
+                    throw new BusinessException("AI_JSON_MODE_MISMATCH", "AI 返回单对象，但提取策略配置为数组对象");
+                }
+                return normalizeAiObject(objectMapper.convertValue(root, new TypeReference<Map<String, Object>>() {}), payload);
+            }
+            throw new BusinessException("AI_JSON_UNSUPPORTED", "AI 返回 JSON 不是对象或数组");
+        } catch (JsonProcessingException e) {
+            throw new BusinessException("AI_JSON_INVALID", "AI 返回 JSON 解析失败：" + e.getOriginalMessage());
+        }
+    }
+
+    private Map<String, Object> normalizeAiObject(Map<String, Object> raw, ConfigWizardPayload payload) {
+        Map<String, Object> result = new LinkedHashMap<>();
+        Set<String> consumedKeys = new HashSet<>();
+        for (FieldPlan plan : buildFieldPlans(payload)) {
+            String targetField = firstText(plan.targetColumn(), plan.fieldCode());
+            if (!StringUtils.hasText(targetField)) {
+                continue;
+            }
+            if (raw.containsKey(targetField)) {
+                result.put(targetField, raw.get(targetField));
+                consumedKeys.add(targetField);
+            } else if (raw.containsKey(plan.fieldCode())) {
+                result.put(targetField, raw.get(plan.fieldCode()));
+                consumedKeys.add(plan.fieldCode());
+            }
+        }
+        for (Map.Entry<String, Object> entry : raw.entrySet()) {
+            if (!consumedKeys.contains(entry.getKey())) {
+                result.put(entry.getKey(), entry.getValue());
+            }
+        }
+        return result;
+    }
+
+    private Map<String, Object> buildAiConfidence(Map<String, Object> result, ConfigWizardPayload payload, BigDecimal baseConfidence) {
+        BigDecimal successConfidence = normalizeConfidence(baseConfidence == null || baseConfidence.compareTo(BigDecimal.ZERO) <= 0 ? new BigDecimal("0.92") : baseConfidence);
+        Map<String, Object> confidenceJson = new LinkedHashMap<>();
+        for (FieldPlan plan : buildFieldPlans(payload)) {
+            String targetField = firstText(plan.targetColumn(), plan.fieldCode());
+            if (StringUtils.hasText(targetField) && result.containsKey(targetField)) {
+                confidenceJson.put(targetField, isBlankValue(result.get(targetField)) ? BigDecimal.ZERO : successConfidence);
+            }
+        }
+        for (Map.Entry<String, Object> entry : result.entrySet()) {
+            if (!StringUtils.hasText(entry.getKey()) || entry.getKey().startsWith("_") || confidenceJson.containsKey(entry.getKey())) {
+                continue;
+            }
+            confidenceJson.put(entry.getKey(), isBlankValue(entry.getValue()) ? BigDecimal.ZERO : successConfidence);
+        }
+        return confidenceJson;
+    }
+
+    private String summarizeAiResponse(LlmInvokeResponse response) {
+        String modelCode = response.getModel() == null ? "默认模型" : response.getModel().getModelCode();
+        return "AI 提取完成，模型：" + modelCode + "，返回 JSON 长度：" + (response.getJsonContent() == null ? 0 : response.getJsonContent().length());
     }
 
     private SimulatedExtraction buildSimulatedExtraction(ExtractTaskRecord task, ConfigWizardPayload payload, BigDecimal baseConfidence) {
@@ -1042,6 +1168,14 @@ public class ExtractionResultService {
                         .anyMatch(plan -> field.equals(plan.fieldCode()) && result.containsKey(plan.targetColumn())));
     }
 
+    private boolean hasExtractionErrorWithoutResult(Map<String, Object> result) {
+        if (result == null) {
+            return false;
+        }
+        boolean hasError = result.containsKey("_primary_extract_error") || result.containsKey("_fallback_extract_error");
+        return hasError && countBusinessFields(result) == 0;
+    }
+
     private String resolveTargetTable(ConfigWizardPayload payload) {
         if (!storageEnabled(payload)) {
             return "未启用落库";
@@ -1314,6 +1448,14 @@ public class ExtractionResultService {
 
     private String stringValue(Object value) {
         return value == null ? null : String.valueOf(value);
+    }
+
+    private String compactPreview(String value, int maxLength) {
+        if (!StringUtils.hasText(value)) {
+            return "";
+        }
+        String text = value.trim();
+        return text.length() > maxLength ? text.substring(0, maxLength) + "..." : text;
     }
 
     private String writeJson(Object value) {

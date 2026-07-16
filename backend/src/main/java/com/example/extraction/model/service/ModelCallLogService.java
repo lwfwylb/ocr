@@ -43,8 +43,7 @@ public class ModelCallLogService {
     }
 
     public void logOcrSuccess(ExtractTaskRecord task, String requestSummary, String responseSummary, long durationMs) {
-        OcrEngineConfigRecord engine = defaultOcrEngine();
-        logOcrSuccess(task, engine, requestSummary, responseSummary, durationMs);
+        logOcrSuccess(task, defaultOcrEngine(), requestSummary, responseSummary, durationMs);
     }
 
     public void logOcrSuccess(ExtractTaskRecord task, OcrEngineConfigRecord engine, String requestSummary, String responseSummary, long durationMs) {
@@ -61,11 +60,15 @@ public class ModelCallLogService {
     public void logLlmSuccess(ExtractTaskRecord task, String stageCode, String stageName,
                               String requestSummary, String responseSummary, String promptPreview,
                               Integer inputTokens, Integer outputTokens, long durationMs) {
-        LlmModelConfigRecord model = defaultLlmModel();
+        logLlmSuccess(task, defaultLlmModel(), stageCode, stageName, requestSummary, responseSummary,
+                promptPreview, inputTokens, outputTokens, durationMs);
+    }
+
+    public void logLlmSuccess(ExtractTaskRecord task, LlmModelConfigRecord model, String stageCode, String stageName,
+                              String requestSummary, String responseSummary, String promptPreview,
+                              Integer inputTokens, Integer outputTokens, long durationMs) {
         ModelCallLogRecord record = baseRecord(task, "LLM", stageCode, stageName, durationMs);
-        record.setProvider(model == null ? "MockLLM" : model.getProvider());
-        record.setModelCode(model == null ? "mock_llm" : model.getModelCode());
-        record.setModelName(model == null ? "模拟大模型" : model.getModelName());
+        fillLlmModel(record, model);
         record.setRequestSummary(requestSummary);
         record.setResponseSummary(responseSummary);
         record.setPromptPreview(promptPreview);
@@ -84,15 +87,28 @@ public class ModelCallLogService {
             record.setModelCode(engine == null ? "mock_ocr" : engine.getEngineCode());
             record.setModelName(engine == null ? "模拟 OCR 引擎" : engine.getEngineName());
         } else {
-            LlmModelConfigRecord model = defaultLlmModel();
-            record.setProvider(model == null ? "MockLLM" : model.getProvider());
-            record.setModelCode(model == null ? "mock_llm" : model.getModelCode());
-            record.setModelName(model == null ? "模拟大模型" : model.getModelName());
+            fillLlmModel(record, defaultLlmModel());
         }
         record.setRequestSummary(requestSummary);
         record.setStatus("FAILED");
         record.setErrorMessage(errorMessage);
         modelCallLogMapper.insert(record);
+    }
+
+    public void logLlmFailure(ExtractTaskRecord task, LlmModelConfigRecord model, String stageCode, String stageName,
+                              String requestSummary, String errorMessage, long durationMs) {
+        ModelCallLogRecord record = baseRecord(task, "LLM", stageCode, stageName, durationMs);
+        fillLlmModel(record, model);
+        record.setRequestSummary(requestSummary);
+        record.setStatus("FAILED");
+        record.setErrorMessage(errorMessage);
+        modelCallLogMapper.insert(record);
+    }
+
+    private void fillLlmModel(ModelCallLogRecord record, LlmModelConfigRecord model) {
+        record.setProvider(model == null ? "MockLLM" : model.getProvider());
+        record.setModelCode(model == null ? "mock_llm" : model.getModelCode());
+        record.setModelName(model == null ? "模拟大模型" : model.getModelName());
     }
 
     private ModelCallLogRecord baseRecord(ExtractTaskRecord task, String callType, String stageCode, String stageName, long durationMs) {
