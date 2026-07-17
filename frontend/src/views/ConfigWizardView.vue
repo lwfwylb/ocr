@@ -134,62 +134,7 @@ fields.value.forEach((field) => {
   mutable.regexFlags = ''
   mutable.regexGroup = 1
 })
-const transformRules = ref<TransformRule[]>([
-  {
-    id: 'rule-dict-amount',
-    ruleName: '金额区间字典转换',
-    ruleType: 'DICT',
-    inputField: 'amount',
-    outputField: 'amount_level',
-    enabled: true,
-    onFail: 'KEEP_ORIGINAL',
-    dictItems: [
-      { source: '0-100000', target: '普通金额' },
-      { source: '100000-1000000', target: '大额' }
-    ],
-    apiEndpoint: '',
-    apiMethod: 'GET',
-    apiParamName: '',
-    apiResponsePath: '',
-    sqlDatasource: '主数据只读库',
-    sqlText: '',
-    sqlResultColumn: ''
-  },
-  {
-    id: 'rule-api-account',
-    ruleName: '账号查询交易对手名称',
-    ruleType: 'API',
-    inputField: 'payee_account',
-    outputField: 'counterparty_name',
-    enabled: true,
-    onFail: 'REVIEW',
-    dictItems: [],
-    apiEndpoint: '/master-data/accounts/{accountNo}',
-    apiMethod: 'GET',
-    apiParamName: 'accountNo',
-    apiResponsePath: '$.data.accountName',
-    sqlDatasource: '主数据只读库',
-    sqlText: '',
-    sqlResultColumn: ''
-  },
-  {
-    id: 'rule-sql-product',
-    ruleName: 'SQL 查询产品名称',
-    ruleType: 'SQL',
-    inputField: 'product_code',
-    outputField: 'product_name',
-    enabled: false,
-    onFail: 'SET_NULL',
-    dictItems: [],
-    apiEndpoint: '',
-    apiMethod: 'GET',
-    apiParamName: '',
-    apiResponsePath: '',
-    sqlDatasource: '产品主数据只读库',
-    sqlText: 'select product_name from md_product where product_code = :product_code',
-    sqlResultColumn: 'product_name'
-  }
-])
+const transformRules = ref<TransformRule[]>([])
 transformRules.value.forEach((rule) => {
   rule.outputMode = rule.outputMode || 'DERIVE_FIELD'
   rule.conditionEnabled = rule.conditionEnabled ?? Boolean(rule.inputField)
@@ -204,40 +149,9 @@ transformRules.value.forEach((rule) => {
   rule.sqlMaxRows = rule.sqlMaxRows ?? 1
   rule.sqlReadonlyChecked = rule.sqlReadonlyChecked ?? true
 })
-const selectedRuleId = ref(transformRules.value[0].id)
+const selectedRuleId = ref(transformRules.value[0]?.id || '')
 const activeProcessTab = ref('transform')
-const validationRules = ref<ValidationRule[]>([
-  {
-    id: 'valid-required-amount',
-    ruleName: '金额不能为空',
-    ruleType: 'REQUIRED',
-    fieldCode: 'amount',
-    enabled: true,
-    severity: 'BLOCK',
-    expression: 'amount != null',
-    failMessage: '金额为空，阻断落库并进入失败任务'
-  },
-  {
-    id: 'valid-account-format',
-    ruleName: '收款账号格式校验',
-    ruleType: 'FORMAT',
-    fieldCode: 'payee_account',
-    enabled: true,
-    severity: 'REVIEW',
-    expression: '^\\\\d[\\\\d\\\\s*]{8,}$',
-    failMessage: '账号格式异常，转人工复核'
-  },
-  {
-    id: 'valid-product-master',
-    ruleName: '产品代码主数据校验',
-    ruleType: 'MASTER_DATA',
-    fieldCode: 'product_code',
-    enabled: false,
-    severity: 'WARN',
-    expression: 'md_product.product_code exists',
-    failMessage: '产品代码未命中主数据，仅提示业务关注'
-  }
-])
+const validationRules = ref<ValidationRule[]>([])
 const selectedExtractFieldCode = ref(fields.value[0]?.fieldCode || '')
 const mappingProfileDrawerVisible = ref(false)
 const ddlPreviewVisible = ref(false)
@@ -372,6 +286,8 @@ const form = reactive({
   defaultStrategy: 'AI_FIRST_RULE_FALLBACK',
   confidenceThreshold: 0.9,
   reviewerRole: '运营复核岗',
+  transformEnabled: false,
+  validationEnabled: false,
   pushEnabled: true,
   pushTrigger: 'REVIEW_APPROVED',
   targetServices: ['fund_ops_result_receive', 'dw_extract_result_topic'],
@@ -643,6 +559,8 @@ const pushFieldMappings = computed(() => {
 const selectedTransformRule = computed(() => {
   return transformRules.value.find((rule) => rule.id === selectedRuleId.value) || transformRules.value[0]
 })
+const transformFeatureEnabled = computed(() => Boolean(form.transformEnabled))
+const validationFeatureEnabled = computed(() => Boolean(form.validationEnabled))
 const normalizeStatus = (status?: string) => (status || 'DRAFT').toUpperCase()
 const canEditVersion = computed(() => !currentConfigId.value || ['DRAFT', 'TESTING'].includes(normalizeStatus(currentStatus.value)))
 const isReadonlyVersion = computed(() => !canEditVersion.value)
@@ -791,7 +709,11 @@ const wizardStepConfigured = (index: number) => {
   if (index === 1) return Boolean(form.engineCode && form.parseMode)
   if (index === 2) return validateFieldStorageStep().length === 0
   if (index === 3) return extractStrategyStepErrors().length === 0
-  if (index === 4) return transformRules.value.some((rule) => rule.enabled) || validationRules.value.some((rule) => rule.enabled)
+  if (index === 4) {
+    if (!form.transformEnabled && !form.validationEnabled) return true
+    return (form.transformEnabled && transformRules.value.some((rule) => rule.enabled))
+      || (form.validationEnabled && validationRules.value.some((rule) => rule.enabled))
+  }
   if (index === 5) return Boolean(form.confidenceThreshold !== undefined && form.confidenceThreshold !== null && form.reviewerRole)
   if (index === 6) return !form.pushEnabled || form.targetServices.length > 0
   if (index === 7) return Boolean(validationReport.value || ['TESTING', 'PUBLISHED'].includes(normalizeStatus(currentStatus.value)))
@@ -899,6 +821,10 @@ const buildWizardPayload = () => ({
     userPrompt: aiUserPrompt.value,
     generatedPromptPreview: aiUserPrompt.value,
     outputJsonSchema: ''
+  },
+  processConfig: {
+    transformEnabled: form.transformEnabled,
+    validationEnabled: form.validationEnabled
   },
   regexRules: fields.value
     .filter((field: any) => field.extractByRegex || field.regexPattern || field.traditionalRuleType)
@@ -1096,10 +1022,6 @@ const removeExtractField = (row: any) => {
   ElMessage.success('已删除提取字段')
 }
 const removeTransformRule = async (rule: TransformRule) => {
-  if (transformRules.value.length <= 1) {
-    ElMessage.warning('至少保留一条加工规则；如暂不执行，可先关闭启用开关')
-    return
-  }
   const currentIndex = transformRules.value.findIndex((item) => item.id === rule.id)
   const referencedRules = transformRules.value
     .slice(currentIndex + 1)
@@ -1118,6 +1040,7 @@ const removeTransformRule = async (rule: TransformRule) => {
     if (selectedRuleId.value === rule.id) {
       selectedRuleId.value = transformRules.value[Math.max(0, currentIndex - 1)]?.id || transformRules.value[0]?.id || ''
     }
+    if (!transformRules.value.length) selectedRuleId.value = ''
     ElMessage.success('已删除加工规则')
   } catch {
     // User canceled.
@@ -1197,10 +1120,15 @@ const addTransformRule = (ruleType: TransformRuleType) => {
   selectedRuleId.value = id
 }
 const addDictItem = () => {
+  if (!selectedTransformRule.value) return
   selectedTransformRule.value.dictItems.push({ source: '', target: '' })
 }
 const runTransformPreview = () => {
   const rule = selectedTransformRule.value
+  if (!rule) {
+    ElMessage.warning('请先新增并选择一条加工规则')
+    return
+  }
   if (rule.ruleType === 'DICT') {
     previewOutput.value = rule.dictItems.find((item) => item.source === previewInput.value)?.target || '未命中字典，按失败策略处理'
   } else if (rule.ruleType === 'API') {
@@ -1331,11 +1259,11 @@ const applyWizardPayload = (payload: any) => {
       if (rule.sampleResult) regexPreviewMap.value[rule.fieldCode] = rule.sampleResult
     })
   }
-  if (payload.transformRules?.length) {
-    transformRules.value = payload.transformRules
-    selectedRuleId.value = transformRules.value[0]?.id || ''
-  }
-  if (payload.validationRules?.length) validationRules.value = payload.validationRules
+  transformRules.value = payload.transformRules || []
+  selectedRuleId.value = transformRules.value[0]?.id || ''
+  validationRules.value = payload.validationRules || []
+  form.transformEnabled = payload.processConfig?.transformEnabled ?? transformRules.value.some((rule) => rule.enabled)
+  form.validationEnabled = payload.processConfig?.validationEnabled ?? validationRules.value.some((rule) => rule.enabled)
   const savedUserPrompt = String(extractStrategy.userPrompt || '').trim()
   const generatedUserPrompt = fieldDrivenUserPrompt.value
   setAiUserPrompt(savedUserPrompt || generatedUserPrompt, !savedUserPrompt || savedUserPrompt === generatedUserPrompt)
@@ -2100,26 +2028,41 @@ onMounted(async () => {
         <div class="card-header">
           <div>
             <h2>加工校验</h2>
-            <p class="muted">通过可视化规则把提取值转换为标准值，或衍生出新的入库字段。</p>
+            <p class="muted">默认不启用。仅在需要字段标准化、主数据补全、格式校验或阻断/复核判断时开启。</p>
           </div>
-          <div>
-            <el-button @click="addTransformRule('DICT')">新增字典转换</el-button>
-            <el-button @click="addTransformRule('API')">新增 API 取数</el-button>
-            <el-button type="primary" @click="addTransformRule('SQL')">新增 SQL 查询</el-button>
+          <div class="header-actions process-switches">
+            <el-switch v-model="form.transformEnabled" active-text="启用加工规则" inactive-text="不加工" />
+            <el-switch v-model="form.validationEnabled" active-text="启用校验规则" inactive-text="不校验" />
           </div>
         </div>
         <el-alert
           class="mb-12"
-          title="建议优先使用数据字典和主数据 API；SQL 查询仅允许只读数据源和参数化查询。"
+          title="加工规则和校验规则均为可选能力。关闭后任务执行会跳过对应环节；已维护规则会保留但不生效。"
           type="info"
           :closable="false"
         />
 
         <el-tabs v-model="activeProcessTab" type="border-card" class="process-tabs">
           <el-tab-pane label="加工规则" name="transform">
-        <div class="transform-designer">
+        <el-empty v-if="!transformFeatureEnabled" description="未启用加工规则，任务执行时会跳过字段标准化和衍生字段处理。" />
+        <div v-else class="transform-designer">
           <el-card shadow="never" class="rule-list-card">
-            <template #header>加工规则流水线</template>
+            <template #header>
+              <div class="card-header compact-header">
+                <span>加工规则流水线</span>
+                <el-dropdown trigger="click">
+                  <el-button type="primary">新增规则</el-button>
+                  <template #dropdown>
+                    <el-dropdown-menu>
+                      <el-dropdown-item @click="addTransformRule('DICT')">字典转换</el-dropdown-item>
+                      <el-dropdown-item @click="addTransformRule('API')">API 取数</el-dropdown-item>
+                      <el-dropdown-item @click="addTransformRule('SQL')">SQL 查询</el-dropdown-item>
+                    </el-dropdown-menu>
+                  </template>
+                </el-dropdown>
+              </div>
+            </template>
+            <el-empty v-if="!transformRules.length" description="暂无加工规则，可按需新增字典转换、API取数或SQL查询。" />
             <div
               v-for="(rule, index) in transformRules"
               :key="rule.id"
@@ -2152,7 +2095,7 @@ onMounted(async () => {
             </div>
           </el-card>
 
-          <el-card shadow="never" class="rule-editor-card">
+          <el-card v-if="selectedTransformRule" shadow="never" class="rule-editor-card">
             <template #header>
               <div class="card-header">
                 <span>规则编辑器</span>
@@ -2349,8 +2292,8 @@ onMounted(async () => {
                 <p class="muted">校验只判断数据是否可继续落库、复核或推送，不直接改写字段值。</p>
               </div>
               <div class="header-actions">
-                <el-button @click="runValidationPreview">运行校验预览</el-button>
-                <el-button type="primary" @click="addValidationRule">新增校验规则</el-button>
+                <el-button :disabled="!validationFeatureEnabled || !validationRules.length" @click="runValidationPreview">运行校验预览</el-button>
+                <el-button type="primary" :disabled="!validationFeatureEnabled" @click="addValidationRule">新增校验规则</el-button>
               </div>
             </div>
             <el-alert
@@ -2359,7 +2302,9 @@ onMounted(async () => {
               type="info"
               :closable="false"
             />
-            <el-table :data="validationRules" height="520">
+            <el-empty v-if="!validationFeatureEnabled" description="未启用校验规则，任务执行时只按置信度和复核策略判断。" />
+            <el-empty v-else-if="!validationRules.length" description="暂无校验规则，可按需新增必填、格式、范围、跨字段、唯一性或主数据校验。" />
+            <el-table v-else :data="validationRules" height="520">
               <el-table-column label="启用" width="70">
                 <template #default="{ row }"><el-switch v-model="row.enabled" /></template>
               </el-table-column>

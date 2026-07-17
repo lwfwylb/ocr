@@ -22,6 +22,8 @@ public class ConfigWizardPayload {
     private List<FieldMapping> fieldMappings = new ArrayList<>();
     @Valid
     private ExtractStrategy extractStrategy = new ExtractStrategy();
+    @Valid
+    private ProcessConfig processConfig = new ProcessConfig();
     private List<RegexRule> regexRules = new ArrayList<>();
     private List<TransformRule> transformRules = new ArrayList<>();
     private List<ValidationRule> validationRules = new ArrayList<>();
@@ -101,6 +103,14 @@ public class ConfigWizardPayload {
 
     public void setExtractStrategy(ExtractStrategy extractStrategy) {
         this.extractStrategy = extractStrategy;
+    }
+
+    public ProcessConfig getProcessConfig() {
+        return processConfig;
+    }
+
+    public void setProcessConfig(ProcessConfig processConfig) {
+        this.processConfig = processConfig;
     }
 
     public List<RegexRule> getRegexRules() {
@@ -834,6 +844,27 @@ public class ConfigWizardPayload {
 
         public void setOutputJsonSchema(String outputJsonSchema) {
             this.outputJsonSchema = outputJsonSchema;
+        }
+    }
+
+    public static class ProcessConfig {
+        private Boolean transformEnabled;
+        private Boolean validationEnabled;
+
+        public Boolean getTransformEnabled() {
+            return transformEnabled;
+        }
+
+        public void setTransformEnabled(Boolean transformEnabled) {
+            this.transformEnabled = transformEnabled;
+        }
+
+        public Boolean getValidationEnabled() {
+            return validationEnabled;
+        }
+
+        public void setValidationEnabled(Boolean validationEnabled) {
+            this.validationEnabled = validationEnabled;
         }
     }
 

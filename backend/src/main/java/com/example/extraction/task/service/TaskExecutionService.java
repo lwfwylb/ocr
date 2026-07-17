@@ -104,7 +104,7 @@ public class TaskExecutionService {
 
             runningStage = "加工校验";
             updateState(task, "EXTRACTING", "加工校验", 80, null, null);
-            logSuccess(task, "VALIDATE", "加工校验", "执行字典转换、SQL/API 取数和必填校验", "加工校验完成");
+            logSuccess(task, "VALIDATE", "加工校验", "按配置执行加工校验；未启用时自动跳过", "加工校验完成");
 
             if ("1".equals(result.getNeedReview())) {
                 runningStage = "复核判断";

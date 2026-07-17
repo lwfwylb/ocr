@@ -576,49 +576,99 @@ public class ConfigWizardService {
 
     private List<Map<String, Object>> validateTransformAndValidationRules(ConfigWizardPayload payload) {
         List<Map<String, Object>> issues = new ArrayList<>();
-        Set<String> fieldCodes = collectFieldCodes(payload);
-        if (payload.getTransformRules() != null) {
-            for (ConfigWizardPayload.TransformRule rule : payload.getTransformRules()) {
-                if (!Boolean.TRUE.equals(rule.getEnabled())) {
-                    continue;
-                }
-                if (!StringUtils.hasText(rule.getRuleName())) {
-                    issues.add(issue("ERROR", "启用的加工规则名称不能为空"));
-                }
-                if (!StringUtils.hasText(rule.getRuleType())) {
-                    issues.add(issue("ERROR", "加工规则类型不能为空：" + rule.getRuleName()));
-                }
-                if (StringUtils.hasText(rule.getInputField()) && !fieldCodes.contains(rule.getInputField())) {
-                    issues.add(issue("WARN", "加工规则输入字段未在提取字段或目标字段中找到：" + rule.getInputField()));
-                }
-                if (!StringUtils.hasText(rule.getOutputField())) {
-                    issues.add(issue("WARN", "加工规则未维护输出字段：" + rule.getRuleName()));
-                }
-            }
+        boolean transformEnabled = transformProcessingEnabled(payload);
+        boolean validationEnabled = validationProcessingEnabled(payload);
+        if (!transformEnabled && !validationEnabled) {
+            issues.add(issue("INFO", "未启用加工规则和校验规则，任务执行将跳过该环节"));
+            return issues;
         }
-        if (payload.getValidationRules() != null) {
-            for (ConfigWizardPayload.ValidationRule rule : payload.getValidationRules()) {
-                if (!Boolean.TRUE.equals(rule.getEnabled())) {
-                    continue;
-                }
-                if (!StringUtils.hasText(rule.getRuleName())) {
-                    issues.add(issue("ERROR", "启用的校验规则名称不能为空"));
-                }
-                if (!StringUtils.hasText(rule.getRuleType())) {
-                    issues.add(issue("ERROR", "校验规则类型不能为空：" + rule.getRuleName()));
-                }
-                if (StringUtils.hasText(rule.getFieldCode()) && !fieldCodes.contains(rule.getFieldCode())) {
-                    issues.add(issue("ERROR", "校验规则字段不存在：" + rule.getFieldCode()));
-                }
-                if (!StringUtils.hasText(rule.getExpression())) {
-                    issues.add(issue("WARN", "校验规则表达式为空：" + rule.getRuleName()));
+        Set<String> fieldCodes = collectFieldCodes(payload);
+        if (transformEnabled) {
+            if (!hasEnabledTransformRules(payload)) {
+                issues.add(issue("WARN", "已启用加工规则，但尚未新增启用的加工规则"));
+            }
+            if (payload.getTransformRules() != null) {
+                for (ConfigWizardPayload.TransformRule rule : payload.getTransformRules()) {
+                    if (!Boolean.TRUE.equals(rule.getEnabled())) {
+                        continue;
+                    }
+                    if (!StringUtils.hasText(rule.getRuleName())) {
+                        issues.add(issue("ERROR", "启用的加工规则名称不能为空"));
+                    }
+                    if (!StringUtils.hasText(rule.getRuleType())) {
+                        issues.add(issue("ERROR", "加工规则类型不能为空：" + rule.getRuleName()));
+                    }
+                    if (StringUtils.hasText(rule.getInputField()) && !fieldCodes.contains(rule.getInputField())) {
+                        issues.add(issue("WARN", "加工规则输入字段未在提取字段或目标字段中找到：" + rule.getInputField()));
+                    }
+                    if (!StringUtils.hasText(rule.getOutputField())) {
+                        issues.add(issue("WARN", "加工规则未维护输出字段：" + rule.getRuleName()));
+                    }
                 }
             }
+        } else {
+            issues.add(issue("INFO", "未启用加工规则，已跳过加工规则检查"));
+        }
+        if (validationEnabled) {
+            if (!hasEnabledValidationRules(payload)) {
+                issues.add(issue("WARN", "已启用校验规则，但尚未新增启用的校验规则"));
+            }
+            if (payload.getValidationRules() != null) {
+                for (ConfigWizardPayload.ValidationRule rule : payload.getValidationRules()) {
+                    if (!Boolean.TRUE.equals(rule.getEnabled())) {
+                        continue;
+                    }
+                    if (!StringUtils.hasText(rule.getRuleName())) {
+                        issues.add(issue("ERROR", "启用的校验规则名称不能为空"));
+                    }
+                    if (!StringUtils.hasText(rule.getRuleType())) {
+                        issues.add(issue("ERROR", "校验规则类型不能为空：" + rule.getRuleName()));
+                    }
+                    if (StringUtils.hasText(rule.getFieldCode()) && !fieldCodes.contains(rule.getFieldCode())) {
+                        issues.add(issue("ERROR", "校验规则字段不存在：" + rule.getFieldCode()));
+                    }
+                    if (!StringUtils.hasText(rule.getExpression())) {
+                        issues.add(issue("WARN", "校验规则表达式为空：" + rule.getRuleName()));
+                    }
+                }
+            }
+        } else {
+            issues.add(issue("INFO", "未启用校验规则，已跳过校验规则检查"));
         }
         if (issues.isEmpty()) {
             issues.add(issue("INFO", "加工规则和校验规则基础检查通过"));
         }
         return issues;
+    }
+
+    private boolean transformProcessingEnabled(ConfigWizardPayload payload) {
+        if (payload == null) {
+            return false;
+        }
+        if (payload.getProcessConfig() != null && payload.getProcessConfig().getTransformEnabled() != null) {
+            return Boolean.TRUE.equals(payload.getProcessConfig().getTransformEnabled());
+        }
+        return hasEnabledTransformRules(payload);
+    }
+
+    private boolean validationProcessingEnabled(ConfigWizardPayload payload) {
+        if (payload == null) {
+            return false;
+        }
+        if (payload.getProcessConfig() != null && payload.getProcessConfig().getValidationEnabled() != null) {
+            return Boolean.TRUE.equals(payload.getProcessConfig().getValidationEnabled());
+        }
+        return hasEnabledValidationRules(payload);
+    }
+
+    private boolean hasEnabledTransformRules(ConfigWizardPayload payload) {
+        return payload != null && payload.getTransformRules() != null
+                && payload.getTransformRules().stream().anyMatch(rule -> rule != null && Boolean.TRUE.equals(rule.getEnabled()));
+    }
+
+    private boolean hasEnabledValidationRules(ConfigWizardPayload payload) {
+        return payload != null && payload.getValidationRules() != null
+                && payload.getValidationRules().stream().anyMatch(rule -> rule != null && Boolean.TRUE.equals(rule.getEnabled()));
     }
 
     private Set<String> collectFieldCodes(ConfigWizardPayload payload) {

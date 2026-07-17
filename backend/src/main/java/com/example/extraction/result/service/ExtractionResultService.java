@@ -971,7 +971,7 @@ public class ExtractionResultService {
         Map<String, Object> confidenceJson = new LinkedHashMap<>(originalConfidence);
         List<String> warnings = new ArrayList<>();
         boolean reviewRequired = false;
-        if (payload == null || payload.getTransformRules() == null) {
+        if (!transformProcessingEnabled(payload) || payload.getTransformRules() == null) {
             return new TransformOutcome(result, confidenceJson, false);
         }
         for (ConfigWizardPayload.TransformRule rule : payload.getTransformRules()) {
@@ -1005,6 +1005,17 @@ public class ExtractionResultService {
             result.put("_transform_warnings", warnings);
         }
         return new TransformOutcome(result, confidenceJson, reviewRequired);
+    }
+
+    private boolean transformProcessingEnabled(ConfigWizardPayload payload) {
+        if (payload == null) {
+            return false;
+        }
+        if (payload.getProcessConfig() != null && payload.getProcessConfig().getTransformEnabled() != null) {
+            return Boolean.TRUE.equals(payload.getProcessConfig().getTransformEnabled());
+        }
+        return payload.getTransformRules() != null
+                && payload.getTransformRules().stream().anyMatch(rule -> rule != null && Boolean.TRUE.equals(rule.getEnabled()));
     }
 
     private TransformValue transformValue(ConfigWizardPayload.TransformRule rule, Object inputValue) {
