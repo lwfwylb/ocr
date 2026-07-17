@@ -302,8 +302,8 @@ const form = reactive({
   pushTrigger: 'REVIEW_APPROVED',
   targetServices: ['fund_ops_result_receive', 'dw_extract_result_topic'],
   pushScope: 'MAPPED_FIELDS',
-  pushMode: 'ASYNC',
-  idempotentKey: 'traceId + taskId + resultVersion',
+  pushMode: 'SYNC',
+  idempotentKey: '${traceId}-${taskId}-${serviceCode}',
   pushFailStrategy: 'RETRY_THEN_MANUAL'
 })
 
@@ -554,18 +554,77 @@ const handleStorageEnabledChange = (enabled: string | number | boolean) => {
 }
 const enabledDownstreamServices = computed(() => options.value.downstreamServices.filter((service) => service.enabled !== false))
 const selectedPushServices = computed(() => options.value.downstreamServices.filter((service) => form.targetServices.includes(service.serviceCode)))
-const downstreamFieldMap = reactive<Record<string, string>>({})
-fields.value.forEach((field) => {
-  downstreamFieldMap[field.fieldCode] = field.targetColumn || field.fieldCode
-})
-const pushFieldMappings = computed(() => {
-  return fields.value.map((field) => ({
+const activePushServiceCode = ref('')
+const downstreamFieldMap = reactive<Record<string, Record<string, string>>>({})
+const defaultPushSourceField = (field: any) => form.pushScope === 'MAPPED_FIELDS' ? (field.targetColumn || field.fieldCode) : field.fieldCode
+const ensurePushServiceFieldMap = (serviceCode: string) => {
+  if (!serviceCode) return {}
+  if (!downstreamFieldMap[serviceCode]) downstreamFieldMap[serviceCode] = {}
+  fields.value.forEach((field: any) => {
+    if (!downstreamFieldMap[serviceCode][field.fieldCode]) {
+      downstreamFieldMap[serviceCode][field.fieldCode] = defaultPushSourceField(field)
+    }
+  })
+  return downstreamFieldMap[serviceCode]
+}
+const pushFieldMappingsForService = (serviceCode: string) => {
+  const serviceMap = ensurePushServiceFieldMap(serviceCode)
+  return fields.value.map((field: any) => ({
     fieldCode: field.fieldCode,
-    sourceField: field.targetColumn || field.fieldCode,
-    downstreamField: downstreamFieldMap[field.fieldCode] || field.targetColumn || field.fieldCode,
+    resultFieldCode: field.fieldCode,
+    sourceType: field.sourceType || 'EXTRACTED',
+    sourceField: defaultPushSourceField(field),
+    downstreamField: serviceMap[field.fieldCode] || defaultPushSourceField(field),
     fieldName: field.fieldName
   }))
-})
+}
+const updateDownstreamField = (serviceCode: string, fieldCode: string, downstreamField: string) => {
+  const serviceMap = ensurePushServiceFieldMap(serviceCode)
+  serviceMap[fieldCode] = downstreamField
+}
+const renderIdempotentKeyPreview = (serviceCode: string) => {
+  return (form.idempotentKey || '${traceId}-${taskId}-${serviceCode}')
+    .replace(/\$\{traceId\}/g, 'TRACE202607170001')
+    .replace(/\$\{taskId\}/g, 'TASK202607170001')
+    .replace(/\$\{documentId\}/g, 'DOC202607170001')
+    .replace(/\$\{serviceCode\}/g, serviceCode)
+    .replace(/\$\{resultVersion\}/g, '1')
+}
+const buildPushPayloadPreview = (serviceCode: string) => {
+  if (!serviceCode) return ''
+  const data = pushFieldMappingsForService(serviceCode).reduce<Record<string, string>>((result, mapping) => {
+    const downstreamField = mapping.downstreamField?.trim() || mapping.sourceField
+    result[downstreamField] = `\${result.${mapping.fieldCode}}`
+    return result
+  }, {})
+  return JSON.stringify({
+    traceId: 'TRACE202607170001',
+    taskId: 'TASK202607170001',
+    documentId: 'DOC202607170001',
+    serviceCode,
+    idempotentKey: renderIdempotentKeyPreview(serviceCode),
+    data
+  }, null, 2)
+}
+const initializePushServiceMaps = (pushRules: any[] = []) => {
+  Object.keys(downstreamFieldMap).forEach((key) => delete downstreamFieldMap[key])
+  form.targetServices.forEach((serviceCode) => {
+    const serviceMap = ensurePushServiceFieldMap(serviceCode)
+    const rule = pushRules.find((item) => item?.serviceCode === serviceCode) || (pushRules.length === 1 ? pushRules[0] : undefined)
+    ;(rule?.fieldMappings || []).forEach((mapping: any) => {
+      const fieldCode = mapping.fieldCode || mapping.resultFieldCode || mapping.extractFieldCode
+      if (fieldCode) serviceMap[fieldCode] = mapping.downstreamField || mapping.targetField || mapping.sourceField || serviceMap[fieldCode] || fieldCode
+    })
+  })
+  activePushServiceCode.value = form.targetServices.includes(activePushServiceCode.value) ? activePushServiceCode.value : (form.targetServices[0] || '')
+}
+watch(() => form.targetServices.slice(), (serviceCodes) => {
+  serviceCodes.forEach((serviceCode) => ensurePushServiceFieldMap(serviceCode))
+  Object.keys(downstreamFieldMap).forEach((serviceCode) => {
+    if (!serviceCodes.includes(serviceCode)) delete downstreamFieldMap[serviceCode]
+  })
+  if (!serviceCodes.includes(activePushServiceCode.value)) activePushServiceCode.value = serviceCodes[0] || ''
+}, { immediate: true })
 const selectedTransformRule = computed(() => {
   return transformRules.value.find((rule) => rule.id === selectedRuleId.value) || transformRules.value[0]
 })
@@ -710,7 +769,14 @@ const extractStrategyStepErrors = () => {
 const pushStepErrors = () => {
   if (!form.pushEnabled) return []
   if (!form.storageEnabled && form.pushTrigger === 'STORED') return ['未启用结果落库时，推送触发时机不能选择“落库成功后”']
-  return form.targetServices.length ? [] : ['已启用推送，但未选择目标接口服务']
+  const errors: string[] = []
+  if (!form.targetServices.length) errors.push('已启用推送，但未选择目标接口服务')
+  const missingServices = form.targetServices.filter((serviceCode) => !selectedPushServices.value.some((service) => service.serviceCode === serviceCode))
+  if (missingServices.length) errors.push(`目标接口服务不存在或已停用：${missingServices.join('、')}`)
+  if (form.pushMode !== 'SYNC') errors.push('第一版真实验证仅支持 HTTP JSON 同步推送，请选择同步等待响应')
+  const unsupportedServices = selectedPushServices.value.filter((service) => service.serviceType && service.serviceType !== 'HTTP')
+  if (unsupportedServices.length) errors.push(`第一版真实验证仅支持 HTTP 接口，请移除：${unsupportedServices.map((service) => service.serviceName || service.serviceCode).join('、')}`)
+  return errors
 }
 
 const stepErrors = (index: number) => {
@@ -737,7 +803,7 @@ const wizardStepConfigured = (index: number) => {
       || (form.validationEnabled && validationRules.value.some((rule) => rule.enabled))
   }
   if (index === 5) return Boolean(form.confidenceThreshold !== undefined && form.confidenceThreshold !== null && form.reviewerRole)
-  if (index === 6) return !form.pushEnabled || form.targetServices.length > 0
+  if (index === 6) return pushStepErrors().length === 0
   if (index === 7) return Boolean(validationReport.value || ['TESTING', 'PUBLISHED'].includes(normalizeStatus(currentStatus.value)))
   return false
 }
@@ -882,7 +948,7 @@ const buildWizardPayload = () => ({
     pushMode: form.pushMode,
     idempotentKey: form.idempotentKey,
     failStrategy: form.pushFailStrategy,
-    fieldMappings: pushFieldMappings.value
+    fieldMappings: pushFieldMappingsForService(serviceCode)
   })),
   visibleRoles: form.visibleRoles,
   extension: {
@@ -978,7 +1044,7 @@ const addField = () => {
     regexFlags: '',
     regexGroup: 1
   } as any)
-  downstreamFieldMap[fieldCode] = fieldCode
+  form.targetServices.forEach((serviceCode) => updateDownstreamField(serviceCode, fieldCode, fieldCode))
 }
 const autoMapFields = () => {
   fields.value.forEach((field) => {
@@ -1041,7 +1107,7 @@ const removeTargetColumn = (row: any) => {
 }
 const removeExtractField = (row: any) => {
   fields.value = fields.value.filter((field) => field.fieldCode !== row.fieldCode)
-  delete downstreamFieldMap[row.fieldCode]
+  Object.values(downstreamFieldMap).forEach((serviceMap) => delete serviceMap[row.fieldCode])
   delete regexPreviewMap.value[row.fieldCode]
   if (selectedExtractFieldCode.value === row.fieldCode) {
     selectedExtractFieldCode.value = fields.value[0]?.fieldCode || ''
@@ -1175,7 +1241,7 @@ const confirmDerivedField = () => {
     } as any)
   }
   if (selectedTransformRule.value) selectedTransformRule.value.outputField = fieldCode
-  downstreamFieldMap[fieldCode] = targetColumn
+  form.targetServices.forEach((serviceCode) => updateDownstreamField(serviceCode, fieldCode, targetColumn))
   derivedFieldDialogVisible.value = false
   ElMessage.success('已新增衍生结果字段，并自动回填到当前加工规则')
 }
@@ -1319,7 +1385,7 @@ const applyWizardPayload = (payload: any) => {
     pushEnabled: firstPushRule.pushEnabled ?? form.pushEnabled,
     pushTrigger: firstPushRule.pushTrigger || form.pushTrigger,
     targetServices: payload.pushRules?.map((rule: any) => rule.serviceCode).filter(Boolean) || form.targetServices,
-    pushScope: firstPushRule.pushScope || form.pushScope,
+    pushScope: ['MAPPED_FIELDS', 'ALL_EXTRACTED_FIELDS'].includes(firstPushRule.pushScope) ? firstPushRule.pushScope : form.pushScope,
     pushMode: firstPushRule.pushMode || form.pushMode,
     idempotentKey: firstPushRule.idempotentKey || form.idempotentKey,
     pushFailStrategy: firstPushRule.failStrategy || form.pushFailStrategy
@@ -1369,10 +1435,7 @@ const applyWizardPayload = (payload: any) => {
   aiEnabled.value = extractStrategy.aiEnabled ?? aiEnabled.value
   if (form.storageMode === 'REUSE' && form.targetTable) void handleTargetTableChange(form.targetTable)
 
-  Object.keys(downstreamFieldMap).forEach((key) => delete downstreamFieldMap[key])
-  fields.value.forEach((field: any) => {
-    downstreamFieldMap[field.fieldCode] = field.targetColumn || field.fieldCode
-  })
+  initializePushServiceMaps(payload.pushRules || [])
   normalizeRoleFields()
 }
 const loadConfigForEdit = async () => {
@@ -2495,6 +2558,12 @@ onMounted(async () => {
           type="info"
           :closable="false"
         />
+        <el-alert
+          class="mb-12"
+          title="第一版真实验证先支持 HTTP JSON 同步推送；微服务、MQ 和异步队列可先维护服务档案，执行链路后续接入。"
+          type="warning"
+          :closable="false"
+        />
         <el-form :model="form" label-width="130px" class="form-grid">
           <el-form-item label="触发时机">
             <el-select v-model="form.pushTrigger">
@@ -2517,18 +2586,18 @@ onMounted(async () => {
           <el-form-item label="推送字段范围">
             <el-select v-model="form.pushScope">
               <el-option label="按落库映射字段推送" value="MAPPED_FIELDS" />
-              <el-option label="推送全部提取字段" value="ALL_EXTRACTED_FIELDS" />
-              <el-option label="自定义字段" value="CUSTOM_FIELDS" />
+              <el-option label="推送全部结果字段" value="ALL_EXTRACTED_FIELDS" />
             </el-select>
           </el-form-item>
           <el-form-item label="推送模式">
             <el-radio-group v-model="form.pushMode">
-              <el-radio-button label="ASYNC">异步推送</el-radio-button>
               <el-radio-button label="SYNC">同步等待响应</el-radio-button>
+              <el-radio-button label="ASYNC" disabled>异步推送</el-radio-button>
             </el-radio-group>
           </el-form-item>
           <el-form-item label="幂等键" class="wide">
-            <el-input v-model="form.idempotentKey" />
+            <el-input v-model="form.idempotentKey" placeholder="${traceId}-${taskId}-${serviceCode}" />
+            <div class="form-tip">支持变量：${traceId}、${taskId}、${documentId}、${serviceCode}、${resultVersion}</div>
           </el-form-item>
           <el-form-item label="失败策略">
             <el-select v-model="form.pushFailStrategy">
@@ -2543,7 +2612,11 @@ onMounted(async () => {
           <el-table-column prop="systemName" label="目标系统" min-width="130" />
           <el-table-column prop="serviceName" label="接口服务" min-width="160" />
           <el-table-column prop="purpose" label="用途" width="90" />
-          <el-table-column prop="serviceType" label="方式" width="100" />
+          <el-table-column label="方式" width="110">
+            <template #default="{ row }">
+              <el-tag :type="row.serviceType === 'HTTP' ? 'success' : 'warning'">{{ row.serviceType || 'HTTP' }}</el-tag>
+            </template>
+          </el-table-column>
           <el-table-column prop="endpoint" label="地址/Topic/方法" min-width="260" />
           <el-table-column prop="responseSuccessRule" label="成功判断" min-width="220" />
           <el-table-column prop="retryCount" label="重试" width="70" />
@@ -2554,18 +2627,49 @@ onMounted(async () => {
           </el-table-column>
         </el-table>
 
-        <el-table :data="pushFieldMappings">
-          <el-table-column prop="fieldName" label="字段名称" width="150" />
-          <el-table-column prop="sourceField" label="推送来源字段" min-width="180" />
-          <el-table-column label="下游字段">
-            <template #default="{ row }">
-              <el-input
-                :model-value="row.downstreamField"
-                @update:model-value="(value: string) => (downstreamFieldMap[row.fieldCode] = value)"
-              />
-            </template>
-          </el-table-column>
-        </el-table>
+        <el-empty v-if="form.pushEnabled && !selectedPushServices.length" description="请选择至少一个目标接口服务后维护字段映射" />
+        <el-tabs v-else-if="form.pushEnabled" v-model="activePushServiceCode" class="push-service-tabs">
+          <el-tab-pane
+            v-for="service in selectedPushServices"
+            :key="service.serviceCode"
+            :label="service.serviceName || service.serviceCode"
+            :name="service.serviceCode"
+          >
+            <div class="push-service-layout">
+              <div>
+                <div class="section-toolbar compact-toolbar">
+                  <div>
+                    <strong>字段映射</strong>
+                    <p class="muted">每个接口服务独立维护下游字段名，适合同一份结果推送到多个系统但字段口径不同的场景。</p>
+                  </div>
+                  <el-tag :type="service.serviceType === 'HTTP' ? 'success' : 'warning'">{{ service.serviceType || 'HTTP' }}</el-tag>
+                </div>
+                <el-table :data="pushFieldMappingsForService(service.serviceCode)" height="360">
+                  <el-table-column prop="fieldName" label="字段名称" width="150" />
+                  <el-table-column prop="sourceField" label="推送来源字段" min-width="180" />
+                  <el-table-column label="下游字段" min-width="220">
+                    <template #default="{ row }">
+                      <el-input
+                        :model-value="row.downstreamField"
+                        placeholder="填写下游接口接收字段名"
+                        @update:model-value="(value: string) => updateDownstreamField(service.serviceCode, row.fieldCode, value)"
+                      />
+                    </template>
+                  </el-table-column>
+                </el-table>
+              </div>
+              <div>
+                <div class="section-toolbar compact-toolbar">
+                  <div>
+                    <strong>推送报文预览</strong>
+                    <p class="muted">预览按当前接口服务字段映射生成，正式执行时会替换为真实 traceId、taskId 和结果值。</p>
+                  </div>
+                </div>
+                <el-input type="textarea" :rows="18" readonly :model-value="buildPushPayloadPreview(service.serviceCode)" />
+              </div>
+            </div>
+          </el-tab-pane>
+        </el-tabs>
       </template>
 
       <template v-if="activeStep === 7">
@@ -2798,6 +2902,39 @@ onMounted(async () => {
   margin-top: 14px;
 }
 
+.form-tip {
+  margin-top: 4px;
+  color: var(--el-text-color-secondary);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.push-service-tabs {
+  margin-top: 12px;
+}
+
+.push-service-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.25fr) minmax(360px, 0.75fr);
+  gap: 12px;
+}
+
+.section-toolbar {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.compact-toolbar strong {
+  font-size: 13px;
+}
+
+.compact-toolbar p {
+  margin: 2px 0 0;
+}
+
 .prompt-editor {
   width: 100%;
 }
@@ -2821,6 +2958,10 @@ onMounted(async () => {
   .prompt-editor-bar {
     align-items: flex-start;
     flex-direction: column;
+  }
+
+  .push-service-layout {
+    grid-template-columns: 1fr;
   }
 }
 </style>

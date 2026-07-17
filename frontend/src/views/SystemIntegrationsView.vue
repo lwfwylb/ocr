@@ -502,6 +502,12 @@ onMounted(loadData)
     </el-dialog>
 
     <el-dialog v-model="serviceDialogVisible" :title="editingServiceId ? '编辑接口服务' : '新增接口服务'" width="720px">
+      <el-alert
+        class="mb-12"
+        title="第一版下游推送执行链路仅支持 HTTP JSON；微服务和 MQ 可后续扩展接入，当前不建议绑定到配置向导做真实验证。"
+        type="warning"
+        :closable="false"
+      />
       <el-form :model="serviceForm" label-width="120px" class="form-grid">
         <el-form-item label="所属系统">
           <el-select v-model="serviceForm.systemId" filterable>
@@ -514,8 +520,8 @@ onMounted(loadData)
         <el-form-item label="服务类型">
           <el-select v-model="serviceForm.serviceType">
             <el-option label="HTTP" value="HTTP" />
-            <el-option label="微服务" value="MICROSERVICE" />
-            <el-option label="MQ" value="MQ" />
+            <el-option label="微服务（后续接入）" value="MICROSERVICE" disabled />
+            <el-option label="MQ（后续接入）" value="MQ" disabled />
           </el-select>
         </el-form-item>
         <el-form-item label="请求方式">
@@ -526,7 +532,7 @@ onMounted(loadData)
             <el-option label="-" value="-" />
           </el-select>
         </el-form-item>
-        <el-form-item label="地址/Topic" class="wide"><el-input v-model="serviceForm.endpoint" placeholder="URL、微服务方法或 MQ Topic" /></el-form-item>
+        <el-form-item label="接口地址" class="wide"><el-input v-model="serviceForm.endpoint" placeholder="HTTP URL，如 http://host/api/result/receive" /></el-form-item>
         <el-form-item label="鉴权方式">
           <el-select v-model="serviceForm.authMode">
             <el-option label="继承系统默认" value="INHERIT" />
