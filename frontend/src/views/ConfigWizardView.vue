@@ -28,6 +28,7 @@ type PreprocessStepType = 'PAGE_RANGE' | 'KEYWORD_FILTER' | 'PDF_TO_IMAGE'
 type TraditionalRuleType = 'REGEX' | 'TABLE_COLUMN' | 'FIXED_CELL' | 'KEY_VALUE' | 'METADATA'
 type ImageQuality = 'FAST_150' | 'STANDARD_300' | 'HIGH_450'
 type TransformOutputMode = 'OVERWRITE_INPUT' | 'WRITE_TARGET' | 'DERIVE_FIELD'
+type ResultFieldSourceType = 'EXTRACTED' | 'DERIVED' | 'SYSTEM'
 type DictMatchMode = 'EQUALS' | 'CONTAINS' | 'REGEX' | 'RANGE'
 type ValidationRuleType = 'REQUIRED' | 'FORMAT' | 'RANGE' | 'CROSS_FIELD' | 'UNIQUE' | 'MASTER_DATA'
 
@@ -92,9 +93,9 @@ interface PreprocessStep {
 type OptionItem = Record<string, any>
 
 const initialConfigFields = [
-  { fieldCode: 'payer_name', fieldName: '付款方名称', dataType: 'string', fieldLength: 200, required: true, multiple: false, targetColumn: 'payer_name' },
-  { fieldCode: 'payee_account', fieldName: '收款账号', dataType: 'string', fieldLength: 64, required: true, multiple: false, targetColumn: 'payee_account' },
-  { fieldCode: 'amount', fieldName: '划款金额', dataType: 'amount', fieldLength: 18, required: true, multiple: false, targetColumn: 'amount' }
+  { fieldCode: 'payer_name', fieldName: '付款方名称', sourceType: 'EXTRACTED', dataType: 'string', fieldLength: 200, required: true, multiple: false, targetColumn: 'payer_name' },
+  { fieldCode: 'payee_account', fieldName: '收款账号', sourceType: 'EXTRACTED', dataType: 'string', fieldLength: 64, required: true, multiple: false, targetColumn: 'payee_account' },
+  { fieldCode: 'amount', fieldName: '划款金额', sourceType: 'EXTRACTED', dataType: 'amount', fieldLength: 18, required: true, multiple: false, targetColumn: 'amount' }
 ]
 
 const activeStep = ref(0)
@@ -154,6 +155,7 @@ const activeProcessTab = ref('transform')
 const validationRules = ref<ValidationRule[]>([])
 const selectedExtractFieldCode = ref(fields.value[0]?.fieldCode || '')
 const mappingProfileDrawerVisible = ref(false)
+const derivedFieldDialogVisible = ref(false)
 const ddlPreviewVisible = ref(false)
 const aiEnabled = ref(true)
 const activeExtractTab = ref('ai')
@@ -259,6 +261,14 @@ const preprocessSteps = ref<PreprocessStep[]>([
 ])
 const previewInput = ref('100000-1000000')
 const previewOutput = ref('大额')
+const derivedFieldForm = reactive({
+  fieldCode: '',
+  fieldName: '',
+  fieldDescription: '',
+  dataType: 'string',
+  targetColumn: '',
+  autoAddTargetColumn: true
+})
 const form = reactive({
   configName: '',
   category: '',
@@ -388,7 +398,7 @@ const mappingProfiles = [
   }
 ]
 const promptFieldItems = computed(() => fields.value
-  .filter((field: any) => field.fieldCode || field.fieldName)
+  .filter((field: any) => (field.fieldCode || field.fieldName) && (field.sourceType || 'EXTRACTED') === 'EXTRACTED')
   .map((field: any) => {
     const fieldCode = field.fieldCode || field.fieldName || '-'
     const fieldName = field.fieldName || field.fieldCode || '-'
@@ -606,6 +616,18 @@ const validationIssueLabel = (level: string) => {
 const selectedExtractField = computed(() => {
   return fields.value.find((field) => field.fieldCode === selectedExtractFieldCode.value) || fields.value[0]
 })
+const resultFieldSourceLabel = (sourceType?: ResultFieldSourceType | string) => {
+  if (sourceType === 'DERIVED') return '加工衍生'
+  if (sourceType === 'SYSTEM') return '系统字段'
+  return '提取字段'
+}
+const resultFieldSourceTagType = (sourceType?: ResultFieldSourceType | string) => {
+  if (sourceType === 'DERIVED') return 'warning'
+  if (sourceType === 'SYSTEM') return 'info'
+  return 'success'
+}
+const storageTargetColumnOptions = computed(() => targetTableColumns.value.map((column) => ({ label: `${column.columnCnName || column.columnName}（${column.columnName}）`, value: column.columnName })))
+const extractedResultFields = computed(() => fields.value.filter((field: any) => (field.sourceType || 'EXTRACTED') === 'EXTRACTED'))
 const transformTypeLabel: Record<TransformRuleType, string> = {
   DICT: '字典转换',
   API: 'API 取数',
@@ -618,10 +640,10 @@ const hasDuplicate = (values: string[]) => {
 }
 const validateFieldStorageStep = () => {
   const errors: string[] = []
-  if (!fields.value.length) errors.push('至少维护 1 个提取字段')
-  if (hasDuplicate(fields.value.map((field) => field.fieldCode))) errors.push('提取字段编码不能重复')
+  if (!fields.value.length) errors.push('至少维护 1 个结果字段')
+  if (hasDuplicate(fields.value.map((field) => field.fieldCode))) errors.push('结果字段编码不能重复')
   fields.value.forEach((field, index) => {
-    const rowLabel = `提取字段第 ${index + 1} 行`
+    const rowLabel = `结果字段第 ${index + 1} 行`
     if (!field.fieldCode?.trim()) errors.push(`${rowLabel}：字段编码不能为空`)
     if (!field.fieldName?.trim()) errors.push(`${rowLabel}：字段名称不能为空`)
   })
@@ -649,7 +671,7 @@ const validateFieldStorageStep = () => {
   })
 
   fields.value.forEach((field, index) => {
-    const rowLabel = `提取字段第 ${index + 1} 行`
+    const rowLabel = `结果字段第 ${index + 1} 行`
     if (!field.targetColumn?.trim()) errors.push(`${rowLabel}：目标字段不能为空`)
     if (field.targetColumn && !targetColumnOptions.value.includes(field.targetColumn)) errors.push(`${rowLabel}：目标字段 ${field.targetColumn} 不存在于目标表字段定义中`)
   })
@@ -795,6 +817,8 @@ const buildWizardPayload = () => ({
     fieldCode: field.fieldCode,
     fieldName: field.fieldName,
     fieldDescription: field.fieldDescription,
+    sourceType: field.sourceType || 'EXTRACTED',
+    generatedByRuleId: field.generatedByRuleId || '',
     extractRequired: field.extractRequired,
     multiple: field.multiple,
     extractByRegex: field.extractByRegex,
@@ -806,6 +830,8 @@ const buildWizardPayload = () => ({
   fieldMappings: form.storageEnabled
     ? fields.value.map((field: any) => ({
       extractFieldCode: field.fieldCode,
+      resultFieldCode: field.fieldCode,
+      sourceType: field.sourceType || 'EXTRACTED',
       targetColumn: field.targetColumn,
       multiple: field.multiple,
       requiredForStorage: field.extractRequired
@@ -936,6 +962,7 @@ const addField = () => {
   fields.value.push({
     fieldCode,
     fieldName: '新增字段',
+    sourceType: 'EXTRACTED',
     fieldDescription: '补充该字段的业务含义，用于生成 AI 提示词',
     dataType: 'string',
     fieldLength: 100,
@@ -1007,7 +1034,7 @@ const removeTargetColumn = (row: any) => {
     fields.value.forEach((field) => {
       if (field.targetColumn === row.columnName) field.targetColumn = ''
     })
-    ElMessage.warning(`已删除目标字段，并清空 ${usedCount} 个提取字段映射`)
+    ElMessage.warning(`已删除目标字段，并清空 ${usedCount} 个结果字段映射`)
   } else {
     ElMessage.success('已删除目标字段')
   }
@@ -1019,7 +1046,7 @@ const removeExtractField = (row: any) => {
   if (selectedExtractFieldCode.value === row.fieldCode) {
     selectedExtractFieldCode.value = fields.value[0]?.fieldCode || ''
   }
-  ElMessage.success('已删除提取字段')
+  ElMessage.success('已删除结果字段')
 }
 const removeTransformRule = async (rule: TransformRule) => {
   const currentIndex = transformRules.value.findIndex((item) => item.id === rule.id)
@@ -1082,6 +1109,75 @@ const addValidationRule = () => {
 const removeValidationRule = (row: ValidationRule) => {
   validationRules.value = validationRules.value.filter((rule) => rule.id !== row.id)
   ElMessage.success('已删除校验规则')
+}
+const openDerivedFieldDialog = () => {
+  const rule = selectedTransformRule.value
+  if (!rule) {
+    ElMessage.warning('请先选择加工规则')
+    return
+  }
+  const index = fields.value.filter((field: any) => field.sourceType === 'DERIVED').length + 1
+  derivedFieldForm.fieldCode = rule.outputField || `derived_field_${index}`
+  derivedFieldForm.fieldName = rule.outputField ? rule.outputField : `衍生字段${index}`
+  derivedFieldForm.fieldDescription = `由加工规则「${rule.ruleName}」生成`
+  derivedFieldForm.dataType = 'string'
+  derivedFieldForm.targetColumn = rule.outputField || `derived_field_${index}`
+  derivedFieldForm.autoAddTargetColumn = form.storageEnabled && form.storageMode === 'CREATE'
+  derivedFieldDialogVisible.value = true
+}
+const confirmDerivedField = () => {
+  const fieldCode = derivedFieldForm.fieldCode.trim()
+  const fieldName = derivedFieldForm.fieldName.trim()
+  if (!fieldCode || !fieldName) {
+    ElMessage.warning('请维护衍生字段编码和名称')
+    return
+  }
+  if (fields.value.some((field) => field.fieldCode === fieldCode)) {
+    ElMessage.warning(`结果字段 ${fieldCode} 已存在，请直接选择已有字段或更换编码`)
+    return
+  }
+  const targetColumn = form.storageEnabled ? (derivedFieldForm.targetColumn.trim() || fieldCode) : fieldCode
+  if (form.storageEnabled && form.storageMode === 'REUSE' && targetColumn && !targetColumnOptions.value.includes(targetColumn)) {
+    ElMessage.warning(`目标字段 ${targetColumn} 不存在于当前复用表，请先选择已有目标字段`)
+    return
+  }
+  fields.value.push({
+    fieldCode,
+    fieldName,
+    sourceType: 'DERIVED',
+    generatedByRuleId: selectedTransformRule.value?.id || '',
+    dataType: derivedFieldForm.dataType,
+    fieldLength: derivedFieldForm.dataType === 'amount' ? 18 : 200,
+    fieldDescription: derivedFieldForm.fieldDescription || `由加工规则生成 ${fieldName}`,
+    required: false,
+    extractRequired: false,
+    multiple: false,
+    targetColumn,
+    extractByRegex: false,
+    traditionalRuleEnabled: false,
+    traditionalRuleType: 'REGEX',
+    traditionalRuleConfig: {},
+    regexPattern: '',
+    regexFlags: '',
+    regexGroup: 1
+  } as any)
+  if (form.storageEnabled && form.storageMode === 'CREATE' && derivedFieldForm.autoAddTargetColumn && !targetColumnOptions.value.includes(targetColumn)) {
+    targetTableColumns.value.push({
+      columnName: targetColumn,
+      columnCnName: fieldName,
+      dbType: derivedFieldForm.dataType === 'amount' ? 'decimal' : derivedFieldForm.dataType === 'date' ? 'date' : 'varchar',
+      length: derivedFieldForm.dataType === 'string' ? 200 : undefined,
+      precision: derivedFieldForm.dataType === 'amount' ? 18 : undefined,
+      scale: derivedFieldForm.dataType === 'amount' ? 2 : undefined,
+      required: false,
+      defaultValue: '',
+      validationRule: ''
+    } as any)
+  }
+  if (selectedTransformRule.value) selectedTransformRule.value.outputField = fieldCode
+  downstreamFieldMap[fieldCode] = targetColumn
+  derivedFieldDialogVisible.value = false
+  ElMessage.success('已新增衍生结果字段，并自动回填到当前加工规则')
 }
 const runValidationPreview = () => {
   ElMessage.success('已基于当前样本模拟执行校验规则')
@@ -1237,6 +1333,8 @@ const applyWizardPayload = (payload: any) => {
   if (payload.extractFields?.length) {
     fields.value = payload.extractFields.map((field: any) => ({
       ...field,
+      sourceType: field.sourceType || 'EXTRACTED',
+      generatedByRuleId: field.generatedByRuleId || '',
       fieldDescription: field.fieldDescription || `从文档中识别${field.fieldName}`,
       required: field.extractRequired,
       targetColumn: field.targetColumn || '',
@@ -1575,7 +1673,7 @@ onMounted(async () => {
         <div class="card-header">
           <div>
             <h2>字段与落库配置</h2>
-            <p class="muted">在同一个界面维护提取字段、目标表和字段映射，避免字段配置与落库配置来回切换。</p>
+            <p class="muted">在同一个界面维护结果字段、目标表和字段映射，避免字段配置与落库配置来回切换。</p>
           </div>
         </div>
 
@@ -1613,7 +1711,7 @@ onMounted(async () => {
           <el-form-item v-if="isStorageEnabled" label="映射方案名称" class="wide">
             <div class="field-with-tip">
               <el-input v-model="form.mappingProfileName" placeholder="如 大成基金申购单-基金业务要素结果表映射" />
-              <span class="muted block">用于标识当前任务的提取字段如何映射到目标结果表；多个任务复用同一张表时便于区分。</span>
+              <span class="muted block">用于标识当前任务的结果字段如何映射到目标结果表；多个任务复用同一张表时便于区分。</span>
             </div>
           </el-form-item>
           <el-form-item v-if="isStorageEnabled" label="保存模式">
@@ -1772,8 +1870,8 @@ onMounted(async () => {
 
         <div class="card-header mt-16">
           <div>
-            <h3 class="section-title">{{ isStorageEnabled ? '提取字段与目标字段映射' : '提取字段配置' }}</h3>
-            <p class="muted">{{ isStorageEnabled ? '提取字段定义 AI/正则需要识别的业务要素；提取必填表示识别不到时是否进入复核或报错，和入库必填分开维护。' : '仅维护 AI、正则、加工校验、复核和推送需要使用的提取字段，不配置目标表和字段映射。' }}</p>
+            <h3 class="section-title">{{ isStorageEnabled ? '结果字段与目标字段映射' : '结果字段配置' }}</h3>
+            <p class="muted">结果字段统一包含提取字段、加工衍生字段和系统字段；加工、校验、落库、复核和推送都基于这套字段目录。</p>
           </div>
           <div class="header-actions">
             <span v-if="isStorageEnabled" class="mapping-profile-hint">
@@ -1781,14 +1879,19 @@ onMounted(async () => {
               <el-button link type="primary" @click="mappingProfileDrawerVisible = true">查看已有映射</el-button>
             </span>
             <el-button v-if="isStorageEnabled" @click="autoMapFields">自动生成映射</el-button>
-            <el-button type="primary" @click="addField">添加提取字段</el-button>
+            <el-button type="primary" @click="addField">添加结果字段</el-button>
           </div>
         </div>
         <el-table :data="fields">
-          <el-table-column label="提取字段编码" min-width="150">
+          <el-table-column label="字段来源" width="110">
+            <template #default="{ row }">
+              <el-tag :type="resultFieldSourceTagType(row.sourceType)">{{ resultFieldSourceLabel(row.sourceType) }}</el-tag>
+            </template>
+          </el-table-column>
+          <el-table-column label="结果字段编码" min-width="150">
             <template #default="{ row }"><el-input v-model="row.fieldCode" /></template>
           </el-table-column>
-          <el-table-column label="提取字段名称" min-width="150">
+          <el-table-column label="结果字段名称" min-width="150">
             <template #default="{ row }"><el-input v-model="row.fieldName" /></template>
           </el-table-column>
           <el-table-column label="字段描述" min-width="220">
@@ -1935,7 +2038,7 @@ onMounted(async () => {
               :closable="false"
             />
             <el-input v-model="regexSampleText" class="mb-12" type="textarea" :rows="4" placeholder="输入统一测试文本，用于验证下方所有文本正则规则" />
-            <el-table :data="fields" class="regex-rule-table" height="520">
+            <el-table :data="extractedResultFields" class="regex-rule-table" height="520">
               <el-table-column label="字段" min-width="150" fixed>
                 <template #default="{ row }">
                   <strong>{{ row.fieldName }}</strong>
@@ -2137,9 +2240,20 @@ onMounted(async () => {
                 </el-select>
               </el-form-item>
               <el-form-item v-if="selectedTransformRule.outputMode !== 'OVERWRITE_INPUT'" label="输出字段">
-                <el-select v-model="selectedTransformRule.outputField" filterable allow-create placeholder="选择已有字段，或输入衍生字段编码后回车">
-                  <el-option v-for="field in fields" :key="field.fieldCode" :label="`${field.fieldName}（${field.fieldCode}）`" :value="field.fieldCode" />
-                </el-select>
+                <div class="field-select-with-action">
+                  <el-select v-model="selectedTransformRule.outputField" filterable clearable placeholder="请选择结果字段">
+                    <el-option
+                      v-for="field in fields"
+                      :key="field.fieldCode"
+                      :label="`${field.fieldName}（${field.fieldCode}）`"
+                      :value="field.fieldCode"
+                    >
+                      <span>{{ field.fieldName }}（{{ field.fieldCode }}）</span>
+                      <el-tag class="option-tag" size="small" :type="resultFieldSourceTagType((field as any).sourceType)">{{ resultFieldSourceLabel((field as any).sourceType) }}</el-tag>
+                    </el-option>
+                  </el-select>
+                  <el-button v-if="selectedTransformRule.outputMode === 'DERIVE_FIELD'" @click="openDerivedFieldDialog">新增衍生字段</el-button>
+                </div>
               </el-form-item>
               <el-form-item label="失败策略">
                 <el-select v-model="selectedTransformRule.onFail">
@@ -2553,6 +2667,47 @@ onMounted(async () => {
           <el-table-column prop="mapping" label="映射摘要" min-width="320" />
         </el-table>
       </el-drawer>
+
+      <el-dialog v-model="derivedFieldDialogVisible" title="新增衍生结果字段" width="620px">
+        <el-alert
+          class="mb-12"
+          title="衍生字段会加入结果字段目录，并可像普通字段一样映射目标字段、参与落库、复核和下游推送。"
+          type="info"
+          :closable="false"
+        />
+        <el-form :model="derivedFieldForm" label-width="120px" class="form-grid">
+          <el-form-item label="字段编码">
+            <el-input v-model="derivedFieldForm.fieldCode" placeholder="如 product_name" />
+          </el-form-item>
+          <el-form-item label="字段名称">
+            <el-input v-model="derivedFieldForm.fieldName" placeholder="如 产品名称" />
+          </el-form-item>
+          <el-form-item label="字段类型">
+            <el-select v-model="derivedFieldForm.dataType">
+              <el-option label="字符串" value="string" />
+              <el-option label="金额" value="amount" />
+              <el-option label="日期" value="date" />
+              <el-option label="数字" value="number" />
+            </el-select>
+          </el-form-item>
+          <el-form-item v-if="isStorageEnabled" label="目标字段">
+            <el-select v-if="form.storageMode === 'REUSE'" v-model="derivedFieldForm.targetColumn" filterable clearable placeholder="请选择已有目标字段">
+              <el-option v-for="column in storageTargetColumnOptions" :key="column.value" :label="column.label" :value="column.value" />
+            </el-select>
+            <el-input v-else v-model="derivedFieldForm.targetColumn" placeholder="默认同字段编码" />
+          </el-form-item>
+          <el-form-item v-if="isStorageEnabled && form.storageMode === 'CREATE'" label="同步目标字段" class="wide">
+            <el-switch v-model="derivedFieldForm.autoAddTargetColumn" active-text="自动加入目标表字段定义" inactive-text="仅作为结果字段" />
+          </el-form-item>
+          <el-form-item label="字段说明" class="wide">
+            <el-input v-model="derivedFieldForm.fieldDescription" type="textarea" :rows="3" placeholder="说明该字段如何由加工规则生成" />
+          </el-form-item>
+        </el-form>
+        <template #footer>
+          <el-button @click="derivedFieldDialogVisible = false">取消</el-button>
+          <el-button type="primary" @click="confirmDerivedField">确认新增</el-button>
+        </template>
+      </el-dialog>
 
       <div class="wizard-actions">
         <el-button :disabled="activeStep === 0" @click="prev">上一步</el-button>

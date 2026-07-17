@@ -635,6 +635,8 @@ public class ConfigWizardPayload {
         private String fieldCode;
         private String fieldName;
         private String fieldDescription;
+        private String sourceType;
+        private String generatedByRuleId;
         private Boolean extractRequired;
         private Boolean multiple;
         private Boolean extractByRegex;
@@ -665,6 +667,22 @@ public class ConfigWizardPayload {
 
         public void setFieldDescription(String fieldDescription) {
             this.fieldDescription = fieldDescription;
+        }
+
+        public String getSourceType() {
+            return sourceType;
+        }
+
+        public void setSourceType(String sourceType) {
+            this.sourceType = sourceType;
+        }
+
+        public String getGeneratedByRuleId() {
+            return generatedByRuleId;
+        }
+
+        public void setGeneratedByRuleId(String generatedByRuleId) {
+            this.generatedByRuleId = generatedByRuleId;
         }
 
         public Boolean getExtractRequired() {
@@ -726,6 +744,8 @@ public class ConfigWizardPayload {
 
     public static class FieldMapping {
         private String extractFieldCode;
+        private String resultFieldCode;
+        private String sourceType;
         private String targetColumn;
         private Boolean multiple;
         private Boolean requiredForStorage;
@@ -736,6 +756,22 @@ public class ConfigWizardPayload {
 
         public void setExtractFieldCode(String extractFieldCode) {
             this.extractFieldCode = extractFieldCode;
+        }
+
+        public String getResultFieldCode() {
+            return resultFieldCode;
+        }
+
+        public void setResultFieldCode(String resultFieldCode) {
+            this.resultFieldCode = resultFieldCode;
+        }
+
+        public String getSourceType() {
+            return sourceType;
+        }
+
+        public void setSourceType(String sourceType) {
+            this.sourceType = sourceType;
         }
 
         public String getTargetColumn() {

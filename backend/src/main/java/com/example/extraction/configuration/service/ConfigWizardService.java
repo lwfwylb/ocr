@@ -431,8 +431,9 @@ public class ConfigWizardService {
             issues.add(issue("ERROR", "至少需要维护一条字段映射关系"));
         } else {
             for (ConfigWizardPayload.FieldMapping mapping : payload.getFieldMappings()) {
-                if (!StringUtils.hasText(mapping.getExtractFieldCode())) {
-                    issues.add(issue("ERROR", "字段映射中的提取字段不能为空"));
+                String resultFieldCode = StringUtils.hasText(mapping.getResultFieldCode()) ? mapping.getResultFieldCode() : mapping.getExtractFieldCode();
+                if (!StringUtils.hasText(resultFieldCode)) {
+                    issues.add(issue("ERROR", "字段映射中的结果字段不能为空"));
                 }
                 if (!StringUtils.hasText(mapping.getTargetColumn())) {
                     issues.add(issue("ERROR", "字段映射中的目标字段不能为空"));

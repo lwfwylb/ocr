@@ -1269,6 +1269,21 @@ body {
   width: 96px;
 }
 
+.field-select-with-action {
+  display: flex;
+  width: 100%;
+  gap: 8px;
+}
+
+.field-select-with-action .el-select {
+  flex: 1;
+}
+
+.option-tag {
+  float: right;
+  margin-left: 8px;
+}
+
 .keyword-config {
   display: grid;
   gap: 6px;

@@ -710,8 +710,9 @@ public class ExtractionResultService {
         }
         if (payload.getFieldMappings() != null) {
             for (ConfigWizardPayload.FieldMapping mapping : payload.getFieldMappings()) {
-                if (StringUtils.hasText(mapping.getExtractFieldCode())) {
-                    result.put(mapping.getExtractFieldCode(), firstText(mapping.getTargetColumn(), mapping.getExtractFieldCode()));
+                String resultFieldCode = firstText(mapping.getResultFieldCode(), mapping.getExtractFieldCode());
+                if (StringUtils.hasText(resultFieldCode)) {
+                    result.put(resultFieldCode, firstText(mapping.getTargetColumn(), resultFieldCode));
                 }
             }
         }
@@ -894,15 +895,16 @@ public class ExtractionResultService {
         }
         if (payload.getFieldMappings() != null && !payload.getFieldMappings().isEmpty()) {
             for (ConfigWizardPayload.FieldMapping mapping : payload.getFieldMappings()) {
-                if (!StringUtils.hasText(mapping.getExtractFieldCode())) {
+                String resultFieldCode = firstText(mapping.getResultFieldCode(), mapping.getExtractFieldCode());
+                if (!StringUtils.hasText(resultFieldCode)) {
                     continue;
                 }
-                ConfigWizardPayload.ExtractField field = fieldByCode.get(mapping.getExtractFieldCode());
+                ConfigWizardPayload.ExtractField field = fieldByCode.get(resultFieldCode);
                 plans.add(new FieldPlan(
-                        mapping.getExtractFieldCode(),
-                        field == null ? mapping.getExtractFieldCode() : firstText(field.getFieldName(), field.getFieldCode()),
+                        resultFieldCode,
+                        field == null ? resultFieldCode : firstText(field.getFieldName(), field.getFieldCode()),
                         field == null ? null : field.getFieldDescription(),
-                        firstText(mapping.getTargetColumn(), field == null ? null : field.getTargetColumn(), mapping.getExtractFieldCode()),
+                        firstText(mapping.getTargetColumn(), field == null ? null : field.getTargetColumn(), resultFieldCode),
                         field == null ? null : field.getMultiple(),
                         mapping.getRequiredForStorage()
                 ));
