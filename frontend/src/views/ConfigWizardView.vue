@@ -2078,7 +2078,7 @@ onMounted(async () => {
                     {{ transformTypeLabel[rule.ruleType] }}
                   </el-tag>
                 </div>
-                <span>{{ rule.inputField }} -> {{ rule.outputField || '待配置输出字段' }}</span>
+                <span>{{ rule.inputField }} -> {{ rule.outputMode === 'OVERWRITE_INPUT' ? '覆盖输入字段' : (rule.outputField || '待配置输出字段') }}</span>
               </div>
               <el-switch v-model="rule.enabled" @click.stop />
               <el-dropdown trigger="click" @click.stop>
@@ -2127,15 +2127,6 @@ onMounted(async () => {
               <el-form-item label="输入字段">
                 <el-select v-model="selectedTransformRule.inputField" filterable allow-create>
                   <el-option v-for="field in fields" :key="field.fieldCode" :label="`${field.fieldName}（${field.fieldCode}）`" :value="field.fieldCode" />
-                  <el-option label="产品代码（product_code）" value="product_code" />
-                </el-select>
-              </el-form-item>
-              <el-form-item label="输出字段">
-                <el-select v-model="selectedTransformRule.outputField" filterable allow-create>
-                  <el-option v-for="field in fields" :key="field.fieldCode" :label="`${field.fieldName}（覆盖原字段）`" :value="field.fieldCode" />
-                  <el-option label="产品名称（product_name）" value="product_name" />
-                  <el-option label="交易对手名称（counterparty_name）" value="counterparty_name" />
-                  <el-option label="金额等级（amount_level）" value="amount_level" />
                 </el-select>
               </el-form-item>
               <el-form-item label="输出方式">
@@ -2143,6 +2134,11 @@ onMounted(async () => {
                   <el-option label="覆盖输入字段" value="OVERWRITE_INPUT" />
                   <el-option label="写入目标字段" value="WRITE_TARGET" />
                   <el-option label="生成衍生字段" value="DERIVE_FIELD" />
+                </el-select>
+              </el-form-item>
+              <el-form-item v-if="selectedTransformRule.outputMode !== 'OVERWRITE_INPUT'" label="输出字段">
+                <el-select v-model="selectedTransformRule.outputField" filterable allow-create placeholder="选择已有字段，或输入衍生字段编码后回车">
+                  <el-option v-for="field in fields" :key="field.fieldCode" :label="`${field.fieldName}（${field.fieldCode}）`" :value="field.fieldCode" />
                 </el-select>
               </el-form-item>
               <el-form-item label="失败策略">
@@ -2169,7 +2165,6 @@ onMounted(async () => {
                 <div class="inline-fields">
                   <el-select v-model="selectedTransformRule.conditionField" filterable allow-create placeholder="条件字段">
                     <el-option v-for="field in fields" :key="field.fieldCode" :label="`${field.fieldName}（${field.fieldCode}）`" :value="field.fieldCode" />
-                    <el-option label="产品代码（product_code）" value="product_code" />
                   </el-select>
                   <el-select v-model="selectedTransformRule.conditionOperator" placeholder="条件">
                     <el-option label="非空时" value="NOT_EMPTY" />

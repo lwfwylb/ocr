@@ -601,7 +601,7 @@ public class ConfigWizardService {
                     if (StringUtils.hasText(rule.getInputField()) && !fieldCodes.contains(rule.getInputField())) {
                         issues.add(issue("WARN", "加工规则输入字段未在提取字段或目标字段中找到：" + rule.getInputField()));
                     }
-                    if (!StringUtils.hasText(rule.getOutputField())) {
+                    if (!"OVERWRITE_INPUT".equals(rule.getOutputMode()) && !StringUtils.hasText(rule.getOutputField())) {
                         issues.add(issue("WARN", "加工规则未维护输出字段：" + rule.getRuleName()));
                     }
                 }
