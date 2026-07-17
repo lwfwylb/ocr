@@ -267,7 +267,20 @@ const openServiceDetail = (service: DownstreamService) => {
 const testConnect = async (service: DownstreamService) => {
   try {
     const result = await testIntegrationService(service.id)
-    ElMessage.success(String(result.message || `${service.systemName} / ${service.serviceName} 连接测试通过`))
+    const message = String(result.message || `${service.systemName} / ${service.serviceName} 连接测试完成`)
+    if (result.passed) {
+      ElMessage.success(message)
+      return
+    }
+    const detail = [
+      `服务：${service.systemName} / ${service.serviceName}`,
+      `地址：${result.endpoint || service.endpoint || '-'}`,
+      `状态码：${result.httpStatus || '-'}`,
+      `耗时：${result.durationMs || '-'} ms`,
+      result.responsePreview ? `响应摘要：${String(result.responsePreview).slice(0, 800)}` : '',
+      Array.isArray(result.warnings) && result.warnings.length ? `提示：${result.warnings.join('；')}` : ''
+    ].filter(Boolean).join('<br />')
+    ElMessageBox.alert(detail, message, { dangerouslyUseHTMLString: true, confirmButtonText: '我知道了' })
   } catch (error) {
     ElMessage.error(error instanceof Error ? error.message : '连接测试失败')
   }

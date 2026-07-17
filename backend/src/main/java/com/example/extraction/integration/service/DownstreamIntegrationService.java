@@ -14,11 +14,24 @@ import com.example.extraction.mapper.ExtractConfigMapper;
 import com.example.extraction.result.dto.PushQueryRequest;
 import com.example.extraction.result.dto.PushRecordResponse;
 import com.example.extraction.result.service.DownstreamPushService;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import org.springframework.http.HttpEntity;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpMethod;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
+import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
+import org.springframework.web.client.HttpStatusCodeException;
+import org.springframework.web.client.RestTemplate;
 
+import java.time.Duration;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -28,13 +41,16 @@ public class DownstreamIntegrationService {
     private final DownstreamIntegrationMapper integrationMapper;
     private final ExtractConfigMapper extractConfigMapper;
     private final DownstreamPushService downstreamPushService;
+    private final ObjectMapper objectMapper;
 
     public DownstreamIntegrationService(DownstreamIntegrationMapper integrationMapper,
                                         ExtractConfigMapper extractConfigMapper,
-                                        DownstreamPushService downstreamPushService) {
+                                        DownstreamPushService downstreamPushService,
+                                        ObjectMapper objectMapper) {
         this.integrationMapper = integrationMapper;
         this.extractConfigMapper = extractConfigMapper;
         this.downstreamPushService = downstreamPushService;
+        this.objectMapper = objectMapper;
     }
 
     @Transactional
@@ -175,14 +191,170 @@ public class DownstreamIntegrationService {
 
     public Map<String, Object> testService(String id) {
         DownstreamServiceConfigRecord service = requireService(id);
+        Map<String, Object> result = baseTestResult(service);
+        if (!"1".equals(service.getEnabled())) {
+            result.put("message", "接口服务已停用，不能测试连接");
+            result.put("errorCode", "SERVICE_DISABLED");
+            return result;
+        }
+        if (!"HTTP".equalsIgnoreCase(service.getServiceType())) {
+            result.put("message", "第一版连接测试仅支持 HTTP 接口，微服务/MQ 执行器后续接入");
+            result.put("errorCode", "UNSUPPORTED_SERVICE_TYPE");
+            return result;
+        }
+        if (!StringUtils.hasText(service.getEndpoint())) {
+            result.put("message", "接口地址不能为空");
+            result.put("errorCode", "ENDPOINT_EMPTY");
+            return result;
+        }
+
+        long begin = System.currentTimeMillis();
+        HttpMethod method = resolveHttpMethod(service.getHttpMethod());
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_JSON);
+        headers.setAccept(List.of(MediaType.APPLICATION_JSON, MediaType.TEXT_PLAIN, MediaType.ALL));
+        Object requestBody = method == HttpMethod.GET || method == HttpMethod.HEAD ? null : buildTestPayload(service);
+        result.put("requestMethod", method.name());
+        result.put("requestPreview", requestBody == null ? "" : toJson(requestBody));
+        List<String> warnings = new ArrayList<>();
+        if (StringUtils.hasText(service.getAuthMode()) && !"NONE".equalsIgnoreCase(service.getAuthMode())) {
+            warnings.add("当前测试请求暂未附加鉴权信息，如接口要求 Token/签名，可能返回 401/403");
+        }
+        result.put("warnings", warnings);
+
+        try {
+            ResponseEntity<String> response = restTemplate(service).exchange(service.getEndpoint(), method, new HttpEntity<>(requestBody, headers), String.class);
+            int httpStatus = response.getStatusCode().value();
+            String responseBody = response.getBody() == null ? "" : response.getBody();
+            boolean passed = evaluateSuccessRule(httpStatus, responseBody, service.getResponseSuccessRule(), warnings);
+            result.put("passed", passed);
+            result.put("httpStatus", httpStatus);
+            result.put("responsePreview", compactPreview(responseBody, 4000));
+            result.put("warnings", warnings);
+            result.put("message", passed ? "HTTP 接口真实连接测试通过" : "HTTP 接口已响应，但未满足成功判断规则");
+        } catch (HttpStatusCodeException e) {
+            result.put("passed", false);
+            result.put("httpStatus", e.getStatusCode().value());
+            result.put("errorCode", "HTTP_" + e.getStatusCode().value());
+            result.put("responsePreview", compactPreview(e.getResponseBodyAsString(), 4000));
+            result.put("message", "HTTP 接口调用失败：" + e.getStatusCode().value());
+        } catch (Exception e) {
+            result.put("passed", false);
+            result.put("errorCode", "HTTP_TEST_ERROR");
+            result.put("message", "HTTP 接口调用失败：" + e.getMessage());
+        } finally {
+            result.put("durationMs", System.currentTimeMillis() - begin);
+            result.put("checkedAt", LocalDateTime.now());
+        }
+        return result;
+    }
+
+    private Map<String, Object> baseTestResult(DownstreamServiceConfigRecord service) {
         Map<String, Object> result = new LinkedHashMap<>();
-        result.put("passed", true);
-        result.put("message", "模拟连接测试通过，真实调用将在推送执行器中接入");
+        result.put("passed", false);
         result.put("serviceCode", service.getServiceCode());
         result.put("serviceName", service.getServiceName());
+        result.put("systemName", service.getSystemName());
+        result.put("serviceType", service.getServiceType());
         result.put("endpoint", service.getEndpoint());
         result.put("checkedAt", LocalDateTime.now());
         return result;
+    }
+
+    private HttpMethod resolveHttpMethod(String httpMethod) {
+        if (!StringUtils.hasText(httpMethod) || "-".equals(httpMethod.trim())) return HttpMethod.POST;
+        try {
+            return HttpMethod.valueOf(httpMethod.trim().toUpperCase());
+        } catch (IllegalArgumentException e) {
+            throw new BusinessException("PARAM_400", "暂不支持的 HTTP 请求方式：" + httpMethod);
+        }
+    }
+
+    private Map<String, Object> buildTestPayload(DownstreamServiceConfigRecord service) {
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("traceId", "TRACE_TEST_0001");
+        payload.put("taskId", "TASK_TEST_0001");
+        payload.put("documentId", "DOC_TEST_0001");
+        payload.put("serviceCode", service.getServiceCode());
+        payload.put("idempotentKey", "TRACE_TEST_0001-TASK_TEST_0001-" + service.getServiceCode());
+        Map<String, Object> data = new LinkedHashMap<>();
+        data.put("test", true);
+        data.put("message", "智能要素提取平台接口服务连通性测试");
+        payload.put("data", data);
+        return payload;
+    }
+
+    private boolean evaluateSuccessRule(int httpStatus, String responseBody, String successRule, List<String> warnings) {
+        boolean statusPassed = evaluateHttpStatus(httpStatus, successRule);
+        boolean bodyPassed = evaluateBodyRule(responseBody, successRule, warnings);
+        return statusPassed && bodyPassed;
+    }
+
+    private boolean evaluateHttpStatus(int httpStatus, String successRule) {
+        if (!StringUtils.hasText(successRule)) return httpStatus >= 200 && httpStatus < 300;
+        String rule = successRule.replace(" ", "").toLowerCase();
+        if (rule.contains("httpstatusin[")) {
+            int start = rule.indexOf("httpstatusin[") + "httpstatusin[".length();
+            int end = rule.indexOf(']', start);
+            if (end > start) {
+                String[] values = rule.substring(start, end).split(",");
+                for (String value : values) {
+                    if (String.valueOf(httpStatus).equals(value.trim())) return true;
+                }
+                return false;
+            }
+        }
+        if (rule.contains("httpstatus==")) {
+            String expected = rule.substring(rule.indexOf("httpstatus==") + "httpstatus==".length()).split("&&|\\|\\|")[0];
+            return String.valueOf(httpStatus).equals(expected.trim());
+        }
+        return httpStatus >= 200 && httpStatus < 300;
+    }
+
+    private boolean evaluateBodyRule(String responseBody, String successRule, List<String> warnings) {
+        if (!StringUtils.hasText(successRule)) return true;
+        String normalized = successRule.replace(" ", "");
+        if (!normalized.contains("body.")) return true;
+        if (!StringUtils.hasText(responseBody)) {
+            warnings.add("成功判断包含 body 条件，但响应体为空");
+            return false;
+        }
+        try {
+            JsonNode root = objectMapper.readTree(responseBody);
+            if (normalized.contains("body.code==0")) {
+                JsonNode code = root.path("code");
+                return (code.isNumber() && code.asInt() == 0) || "0".equals(code.asText());
+            }
+            if (normalized.contains("body.success==true")) return root.path("success").asBoolean(false);
+            if (normalized.contains("body.passed==true")) return root.path("passed").asBoolean(false);
+            warnings.add("暂未解析复杂响应成功判断，已按 HTTP 状态码优先判断");
+            return true;
+        } catch (JsonProcessingException e) {
+            warnings.add("响应体不是 JSON，无法校验 body 条件：" + e.getOriginalMessage());
+            return false;
+        }
+    }
+
+    private RestTemplate restTemplate(DownstreamServiceConfigRecord service) {
+        SimpleClientHttpRequestFactory factory = new SimpleClientHttpRequestFactory();
+        int timeout = service.getTimeoutSeconds() == null || service.getTimeoutSeconds() <= 0 ? 30 : service.getTimeoutSeconds();
+        factory.setConnectTimeout(Duration.ofSeconds(Math.min(timeout, 30)));
+        factory.setReadTimeout(Duration.ofSeconds(timeout));
+        return new RestTemplate(factory);
+    }
+
+    private String toJson(Object value) {
+        try {
+            return objectMapper.writerWithDefaultPrettyPrinter().writeValueAsString(value);
+        } catch (JsonProcessingException e) {
+            return String.valueOf(value);
+        }
+    }
+
+    private String compactPreview(String value, int maxLength) {
+        if (!StringUtils.hasText(value)) return "";
+        String text = value.trim();
+        return text.length() > maxLength ? text.substring(0, maxLength) + "..." : text;
     }
 
     @Transactional
