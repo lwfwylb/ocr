@@ -2,7 +2,7 @@ package com.example.extraction.ocr;
 
 import com.example.extraction.common.BusinessException;
 import com.example.extraction.common.IdGenerator;
-import org.springframework.beans.factory.annotation.Value;
+import com.example.extraction.config.StorageProperties;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
@@ -26,8 +26,8 @@ public class OcrPreviewAssetService {
     private final Path rootDir;
     private final Map<String, PreviewAsset> assets = new ConcurrentHashMap<>();
 
-    public OcrPreviewAssetService(@Value("${app.storage.ocr-preview-dir:data/ocr-preview}") String previewDir) {
-        this.rootDir = Path.of(previewDir).toAbsolutePath().normalize();
+    public OcrPreviewAssetService(StorageProperties storageProperties) {
+        this.rootDir = Path.of(storageProperties.getOcrPreviewDir()).toAbsolutePath().normalize();
     }
 
     public Map<String, String> saveImages(List<OcrImageArtifact> images) {
@@ -51,13 +51,13 @@ public class OcrPreviewAssetService {
                     .resolve(fileName)
                     .normalize();
             if (!path.startsWith(rootDir)) {
-                throw new BusinessException("OCR_PREVIEW_400", "Invalid OCR preview asset path");
+                throw new BusinessException("OCR_PREVIEW_400", "OCR试识别图片路径不合法");
             }
             try {
                 Files.createDirectories(path.getParent());
                 Files.write(path, image.getContent());
             } catch (IOException e) {
-                throw new BusinessException("OCR_PREVIEW_500", "OCR 试识别图片保存失败：" + e.getMessage());
+                throw new BusinessException("OCR_PREVIEW_500", "OCR试识别图片保存失败：" + e.getMessage());
             }
             String previewUrl = "/api/model/ocr-engines/preview-assets/" + assetId;
             image.setPreviewUrl(previewUrl);
@@ -73,15 +73,15 @@ public class OcrPreviewAssetService {
     public PreviewAsset requireAsset(String assetId) {
         PreviewAsset asset = assets.get(assetId);
         if (asset == null) {
-            throw new BusinessException("OCR_PREVIEW_404", "OCR preview asset not found or expired");
+            throw new BusinessException("OCR_PREVIEW_404", "OCR试识别图片不存在或已过期");
         }
         if (asset.createdAt().plus(ASSET_TTL).isBefore(LocalDateTime.now())) {
             assets.remove(assetId);
-            throw new BusinessException("OCR_PREVIEW_404", "OCR preview asset not found or expired");
+            throw new BusinessException("OCR_PREVIEW_404", "OCR试识别图片不存在或已过期");
         }
         if (!Files.exists(asset.path()) || !Files.isRegularFile(asset.path())) {
             assets.remove(assetId);
-            throw new BusinessException("OCR_PREVIEW_404", "OCR preview asset file not found");
+            throw new BusinessException("OCR_PREVIEW_404", "OCR试识别图片文件不存在");
         }
         return asset;
     }

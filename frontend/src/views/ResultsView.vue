@@ -2,6 +2,7 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import ConfidenceTag from '../components/ConfidenceTag.vue'
+import { getConfigOptions, type ConfigOptions } from '../api/config'
 import { getResultDetail, pageResults, type ResultDetail, type ResultSummary } from '../api/result'
 import { createTablePage, pageParams, resetPage } from '../composables/useTablePage'
 import { executeStorage } from '../api/storage'
@@ -30,6 +31,15 @@ const activeTab = ref('fields')
 const page = createTablePage(20)
 const selectedResult = ref<ResultSummary | null>(null)
 const selectedDetail = ref<ResultDetail | null>(null)
+const options = ref<ConfigOptions>({
+  departments: [],
+  roles: [],
+  categories: [],
+  documentTypes: [],
+  ocrEngines: [],
+  resultTables: [],
+  downstreamServices: []
+})
 const query = reactive({
   keyword: '',
   documentType: '',
@@ -57,14 +67,6 @@ const sourceTypeMap: Record<string, string> = {
   FILE_DISPATCH: '文件分拣'
 }
 
-const departmentMap: Record<string, string> = {
-  OPS: '运营部',
-  FINANCE: '财务部',
-  PRODUCT: '产品部',
-  运营部: '运营部',
-  财务部: '财务部',
-  产品部: '产品部'
-}
 
 const metrics = computed(() => {
   const total = page.total
@@ -81,6 +83,23 @@ const metrics = computed(() => {
 const detailSummary = computed(() => selectedDetail.value?.summary || selectedResult.value)
 const isStorageDisabled = computed(() => detailSummary.value?.targetTable === '未启用落库')
 const rowStorageDisabled = (row: ResultSummary) => row.targetTable === '未启用落库'
+
+const loadOptions = async () => {
+  try {
+    options.value = await getConfigOptions()
+  } catch {
+    options.value.departments = []
+  }
+}
+
+const optionLabel = (items: Array<Record<string, any>>, value?: string) => {
+  if (!value) return '-'
+  const matched = (items || []).find((item) =>
+    item.value === value || item.label === value || item.departmentId === value || item.departmentCode === value
+  )
+  return matched?.label || matched?.departmentName || matched?.name || value
+}
+const formatDepartment = (value?: string) => optionLabel(options.value.departments, value)
 
 const fieldRows = computed<FieldRow[]>(() => {
   const detail = selectedDetail.value
@@ -220,7 +239,6 @@ const resetQuery = () => {
 
 const getStatus = (status?: string) => statusMap[(status || 'STORED') as ResultStatus] || { label: status || '-', type: 'info' }
 const formatSource = (value?: string) => (value ? sourceTypeMap[value] || value : '-')
-const formatDepartment = (value?: string) => (value ? departmentMap[value] || value : '-')
 const formatConfidence = (value?: number) => Number(value || 0)
 const formatValue = (value: unknown) => {
   if (value === null || value === undefined || value === '') return '-'
@@ -228,7 +246,10 @@ const formatValue = (value: unknown) => {
   return String(value)
 }
 
-onMounted(loadResults)
+onMounted(() => {
+  loadOptions()
+  loadResults()
+})
 </script>
 
 <template>
@@ -271,9 +292,7 @@ onMounted(loadResults)
         </el-form-item>
         <el-form-item label="部门">
           <el-select v-model="query.departmentId" clearable filterable placeholder="全部">
-            <el-option label="运营部" value="OPS" />
-            <el-option label="财务部" value="FINANCE" />
-            <el-option label="产品部" value="PRODUCT" />
+            <el-option v-for="item in options.departments" :key="item.value" :label="item.label" :value="item.value" />
           </el-select>
         </el-form-item>
         <el-form-item label="来源">

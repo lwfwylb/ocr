@@ -4,6 +4,7 @@ import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { API_BASE_URL } from '../api/http'
 import { listTaskArtifacts, type DocumentArtifact } from '../api/artifact'
+import { getConfigOptions, type ConfigOptions } from '../api/config'
 import {
   dispatchTask,
   executeNextTask,
@@ -28,6 +29,15 @@ const tasks = ref<ExtractTask[]>([])
 const stageLogs = ref<TaskStageLog[]>([])
 const taskArtifacts = ref<DocumentArtifact[]>([])
 const page = createTablePage(20)
+const options = ref<ConfigOptions>({
+  departments: [],
+  roles: [],
+  categories: [],
+  documentTypes: [],
+  ocrEngines: [],
+  resultTables: [],
+  downstreamServices: []
+})
 
 const query = reactive({
   keyword: '',
@@ -66,6 +76,14 @@ const totalCount = computed(() => page.total)
 const queuedCount = computed(() => tasks.value.filter((item) => item.status === 'QUEUED').length)
 const failedCount = computed(() => tasks.value.filter((item) => item.status === 'FAILED').length)
 const acceleratedCount = computed(() => tasks.value.filter((item) => item.manualAccelerated).length)
+
+const loadOptions = async () => {
+  try {
+    options.value = await getConfigOptions()
+  } catch {
+    options.value.departments = []
+  }
+}
 
 const loadTasks = async () => {
   loading.value = true
@@ -198,6 +216,14 @@ const statusText = (status?: string) => statusMap[status || '']?.label || status
 const statusType = (status?: string) => statusMap[status || '']?.type || 'info'
 const priorityText = (priority?: string) => priorityMap[priority || '']?.label || priority || '-'
 const priorityType = (priority?: string) => priorityMap[priority || '']?.type || 'info'
+const optionLabel = (items: Array<Record<string, any>>, value?: string) => {
+  if (!value) return '-'
+  const matched = (items || []).find((item) =>
+    item.value === value || item.label === value || item.departmentId === value || item.departmentCode === value
+  )
+  return matched?.label || matched?.departmentName || matched?.name || value
+}
+const departmentLabel = (value?: string) => optionLabel(options.value.departments, value)
 const logType = (status?: string) => status === 'FAILED' ? 'danger' : 'success'
 const artifactTypeMap: Record<string, string> = {
   ORIGINAL: '原始文件',
@@ -221,7 +247,10 @@ const artifactUrl = (row: DocumentArtifact, action: 'preview' | 'download') => {
   return `${API_BASE_URL}${url || `/api/artifacts/${row.id}/${action}`}`
 }
 
-onMounted(loadTasks)
+onMounted(() => {
+  loadOptions()
+  loadTasks()
+})
 </script>
 
 <template>
@@ -248,9 +277,7 @@ onMounted(loadTasks)
         </el-form-item>
         <el-form-item label="部门">
           <el-select v-model="query.departmentId" clearable filterable placeholder="全部">
-            <el-option label="运营部" value="OPS" />
-            <el-option label="财务部" value="FINANCE" />
-            <el-option label="产品部" value="PRODUCT" />
+            <el-option v-for="item in options.departments" :key="item.value" :label="item.label" :value="item.value" />
           </el-select>
         </el-form-item>
         <el-form-item label="优先级">
@@ -297,7 +324,9 @@ onMounted(loadTasks)
         <el-table-column label="优先级" width="80">
           <template #default="{ row }"><el-tag :type="priorityType(row.priority)">{{ priorityText(row.priority) }}</el-tag></template>
         </el-table-column>
-        <el-table-column prop="departmentId" label="部门" width="100" />
+        <el-table-column label="部门" width="100">
+          <template #default="{ row }">{{ departmentLabel(row.departmentId) }}</template>
+        </el-table-column>
         <el-table-column prop="queueName" label="当前队列" min-width="170" />
         <el-table-column label="排队序号" width="90">
           <template #default="{ row }">{{ row.queuePosition ? `第 ${row.queuePosition} 位` : '-' }}</template>
@@ -346,7 +375,7 @@ onMounted(loadTasks)
           <el-descriptions-item label="文档编号">{{ selectedTask.documentId }}</el-descriptions-item>
           <el-descriptions-item label="文件名">{{ selectedTask.fileName }}</el-descriptions-item>
           <el-descriptions-item label="配置">{{ selectedTask.configName || '-' }} {{ selectedTask.configVersion ? `V${selectedTask.configVersion}` : '' }}</el-descriptions-item>
-          <el-descriptions-item label="部门">{{ selectedTask.departmentId }}</el-descriptions-item>
+          <el-descriptions-item label="部门">{{ departmentLabel(selectedTask.departmentId) }}</el-descriptions-item>
           <el-descriptions-item label="当前阶段">{{ selectedTask.currentStage || '-' }}</el-descriptions-item>
           <el-descriptions-item label="当前队列">{{ selectedTask.queueName || '-' }}</el-descriptions-item>
           <el-descriptions-item label="排队序号">{{ selectedTask.queuePosition ? `第 ${selectedTask.queuePosition} 位` : '-' }}</el-descriptions-item>
@@ -397,7 +426,7 @@ onMounted(loadTasks)
       <template v-if="dispatchTarget">
         <el-descriptions :column="2" border class="mb-12">
           <el-descriptions-item label="任务编号">{{ dispatchTarget.taskId }}</el-descriptions-item>
-          <el-descriptions-item label="所属部门">{{ dispatchTarget.departmentId }}</el-descriptions-item>
+          <el-descriptions-item label="所属部门">{{ departmentLabel(dispatchTarget.departmentId) }}</el-descriptions-item>
           <el-descriptions-item label="当前队列">{{ dispatchTarget.queueName }}</el-descriptions-item>
           <el-descriptions-item label="当前序号">{{ dispatchTarget.queuePosition ? `第 ${dispatchTarget.queuePosition} 位` : '-' }}</el-descriptions-item>
         </el-descriptions>

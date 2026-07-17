@@ -6,6 +6,7 @@ import com.example.extraction.artifact.dto.DocumentArtifactResponse;
 import com.example.extraction.artifact.dto.DocumentArtifactStepResponse;
 import com.example.extraction.common.BusinessException;
 import com.example.extraction.common.IdGenerator;
+import com.example.extraction.config.StorageProperties;
 import com.example.extraction.configuration.domain.ExtractConfigRecord;
 import com.example.extraction.configuration.dto.ConfigWizardPayload;
 import com.example.extraction.document.domain.DocumentAccessRecord;
@@ -18,7 +19,6 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.apache.pdfbox.pdmodel.PDDocument;
 import org.apache.pdfbox.text.PDFTextStripper;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
@@ -55,11 +55,11 @@ public class DocumentArtifactService {
     public DocumentArtifactService(DocumentArtifactMapper documentArtifactMapper,
                                    ExtractConfigMapper extractConfigMapper,
                                    ObjectMapper objectMapper,
-                                   @Value("${app.storage.artifact-dir:data/artifacts}") String artifactDir) {
+                                   StorageProperties storageProperties) {
         this.documentArtifactMapper = documentArtifactMapper;
         this.extractConfigMapper = extractConfigMapper;
         this.objectMapper = objectMapper;
-        this.artifactRoot = Path.of(artifactDir).toAbsolutePath().normalize();
+        this.artifactRoot = Path.of(storageProperties.getArtifactDir()).toAbsolutePath().normalize();
     }
 
     public void recordOriginal(DocumentAccessRecord access) {

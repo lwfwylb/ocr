@@ -1,7 +1,7 @@
 package com.example.extraction.document.service;
 
 import com.example.extraction.common.BusinessException;
-import org.springframework.beans.factory.annotation.Value;
+import com.example.extraction.config.StorageProperties;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -18,8 +18,8 @@ public class DocumentFileStorageService {
 
     private final Path rootDir;
 
-    public DocumentFileStorageService(@Value("${app.storage.upload-dir:data/uploads}") String uploadDir) {
-        this.rootDir = Path.of(uploadDir).toAbsolutePath().normalize();
+    public DocumentFileStorageService(StorageProperties storageProperties) {
+        this.rootDir = Path.of(storageProperties.getUploadDir()).toAbsolutePath().normalize();
     }
 
     public StoredFile store(MultipartFile file, String traceId) {

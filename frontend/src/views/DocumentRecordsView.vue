@@ -2,6 +2,7 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
+import { getConfigOptions, type ConfigOptions } from '../api/config'
 import {
   getDocumentAccessRecord,
   pageDocumentAccessRecords,
@@ -16,6 +17,15 @@ const loading = ref(false)
 const detailLoading = ref(false)
 const page = createTablePage(20)
 const selectedRecord = ref<DocumentAccessRecord | null>(null)
+const options = ref<ConfigOptions>({
+  departments: [],
+  roles: [],
+  categories: [],
+  documentTypes: [],
+  ocrEngines: [],
+  resultTables: [],
+  downstreamServices: []
+})
 const query = reactive({
   keyword: '',
   sourceType: '',
@@ -24,11 +34,6 @@ const query = reactive({
 })
 
 const records = ref<DocumentAccessRecord[]>([])
-const departmentOptions = [
-  { label: '运营部', value: 'OPS' },
-  { label: '财务部', value: 'FINANCE' },
-  { label: '产品部', value: 'PRODUCT' }
-]
 
 const matchStatusMap = {
   MATCHED: { label: '已匹配', type: 'success' },
@@ -47,6 +52,23 @@ const matchedCount = computed(() => records.value.filter((item) => item.matchSta
 const pendingCount = computed(() => records.value.filter((item) => item.accessStatus === 'PENDING_CONFIRM').length)
 const apiCount = computed(() => records.value.filter((item) => item.sourceType === 'BUSINESS_API').length)
 const dispatchCount = computed(() => records.value.filter((item) => ['FILE_DISPATCH', 'EMAIL_DISPATCH'].includes(item.sourceType)).length)
+
+const loadOptions = async () => {
+  try {
+    options.value = await getConfigOptions()
+  } catch {
+    options.value.departments = []
+  }
+}
+
+const optionLabel = (items: Array<Record<string, any>>, value?: string) => {
+  if (!value) return '-'
+  const matched = (items || []).find((item) =>
+    item.value === value || item.label === value || item.departmentId === value || item.departmentCode === value
+  )
+  return matched?.label || matched?.departmentName || matched?.name || value
+}
+const departmentLabel = (value?: string) => optionLabel(options.value.departments, value)
 
 const formatSize = (size?: number) => {
   if (!size) return '-'
@@ -119,7 +141,10 @@ const retryMatch = async (record?: DocumentAccessRecord) => {
   }
 }
 
-onMounted(loadRecords)
+onMounted(() => {
+  loadOptions()
+  loadRecords()
+})
 </script>
 
 <template>
@@ -152,7 +177,7 @@ onMounted(loadRecords)
         </el-form-item>
         <el-form-item label="所属部门">
           <el-select v-model="query.departmentId" filterable clearable placeholder="全部">
-            <el-option v-for="item in departmentOptions" :key="item.value" :label="item.label" :value="item.value" />
+            <el-option v-for="item in options.departments" :key="item.value" :label="item.label" :value="item.value" />
           </el-select>
         </el-form-item>
         <el-form-item>
@@ -177,7 +202,9 @@ onMounted(loadRecords)
         <el-table-column prop="fileName" label="文件名" min-width="170" />
         <el-table-column prop="sourceSystem" label="来源系统" min-width="130" />
         <el-table-column prop="businessNo" label="业务号" min-width="150" />
-        <el-table-column prop="departmentId" label="部门" width="90" />
+        <el-table-column label="部门" width="90">
+          <template #default="{ row }">{{ departmentLabel(row.departmentId) }}</template>
+        </el-table-column>
         <el-table-column prop="documentType" label="文档类型" width="110" />
         <el-table-column label="匹配" width="110">
           <template #default="{ row }">
