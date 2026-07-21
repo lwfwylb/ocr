@@ -584,6 +584,7 @@ public class ConfigWizardService {
             return issues;
         }
         Set<String> fieldCodes = collectFieldCodes(payload);
+        Set<String> availableTransformConditionFields = collectInitialTransformConditionFields(payload);
         if (transformEnabled) {
             if (!hasEnabledTransformRules(payload)) {
                 issues.add(issue("WARN", "已启用加工规则，但尚未新增启用的加工规则"));
@@ -620,7 +621,10 @@ public class ConfigWizardService {
                         issues.add(issue("WARN", "加工规则未维护输出字段：" + rule.getRuleName()));
                     }
                     if (Boolean.TRUE.equals(rule.getConditionEnabled())) {
-                        validateTransformConditions(rule, fieldCodes, issues);
+                        validateTransformConditions(rule, fieldCodes, availableTransformConditionFields, issues);
+                    }
+                    if (StringUtils.hasText(rule.getOutputField())) {
+                        availableTransformConditionFields.add(rule.getOutputField());
                     }
                 }
             }
@@ -679,7 +683,7 @@ public class ConfigWizardService {
         return hasEnabledValidationRules(payload);
     }
 
-    private void validateTransformConditions(ConfigWizardPayload.TransformRule rule, Set<String> fieldCodes, List<Map<String, Object>> issues) {
+    private void validateTransformConditions(ConfigWizardPayload.TransformRule rule, Set<String> fieldCodes, Set<String> availableFields, List<Map<String, Object>> issues) {
         List<ConfigWizardPayload.TransformCondition> conditions = normalizeTransformConditions(rule);
         if (conditions.isEmpty()) {
             issues.add(issue("ERROR", "加工规则已启用执行条件，但未维护条件明细：" + rule.getRuleName()));
@@ -694,6 +698,8 @@ public class ConfigWizardService {
                 issues.add(issue("ERROR", "加工规则条件字段不能为空：" + rule.getRuleName()));
             } else if (!fieldCodes.contains(condition.getFieldCode())) {
                 issues.add(issue("WARN", "加工规则条件字段未在结果字段或目标字段中找到：" + condition.getFieldCode()));
+            } else if (!availableFields.contains(condition.getFieldCode())) {
+                issues.add(issue("ERROR", "加工规则「" + rule.getRuleName() + "」的执行条件字段「" + condition.getFieldCode() + "」在该规则执行前不可用，请选择提取字段、系统字段或前序加工字段"));
             }
             String operator = firstText(condition.getOperator(), "NOT_EMPTY");
             if (!Set.of("NOT_EMPTY", "EMPTY", "EQUALS", "NOT_EQUALS", "CONTAINS", "NOT_CONTAINS", "GT", "GTE", "LT", "LTE", "REGEX").contains(operator)) {
@@ -724,6 +730,20 @@ public class ConfigWizardService {
         condition.setOperator(firstText(rule.getConditionOperator(), "NOT_EMPTY"));
         condition.setValue(rule.getConditionValue());
         return List.of(condition);
+    }
+
+    private Set<String> collectInitialTransformConditionFields(ConfigWizardPayload payload) {
+        Set<String> fieldCodes = new HashSet<>();
+        if (payload == null || payload.getExtractFields() == null) {
+            return fieldCodes;
+        }
+        for (ConfigWizardPayload.ExtractField field : payload.getExtractFields()) {
+            String sourceType = firstText(field.getSourceType(), "EXTRACTED");
+            if (!"DERIVED".equals(sourceType) && StringUtils.hasText(field.getFieldCode())) {
+                fieldCodes.add(field.getFieldCode());
+            }
+        }
+        return fieldCodes;
     }
 
     private boolean hasEnabledTransformRules(ConfigWizardPayload payload) {

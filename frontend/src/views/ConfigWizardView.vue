@@ -792,6 +792,25 @@ const fieldLabelByCode = (fieldCode: string) => {
   const field = fields.value.find((item) => item.fieldCode === fieldCode)
   return field ? `${field.fieldName}（${field.fieldCode}）` : fieldCode
 }
+const transformRuleIndex = (rule: TransformRule) => transformRules.value.findIndex((item) => item.id === rule.id)
+const conditionFieldGroups = (rule: TransformRule) => {
+  const currentIndex = transformRuleIndex(rule)
+  const previousOutputFields = new Set(
+    transformRules.value
+      .slice(0, currentIndex < 0 ? 0 : currentIndex)
+      .filter((item) => item.enabled && item.outputField)
+      .map((item) => item.outputField)
+  )
+  const baseFields = fields.value.filter((field: any) => !['DERIVED', 'SYSTEM'].includes(field.sourceType || 'EXTRACTED'))
+  const systemFields = fields.value.filter((field: any) => (field.sourceType || 'EXTRACTED') === 'SYSTEM')
+  const previousDerivedFields = fields.value.filter((field: any) => (field.sourceType || 'EXTRACTED') === 'DERIVED' && previousOutputFields.has(field.fieldCode))
+  return [
+    { label: '提取字段', options: baseFields },
+    { label: '前序加工字段', options: previousDerivedFields },
+    { label: '系统字段', options: systemFields }
+  ].filter((group) => group.options.length)
+}
+const firstAvailableConditionFieldCode = (rule: TransformRule) => conditionFieldGroups(rule)[0]?.options[0]?.fieldCode || ''
 const sampleValueByInput = (input: TransformInputField) => input.sampleValue || input.defaultValue || input.fieldCode
 const buildTransformSampleMap = (rule: TransformRule) => {
   return (rule.inputFields || []).reduce<Record<string, string>>((result, input) => {
@@ -1450,7 +1469,7 @@ const addTransformRule = (ruleType: TransformRuleType) => {
 }
 const addTransformCondition = () => {
   if (!selectedTransformRule.value) return
-  selectedTransformRule.value.conditions.push(createTransformCondition(fields.value[0]?.fieldCode || ''))
+  selectedTransformRule.value.conditions.push(createTransformCondition(firstAvailableConditionFieldCode(selectedTransformRule.value)))
 }
 const removeTransformCondition = (condition: TransformCondition) => {
   if (!selectedTransformRule.value) return
@@ -2589,8 +2608,10 @@ onMounted(async () => {
                   <el-table :data="selectedTransformRule.conditions" size="small" class="condition-table">
                     <el-table-column label="条件字段" min-width="220">
                       <template #default="{ row }">
-                        <el-select v-model="row.fieldCode" filterable allow-create placeholder="请选择或输入字段">
-                          <el-option v-for="field in fields" :key="field.fieldCode" :label="`${field.fieldName}（${field.fieldCode}）`" :value="field.fieldCode" />
+                        <el-select v-model="row.fieldCode" filterable clearable placeholder="请选择当前规则执行前可用字段">
+                          <el-option-group v-for="group in conditionFieldGroups(selectedTransformRule)" :key="group.label" :label="group.label">
+                            <el-option v-for="field in group.options" :key="field.fieldCode" :label="`${field.fieldName}（${field.fieldCode}）`" :value="field.fieldCode" />
+                          </el-option-group>
                         </el-select>
                       </template>
                     </el-table-column>
