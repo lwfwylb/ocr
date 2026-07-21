@@ -1025,6 +1025,22 @@ public class ConfigWizardPayload {
         public void setSampleValue(String sampleValue) { this.sampleValue = sampleValue; }
     }
 
+    public static class TransformCondition {
+        private String id;
+        private String fieldCode;
+        private String operator;
+        private String value;
+
+        public String getId() { return id; }
+        public void setId(String id) { this.id = id; }
+        public String getFieldCode() { return fieldCode; }
+        public void setFieldCode(String fieldCode) { this.fieldCode = fieldCode; }
+        public String getOperator() { return operator; }
+        public void setOperator(String operator) { this.operator = operator; }
+        public String getValue() { return value; }
+        public void setValue(String value) { this.value = value; }
+    }
+
     public static class TransformRule {
         private String id;
         private String ruleName;
@@ -1033,6 +1049,8 @@ public class ConfigWizardPayload {
         private String outputField;
         private String outputMode;
         private Boolean conditionEnabled;
+        private String conditionLogic;
+        private List<TransformCondition> conditions = new ArrayList<>();
         private String conditionField;
         private String conditionOperator;
         private String conditionValue;
@@ -1108,6 +1126,22 @@ public class ConfigWizardPayload {
 
         public void setConditionEnabled(Boolean conditionEnabled) {
             this.conditionEnabled = conditionEnabled;
+        }
+
+        public String getConditionLogic() {
+            return conditionLogic;
+        }
+
+        public void setConditionLogic(String conditionLogic) {
+            this.conditionLogic = conditionLogic;
+        }
+
+        public List<TransformCondition> getConditions() {
+            return conditions;
+        }
+
+        public void setConditions(List<TransformCondition> conditions) {
+            this.conditions = conditions;
         }
 
         public String getConditionField() {

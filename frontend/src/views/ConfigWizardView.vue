@@ -30,6 +30,8 @@ type ImageQuality = 'FAST_150' | 'STANDARD_300' | 'HIGH_450'
 type TransformOutputMode = 'OVERWRITE_INPUT' | 'WRITE_TARGET' | 'DERIVE_FIELD'
 type ResultFieldSourceType = 'EXTRACTED' | 'DERIVED' | 'SYSTEM'
 type DictMatchMode = 'EQUALS' | 'CONTAINS' | 'REGEX' | 'RANGE'
+type TransformConditionLogic = 'ALL' | 'ANY'
+type TransformConditionOperator = 'NOT_EMPTY' | 'EMPTY' | 'EQUALS' | 'NOT_EQUALS' | 'CONTAINS' | 'NOT_CONTAINS' | 'GT' | 'GTE' | 'LT' | 'LTE' | 'REGEX'
 type ValidationRuleType = 'REQUIRED' | 'FORMAT' | 'RANGE' | 'CROSS_FIELD' | 'UNIQUE' | 'MASTER_DATA'
 
 interface DictItem {
@@ -45,6 +47,13 @@ interface TransformInputField {
   sampleValue: string
 }
 
+interface TransformCondition {
+  id: string
+  fieldCode: string
+  operator: TransformConditionOperator
+  value: string
+}
+
 interface TransformRule {
   id: string
   ruleName: string
@@ -53,9 +62,8 @@ interface TransformRule {
   outputField: string
   outputMode?: TransformOutputMode
   conditionEnabled?: boolean
-  conditionField?: string
-  conditionOperator?: 'NOT_EMPTY' | 'EQUALS' | 'CONTAINS'
-  conditionValue?: string
+  conditionLogic?: TransformConditionLogic
+  conditions: TransformCondition[]
   enabled: boolean
   onFail: 'KEEP_ORIGINAL' | 'SET_NULL' | 'BLOCK' | 'REVIEW'
   dictMatchMode?: DictMatchMode
@@ -154,6 +162,12 @@ const createTransformInputField = (fieldCode: string): TransformInputField => ({
   defaultValue: '',
   sampleValue: ''
 })
+const createTransformCondition = (fieldCode = ''): TransformCondition => ({
+  id: `cond-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+  fieldCode,
+  operator: 'NOT_EMPTY',
+  value: ''
+})
 const ensureDictItemSourceValues = (rule: TransformRule) => {
   rule.dictItems = (rule.dictItems || []).map((item: any) => {
     const sourceValues = item.sourceValues || {}
@@ -173,6 +187,22 @@ const normalizeTransformRule = (rule: any): TransformRule => {
     sampleValue: input.sampleValue || ''
   })).filter((input: TransformInputField) => input.fieldCode)
   rule.dictItems = (rule.dictItems || []).map((item: any) => ({ sourceValues: item.sourceValues || {}, target: item.target || '' }))
+  const legacyCondition = rule.conditionField ? [{
+    id: `cond-${rule.id || Date.now()}-legacy`,
+    fieldCode: rule.conditionField,
+    operator: rule.conditionOperator || 'NOT_EMPTY',
+    value: rule.conditionValue || ''
+  }] : []
+  rule.conditionLogic = rule.conditionLogic || 'ALL'
+  rule.conditions = (Array.isArray(rule.conditions) && rule.conditions.length ? rule.conditions : legacyCondition).map((condition: any) => ({
+    id: condition.id || `cond-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    fieldCode: condition.fieldCode || '',
+    operator: condition.operator || 'NOT_EMPTY',
+    value: condition.value || ''
+  }))
+  delete rule.conditionField
+  delete rule.conditionOperator
+  delete rule.conditionValue
   ensureDictItemSourceValues(rule)
   return rule as TransformRule
 }
@@ -181,9 +211,7 @@ transformRules.value.forEach((rule) => {
   normalizeTransformRule(rule)
   rule.outputMode = rule.outputMode || 'DERIVE_FIELD'
   rule.conditionEnabled = rule.conditionEnabled ?? false
-  rule.conditionField = rule.conditionField || rule.inputFields[0]?.fieldCode || ''
-  rule.conditionOperator = rule.conditionOperator || 'NOT_EMPTY'
-  rule.conditionValue = rule.conditionValue || ''
+  rule.conditionLogic = rule.conditionLogic || 'ALL'
   rule.dictMatchMode = rule.dictMatchMode || (rule.ruleType === 'DICT' ? 'EQUALS' : 'EQUALS')
   rule.apiTimeout = rule.apiTimeout ?? 5
   rule.apiRetryCount = rule.apiRetryCount ?? 1
@@ -744,7 +772,6 @@ const transformRuleOutputSummary = (rule: TransformRule) => {
 const updateTransformInputFields = (rule: TransformRule, fieldCodes: string[]) => {
   const existing = new Map((rule.inputFields || []).map((input) => [input.fieldCode, input]))
   rule.inputFields = fieldCodes.map((fieldCode) => existing.get(fieldCode) || createTransformInputField(fieldCode))
-  if (!rule.conditionField && rule.inputFields.length) rule.conditionField = rule.inputFields[0].fieldCode
   if (rule.outputMode === 'OVERWRITE_INPUT' && !rule.outputField && rule.inputFields.length) rule.outputField = rule.inputFields[0].fieldCode
   ensureDictItemSourceValues(rule)
 }
@@ -1258,6 +1285,7 @@ const copyTransformRule = (rule: TransformRule) => {
     id: `rule-${Date.now()}`,
     ruleName: `${rule.ruleName}-副本`,
     inputFields: rule.inputFields.map((input) => ({ ...input })),
+    conditions: rule.conditions.map((condition) => ({ ...condition, id: `cond-${Date.now()}-${Math.random().toString(36).slice(2, 8)}` })),
     dictItems: rule.dictItems.map((item) => ({ sourceValues: { ...item.sourceValues }, target: item.target }))
   }
   const currentIndex = transformRules.value.findIndex((item) => item.id === rule.id)
@@ -1355,26 +1383,27 @@ const runValidationPreview = () => {
 }
 const addTransformRule = (ruleType: TransformRuleType) => {
   const id = `rule-${Date.now()}`
+  const defaultFieldCode = fields.value[0]?.fieldCode || ''
+  const defaultParamName = toParamName(defaultFieldCode)
   transformRules.value.push({
     id,
     ruleName: `新增${transformTypeLabel[ruleType]}规则`,
     ruleType,
-    inputFields: fields.value[0]?.fieldCode ? [createTransformInputField(fields.value[0].fieldCode)] : [],
+    inputFields: defaultFieldCode ? [createTransformInputField(defaultFieldCode)] : [],
     outputField: '',
     enabled: true,
     onFail: 'REVIEW',
     dictItems: ruleType === 'DICT' ? [{ sourceValues: {}, target: '' }] : [],
-    apiEndpoint: ruleType === 'API' ? '/api/example/{value}' : '',
+    apiEndpoint: ruleType === 'API' ? `/api/example/{${defaultParamName}}` : '',
     apiMethod: 'GET',
     apiResponsePath: '$.data.value',
     sqlDatasource: '只读数据源',
-    sqlText: ruleType === 'SQL' ? 'select target_value from table_name where source_value = :value' : '',
+    sqlText: ruleType === 'SQL' ? `select target_value from table_name where source_value = :${defaultParamName}` : '',
     sqlResultColumn: 'target_value',
     outputMode: 'DERIVE_FIELD',
     conditionEnabled: false,
-    conditionField: '',
-    conditionOperator: 'NOT_EMPTY',
-    conditionValue: '',
+    conditionLogic: 'ALL',
+    conditions: fields.value[0]?.fieldCode ? [createTransformCondition(fields.value[0].fieldCode)] : [],
     dictMatchMode: 'EQUALS',
     apiTimeout: 5,
     apiRetryCount: 1,
@@ -1385,6 +1414,14 @@ const addTransformRule = (ruleType: TransformRuleType) => {
   })
   normalizeTransformRule(transformRules.value[transformRules.value.length - 1])
   selectedRuleId.value = id
+}
+const addTransformCondition = () => {
+  if (!selectedTransformRule.value) return
+  selectedTransformRule.value.conditions.push(createTransformCondition(fields.value[0]?.fieldCode || ''))
+}
+const removeTransformCondition = (condition: TransformCondition) => {
+  if (!selectedTransformRule.value) return
+  selectedTransformRule.value.conditions = selectedTransformRule.value.conditions.filter((item) => item.id !== condition.id)
 }
 const addDictItem = () => {
   if (!selectedTransformRule.value) return
@@ -2476,19 +2513,53 @@ onMounted(async () => {
                   <el-radio-button :label="true">满足条件时执行</el-radio-button>
                 </el-radio-group>
               </el-form-item>
-              <el-form-item v-if="selectedTransformRule.conditionEnabled" label="条件配置" class="wide">
-                <div class="inline-fields">
-                  <el-select v-model="selectedTransformRule.conditionField" filterable allow-create placeholder="条件字段">
-                    <el-option v-for="field in fields" :key="field.fieldCode" :label="`${field.fieldName}（${field.fieldCode}）`" :value="field.fieldCode" />
-                  </el-select>
-                  <el-select v-model="selectedTransformRule.conditionOperator" placeholder="条件">
-                    <el-option label="非空时" value="NOT_EMPTY" />
-                    <el-option label="等于" value="EQUALS" />
-                    <el-option label="包含" value="CONTAINS" />
-                  </el-select>
-                  <el-input v-model="selectedTransformRule.conditionValue" :disabled="selectedTransformRule.conditionOperator === 'NOT_EMPTY'" placeholder="条件值" />
-                </div>
-              </el-form-item>
+              <template v-if="selectedTransformRule.conditionEnabled">
+                <el-form-item label="条件关系" class="wide">
+                  <div class="condition-toolbar">
+                    <el-radio-group v-model="selectedTransformRule.conditionLogic">
+                      <el-radio-button label="ALL">满足全部条件</el-radio-button>
+                      <el-radio-button label="ANY">满足任一条件</el-radio-button>
+                    </el-radio-group>
+                    <el-button type="primary" @click="addTransformCondition">新增条件</el-button>
+                  </div>
+                </el-form-item>
+                <el-form-item label="条件明细" class="wide">
+                  <el-table :data="selectedTransformRule.conditions" size="small" class="condition-table">
+                    <el-table-column label="条件字段" min-width="220">
+                      <template #default="{ row }">
+                        <el-select v-model="row.fieldCode" filterable allow-create placeholder="请选择或输入字段">
+                          <el-option v-for="field in fields" :key="field.fieldCode" :label="`${field.fieldName}（${field.fieldCode}）`" :value="field.fieldCode" />
+                        </el-select>
+                      </template>
+                    </el-table-column>
+                    <el-table-column label="判断方式" min-width="150">
+                      <template #default="{ row }">
+                        <el-select v-model="row.operator" placeholder="判断方式">
+                          <el-option label="不为空" value="NOT_EMPTY" />
+                          <el-option label="为空" value="EMPTY" />
+                          <el-option label="等于" value="EQUALS" />
+                          <el-option label="不等于" value="NOT_EQUALS" />
+                          <el-option label="包含" value="CONTAINS" />
+                          <el-option label="不包含" value="NOT_CONTAINS" />
+                          <el-option label="大于" value="GT" />
+                          <el-option label="大于等于" value="GTE" />
+                          <el-option label="小于" value="LT" />
+                          <el-option label="小于等于" value="LTE" />
+                          <el-option label="正则匹配" value="REGEX" />
+                        </el-select>
+                      </template>
+                    </el-table-column>
+                    <el-table-column label="条件值" min-width="220">
+                      <template #default="{ row }">
+                        <el-input v-model="row.value" :disabled="row.operator === 'NOT_EMPTY' || row.operator === 'EMPTY'" placeholder="为空/不为空无需填写" />
+                      </template>
+                    </el-table-column>
+                    <el-table-column label="操作" width="80" fixed="right">
+                      <template #default="{ row }"><el-button link type="danger" @click="removeTransformCondition(row)">删除</el-button></template>
+                    </el-table-column>
+                  </el-table>
+                </el-form-item>
+              </template>
             </el-form>
             </section>
 

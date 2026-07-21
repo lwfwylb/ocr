@@ -1142,19 +1142,67 @@ public class ExtractionResultService {
         if (!Boolean.TRUE.equals(rule.getConditionEnabled())) {
             return true;
         }
-        String conditionField = firstText(rule.getConditionField());
-        if (!StringUtils.hasText(conditionField)) {
-            return true;
+        List<ConfigWizardPayload.TransformCondition> conditions = normalizeTransformConditions(rule);
+        if (conditions.isEmpty()) {
+            return false;
         }
-        Object value = result.get(conditionField);
-        String operator = firstText(rule.getConditionOperator(), "NOT_EMPTY");
-        if ("NOT_EMPTY".equals(operator)) {
-            return !isBlankValue(value);
+        String logic = firstText(rule.getConditionLogic(), "ALL");
+        if ("ANY".equals(logic)) {
+            return conditions.stream().anyMatch(condition -> transformConditionMatched(condition, result));
         }
-        if ("CONTAINS".equals(operator)) {
-            return value != null && String.valueOf(value).contains(firstText(rule.getConditionValue(), ""));
+        return conditions.stream().allMatch(condition -> transformConditionMatched(condition, result));
+    }
+
+    private List<ConfigWizardPayload.TransformCondition> normalizeTransformConditions(ConfigWizardPayload.TransformRule rule) {
+        if (rule.getConditions() != null && !rule.getConditions().isEmpty()) {
+            return rule.getConditions();
         }
-        return value != null && String.valueOf(value).equals(firstText(rule.getConditionValue(), ""));
+        if (!StringUtils.hasText(rule.getConditionField())) {
+            return List.of();
+        }
+        ConfigWizardPayload.TransformCondition condition = new ConfigWizardPayload.TransformCondition();
+        condition.setFieldCode(rule.getConditionField());
+        condition.setOperator(firstText(rule.getConditionOperator(), "NOT_EMPTY"));
+        condition.setValue(rule.getConditionValue());
+        return List.of(condition);
+    }
+
+    private boolean transformConditionMatched(ConfigWizardPayload.TransformCondition condition, Map<String, Object> result) {
+        if (condition == null || !StringUtils.hasText(condition.getFieldCode())) {
+            return false;
+        }
+        Object rawValue = result.get(condition.getFieldCode());
+        String actual = rawValue == null ? "" : String.valueOf(rawValue).trim();
+        String expected = firstText(condition.getValue(), "").trim();
+        return switch (firstText(condition.getOperator(), "NOT_EMPTY")) {
+            case "EMPTY" -> isBlankValue(rawValue);
+            case "EQUALS" -> actual.equals(expected);
+            case "NOT_EQUALS" -> !actual.equals(expected);
+            case "CONTAINS" -> actual.contains(expected);
+            case "NOT_CONTAINS" -> !actual.contains(expected);
+            case "GT" -> decimalConditionMatched(actual, expected, "GT");
+            case "GTE" -> decimalConditionMatched(actual, expected, "GTE");
+            case "LT" -> decimalConditionMatched(actual, expected, "LT");
+            case "LTE" -> decimalConditionMatched(actual, expected, "LTE");
+            case "REGEX" -> regexMatches(expected, actual);
+            default -> !isBlankValue(rawValue);
+        };
+    }
+
+    private boolean decimalConditionMatched(String actual, String expected, String operator) {
+        BigDecimal actualValue = parseDecimal(actual);
+        BigDecimal expectedValue = parseDecimal(expected);
+        if (actualValue == null || expectedValue == null) {
+            return false;
+        }
+        int compareResult = actualValue.compareTo(expectedValue);
+        return switch (operator) {
+            case "GT" -> compareResult > 0;
+            case "GTE" -> compareResult >= 0;
+            case "LT" -> compareResult < 0;
+            case "LTE" -> compareResult <= 0;
+            default -> false;
+        };
     }
 
     private boolean regexMatches(String regex, String input) {

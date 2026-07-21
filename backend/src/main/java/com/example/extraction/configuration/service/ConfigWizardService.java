@@ -619,6 +619,9 @@ public class ConfigWizardService {
                     if (!StringUtils.hasText(rule.getOutputField())) {
                         issues.add(issue("WARN", "加工规则未维护输出字段：" + rule.getRuleName()));
                     }
+                    if (Boolean.TRUE.equals(rule.getConditionEnabled())) {
+                        validateTransformConditions(rule, fieldCodes, issues);
+                    }
                 }
             }
         } else {
@@ -676,6 +679,53 @@ public class ConfigWizardService {
         return hasEnabledValidationRules(payload);
     }
 
+    private void validateTransformConditions(ConfigWizardPayload.TransformRule rule, Set<String> fieldCodes, List<Map<String, Object>> issues) {
+        List<ConfigWizardPayload.TransformCondition> conditions = normalizeTransformConditions(rule);
+        if (conditions.isEmpty()) {
+            issues.add(issue("ERROR", "加工规则已启用执行条件，但未维护条件明细：" + rule.getRuleName()));
+            return;
+        }
+        String logic = firstText(rule.getConditionLogic(), "ALL");
+        if (!Set.of("ALL", "ANY").contains(logic)) {
+            issues.add(issue("ERROR", "加工规则条件关系只能为满足全部或满足任一：" + rule.getRuleName()));
+        }
+        for (ConfigWizardPayload.TransformCondition condition : conditions) {
+            if (!StringUtils.hasText(condition.getFieldCode())) {
+                issues.add(issue("ERROR", "加工规则条件字段不能为空：" + rule.getRuleName()));
+            } else if (!fieldCodes.contains(condition.getFieldCode())) {
+                issues.add(issue("WARN", "加工规则条件字段未在结果字段或目标字段中找到：" + condition.getFieldCode()));
+            }
+            String operator = firstText(condition.getOperator(), "NOT_EMPTY");
+            if (!Set.of("NOT_EMPTY", "EMPTY", "EQUALS", "NOT_EQUALS", "CONTAINS", "NOT_CONTAINS", "GT", "GTE", "LT", "LTE", "REGEX").contains(operator)) {
+                issues.add(issue("ERROR", "加工规则条件判断方式不支持：" + operator));
+            }
+            if (!Set.of("NOT_EMPTY", "EMPTY").contains(operator) && !StringUtils.hasText(condition.getValue())) {
+                issues.add(issue("ERROR", "加工规则条件值不能为空：" + rule.getRuleName()));
+            }
+            if ("REGEX".equals(operator) && StringUtils.hasText(condition.getValue())) {
+                try {
+                    Pattern.compile(condition.getValue());
+                } catch (PatternSyntaxException e) {
+                    issues.add(issue("ERROR", "加工规则条件正则表达式不合法：" + condition.getValue()));
+                }
+            }
+        }
+    }
+
+    private List<ConfigWizardPayload.TransformCondition> normalizeTransformConditions(ConfigWizardPayload.TransformRule rule) {
+        if (rule.getConditions() != null && !rule.getConditions().isEmpty()) {
+            return rule.getConditions();
+        }
+        if (!StringUtils.hasText(rule.getConditionField())) {
+            return List.of();
+        }
+        ConfigWizardPayload.TransformCondition condition = new ConfigWizardPayload.TransformCondition();
+        condition.setFieldCode(rule.getConditionField());
+        condition.setOperator(firstText(rule.getConditionOperator(), "NOT_EMPTY"));
+        condition.setValue(rule.getConditionValue());
+        return List.of(condition);
+    }
+
     private boolean hasEnabledTransformRules(ConfigWizardPayload payload) {
         return payload != null && payload.getTransformRules() != null
                 && payload.getTransformRules().stream().anyMatch(rule -> rule != null && Boolean.TRUE.equals(rule.getEnabled()));
@@ -688,6 +738,9 @@ public class ConfigWizardService {
 
     private Set<String> collectFieldCodes(ConfigWizardPayload payload) {
         Set<String> fieldCodes = new HashSet<>();
+        if (payload == null) {
+            return fieldCodes;
+        }
         if (payload.getExtractFields() != null) {
             payload.getExtractFields().forEach(field -> {
                 if (StringUtils.hasText(field.getFieldCode())) {
@@ -778,6 +831,18 @@ public class ConfigWizardService {
         issue.put("level", level);
         issue.put("message", message);
         return issue;
+    }
+
+    private String firstText(String... values) {
+        if (values == null) {
+            return null;
+        }
+        for (String value : values) {
+            if (StringUtils.hasText(value)) {
+                return value;
+            }
+        }
+        return null;
     }
 
     @SuppressWarnings("unchecked")
