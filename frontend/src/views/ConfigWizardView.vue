@@ -58,6 +58,14 @@ interface TransformCondition {
   value: string
 }
 
+interface SqlParamCheckRow {
+  paramName: string
+  sourceField: string
+  sampleValue: string
+  status: 'OK' | 'WARN' | 'ERROR'
+  message: string
+}
+
 interface TransformRule {
   id: string
   ruleName: string
@@ -774,6 +782,20 @@ const transformTypeLabel: Record<TransformRuleType, string> = {
   API: 'API 取数',
   SQL: 'SQL 查询'
 }
+const sqlNoDataStrategyLabel: Record<SqlNoDataStrategy, string> = {
+  SET_NULL: '置空继续',
+  REVIEW: '进入复核',
+  BLOCK: '阻断任务'
+}
+const sqlMultiRowStrategyLabel: Record<SqlMultiRowStrategy, string> = {
+  FIRST: '取第一行',
+  REVIEW: '进入复核',
+  BLOCK: '阻断任务'
+}
+const sqlNullStrategyLabel: Record<SqlNullStrategy, string> = {
+  SET_NULL: '置空继续',
+  REVIEW: '进入复核'
+}
 const transformRuleInputSummary = (rule: TransformRule) => {
   if (!rule.inputFields?.length) return '待配置依赖字段'
   return rule.inputFields.map((input) => input.fieldCode).join(' + ')
@@ -835,6 +857,43 @@ const buildTransformSampleMap = (rule: TransformRule) => {
 const replaceParamPlaceholders = (text: string, values: Record<string, string>) => {
   return Object.entries(values).reduce((result, [paramName, value]) => result.replace(new RegExp(`\\{${paramName}\\}`, 'g'), value), text)
 }
+const extractSqlParamNames = (sqlText = '') => {
+  const matches = Array.from(sqlText.matchAll(/:([A-Za-z_][A-Za-z0-9_]*)/g)).map((match) => match[1])
+  return Array.from(new Set(matches))
+}
+const sqlSafetyIssues = (sqlText = '') => {
+  const text = sqlText.trim()
+  const normalized = text.toLowerCase()
+  const issues: string[] = []
+  if (!text) issues.push('SQL 模板不能为空')
+  if (text && !normalized.startsWith('select')) issues.push('仅允许 SELECT 查询')
+  if (/[;]/.test(text)) issues.push('SQL 模板不允许包含分号')
+  if (/(--|\/\*)/.test(text)) issues.push('SQL 模板不允许包含注释')
+  if (/\b(insert|update|delete|drop|truncate|alter|merge|call|execute|grant|revoke|create)\b/i.test(text)) issues.push('SQL 模板包含高风险关键字')
+  return issues
+}
+const sqlParamRows = (rule: TransformRule): SqlParamCheckRow[] => {
+  const inputMap = new Map((rule.inputFields || []).map((input) => [input.paramName, input]))
+  return extractSqlParamNames(rule.sqlText).map((paramName) => {
+    const input = inputMap.get(paramName)
+    if (!input) {
+      return { paramName, sourceField: '未映射', sampleValue: '', status: 'ERROR', message: 'SQL 参数未绑定依赖字段' }
+    }
+    const paramError = transformParamNameError(rule, input)
+    if (paramError) {
+      return { paramName, sourceField: fieldLabelByCode(input.fieldCode), sampleValue: sampleValueByInput(input), status: 'ERROR', message: paramError }
+    }
+    return { paramName, sourceField: fieldLabelByCode(input.fieldCode), sampleValue: sampleValueByInput(input), status: 'OK', message: '已绑定' }
+  })
+}
+const unusedSqlInputs = (rule: TransformRule) => {
+  const params = new Set(extractSqlParamNames(rule.sqlText))
+  return (rule.inputFields || []).filter((input) => input.paramName && !params.has(input.paramName))
+}
+const sqlPreviewBlockingMessages = (rule: TransformRule) => [
+  ...sqlSafetyIssues(rule.sqlText),
+  ...sqlParamRows(rule).filter((row) => row.status === 'ERROR').map((row) => `${row.paramName}：${row.message}`)
+]
 const regexMatchesSample = (pattern: string, value: string) => {
   try {
     return new RegExp(pattern).test(value)
@@ -1526,7 +1585,17 @@ const runTransformPreview = () => {
   } else if (rule.ruleType === 'API') {
     previewOutput.value = `模拟调用 ${replaceParamPlaceholders(rule.apiEndpoint, sampleValues)}；请求参数 ${JSON.stringify(sampleValues)}；响应取值 ${rule.apiResponsePath}`
   } else {
-    previewOutput.value = `模拟执行只读 SQL；绑定参数 ${JSON.stringify(sampleValues)}；返回字段 ${rule.sqlResultColumn || 'result'}`
+    const blockingMessages = sqlPreviewBlockingMessages(rule)
+    if (blockingMessages.length) {
+      previewOutput.value = `SQL 配置未通过检查：${blockingMessages.join('；')}`
+      ElMessage.warning('SQL 配置未通过检查，请先修正参数或 SQL 模板')
+      return
+    }
+    const boundParams = extractSqlParamNames(rule.sqlText).reduce<Record<string, string>>((result, paramName) => {
+      result[paramName] = sampleValues[paramName] || ''
+      return result
+    }, {})
+    previewOutput.value = `模拟执行只读 SQL；数据源 ${rule.sqlDatasource || '未选择'}；绑定参数 ${JSON.stringify(boundParams)}；返回字段 ${rule.sqlResultColumn || 'result'}；未查到${sqlNoDataStrategyLabel[rule.sqlNoDataStrategy || 'REVIEW']}，多行${sqlMultiRowStrategyLabel[rule.sqlMultiRowStrategy || 'FIRST']}，空值${sqlNullStrategyLabel[rule.sqlNullStrategy || 'REVIEW']}；超时 ${rule.sqlTimeoutSeconds || 5} 秒`
   }
   ElMessage.success('已生成加工预览')
 }
@@ -2746,7 +2815,7 @@ onMounted(async () => {
 
             <section v-if="selectedTransformRule.ruleType === 'SQL'" class="rule-section">
               <h3>类型配置：SQL 查询</h3>
-              <el-alert class="mb-12" title="SQL 仅支持 SELECT，只允许使用参数占位符，禁止拼接用户输入。" type="warning" :closable="false" />
+              <el-alert class="mb-12" title="SQL 仅支持参数化 SELECT 查询；运行预览和配置验证会检查只读、危险关键字和参数绑定。" type="warning" :closable="false" />
               <el-form label-width="130px" class="form-grid">
                 <el-form-item label="只读数据源">
                   <el-select v-model="selectedTransformRule.sqlDatasource">
@@ -2761,13 +2830,49 @@ onMounted(async () => {
                 <el-form-item label="最大返回行">
                   <el-input-number v-model="selectedTransformRule.sqlMaxRows" :min="1" :max="10" />
                 </el-form-item>
+                <el-form-item label="超时秒数">
+                  <el-input-number v-model="selectedTransformRule.sqlTimeoutSeconds" :min="1" :max="60" />
+                </el-form-item>
+                <el-form-item label="未查到数据">
+                  <el-select v-model="selectedTransformRule.sqlNoDataStrategy">
+                    <el-option label="置空继续" value="SET_NULL" />
+                    <el-option label="进入复核" value="REVIEW" />
+                    <el-option label="阻断任务" value="BLOCK" />
+                  </el-select>
+                </el-form-item>
+                <el-form-item label="返回多行">
+                  <el-select v-model="selectedTransformRule.sqlMultiRowStrategy">
+                    <el-option label="取第一行" value="FIRST" />
+                    <el-option label="进入复核" value="REVIEW" />
+                    <el-option label="阻断任务" value="BLOCK" />
+                  </el-select>
+                </el-form-item>
+                <el-form-item label="返回空值">
+                  <el-select v-model="selectedTransformRule.sqlNullStrategy">
+                    <el-option label="置空继续" value="SET_NULL" />
+                    <el-option label="进入复核" value="REVIEW" />
+                  </el-select>
+                </el-form-item>
                 <el-form-item label="只读校验">
                   <el-switch v-model="selectedTransformRule.sqlReadonlyChecked" active-text="已校验" inactive-text="待校验" />
                 </el-form-item>
                 <el-form-item label="SQL 模板" class="wide">
-                  <el-input v-model="selectedTransformRule.sqlText" type="textarea" :rows="5" />
+                  <el-input v-model="selectedTransformRule.sqlText" type="textarea" :rows="5" placeholder="select product_name from md_product where product_code = :productCode" />
                 </el-form-item>
               </el-form>
+              <div class="sql-check-panel">
+                <div class="subsection-title">SQL 参数检查</div>
+                <el-alert v-if="sqlSafetyIssues(selectedTransformRule.sqlText).length" class="mb-8" type="error" :closable="false" :title="sqlSafetyIssues(selectedTransformRule.sqlText).join('；')" />
+                <el-table :data="sqlParamRows(selectedTransformRule)" size="small" empty-text="SQL 中未识别到 :paramName 参数" border>
+                  <el-table-column prop="paramName" label="SQL参数" min-width="120" />
+                  <el-table-column prop="sourceField" label="绑定字段" min-width="220" show-overflow-tooltip />
+                  <el-table-column prop="sampleValue" label="测试值" min-width="150" show-overflow-tooltip />
+                  <el-table-column label="状态" width="110">
+                    <template #default="{ row }"><el-tag :type="row.status === 'ERROR' ? 'danger' : row.status === 'WARN' ? 'warning' : 'success'">{{ row.message }}</el-tag></template>
+                  </el-table-column>
+                </el-table>
+                <el-alert v-if="unusedSqlInputs(selectedTransformRule).length" class="mt-8" type="warning" :closable="false" :title="`以下依赖字段未被 SQL 使用：${unusedSqlInputs(selectedTransformRule).map((input) => input.paramName).join('、')}`" />
+              </div>
             </section>
 
             <section class="rule-preview">
@@ -2777,7 +2882,7 @@ onMounted(async () => {
               </div>
               <el-button type="primary" @click="runTransformPreview">运行预览</el-button>
               <div class="preview-result">
-                <el-tag :type="previewOutput.includes('跳过规则') || previewOutput.includes('未命中') ? 'warning' : 'success'">{{ previewOutput.includes('跳过规则') ? '跳过规则' : '预览通过' }}</el-tag>
+                <el-tag :type="previewOutput.includes('未通过检查') ? 'danger' : previewOutput.includes('跳过规则') || previewOutput.includes('未命中') ? 'warning' : 'success'">{{ previewOutput.includes('未通过检查') ? '配置异常' : previewOutput.includes('跳过规则') ? '跳过规则' : '预览通过' }}</el-tag>
                 <strong>{{ previewOutput }}</strong>
               </div>
             </section>

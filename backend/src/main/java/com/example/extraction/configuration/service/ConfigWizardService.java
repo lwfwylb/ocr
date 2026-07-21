@@ -30,6 +30,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.regex.PatternSyntaxException;
 
@@ -626,6 +627,9 @@ public class ConfigWizardService {
                     if (Boolean.TRUE.equals(rule.getConditionEnabled())) {
                         validateTransformConditions(rule, fieldCodes, availableTransformConditionFields, issues);
                     }
+                    if ("SQL".equals(rule.getRuleType())) {
+                        validateSqlTransformRule(rule, issues);
+                    }
                     if (StringUtils.hasText(rule.getOutputField())) {
                         availableTransformConditionFields.add(rule.getOutputField());
                     }
@@ -664,6 +668,92 @@ public class ConfigWizardService {
             issues.add(issue("INFO", "加工规则和校验规则基础检查通过"));
         }
         return issues;
+    }
+
+    private void validateSqlTransformRule(ConfigWizardPayload.TransformRule rule, List<Map<String, Object>> issues) {
+        if (!StringUtils.hasText(rule.getSqlDatasource())) {
+            issues.add(issue("ERROR", "SQL 查询规则必须选择只读数据源：" + rule.getRuleName()));
+        }
+        if (!StringUtils.hasText(rule.getSqlResultColumn())) {
+            issues.add(issue("ERROR", "SQL 查询规则必须维护结果字段：" + rule.getRuleName()));
+        }
+        if (rule.getSqlMaxRows() == null || rule.getSqlMaxRows() < 1 || rule.getSqlMaxRows() > 10) {
+            issues.add(issue("ERROR", "SQL 查询最大返回行必须在 1 到 10 之间：" + rule.getRuleName()));
+        }
+        if (rule.getSqlTimeoutSeconds() == null || rule.getSqlTimeoutSeconds() < 1 || rule.getSqlTimeoutSeconds() > 60) {
+            issues.add(issue("ERROR", "SQL 查询超时秒数必须在 1 到 60 之间：" + rule.getRuleName()));
+        }
+        if (!Boolean.TRUE.equals(rule.getSqlReadonlyChecked())) {
+            issues.add(issue("ERROR", "SQL 查询规则必须完成只读校验：" + rule.getRuleName()));
+        }
+        validateEnumValue(rule.getSqlNoDataStrategy(), Set.of("SET_NULL", "REVIEW", "BLOCK"), "SQL 未查到数据处理方式不支持：", issues);
+        validateEnumValue(rule.getSqlMultiRowStrategy(), Set.of("FIRST", "REVIEW", "BLOCK"), "SQL 返回多行处理方式不支持：", issues);
+        validateEnumValue(rule.getSqlNullStrategy(), Set.of("SET_NULL", "REVIEW"), "SQL 返回空值处理方式不支持：", issues);
+
+        for (String message : sqlSafetyIssues(rule.getSqlText())) {
+            issues.add(issue("ERROR", "SQL 查询规则「" + rule.getRuleName() + "」" + message));
+        }
+
+        Set<String> inputParamNames = new HashSet<>();
+        if (rule.getInputFields() != null) {
+            for (ConfigWizardPayload.TransformInputField input : rule.getInputFields()) {
+                if (StringUtils.hasText(input.getParamName())) {
+                    inputParamNames.add(input.getParamName());
+                }
+            }
+        }
+        Set<String> sqlParamNames = extractSqlParamNames(rule.getSqlText());
+        for (String paramName : sqlParamNames) {
+            if (!inputParamNames.contains(paramName)) {
+                issues.add(issue("ERROR", "SQL 参数未绑定依赖字段：" + paramName + "，规则：" + rule.getRuleName()));
+            }
+        }
+        for (String inputParamName : inputParamNames) {
+            if (!sqlParamNames.contains(inputParamName)) {
+                issues.add(issue("WARN", "SQL 查询依赖字段未在 SQL 模板中使用：" + inputParamName + "，规则：" + rule.getRuleName()));
+            }
+        }
+    }
+
+    private void validateEnumValue(String value, Set<String> allowedValues, String messagePrefix, List<Map<String, Object>> issues) {
+        if (StringUtils.hasText(value) && !allowedValues.contains(value)) {
+            issues.add(issue("ERROR", messagePrefix + value));
+        }
+    }
+
+    private List<String> sqlSafetyIssues(String sqlText) {
+        List<String> issues = new ArrayList<>();
+        if (!StringUtils.hasText(sqlText)) {
+            issues.add("SQL 模板不能为空");
+            return issues;
+        }
+        String text = sqlText.trim();
+        String lower = text.toLowerCase();
+        if (!lower.startsWith("select")) {
+            issues.add("仅允许 SELECT 查询");
+        }
+        if (text.contains(";")) {
+            issues.add("SQL 模板不允许包含分号");
+        }
+        if (text.contains("--") || text.contains("/*")) {
+            issues.add("SQL 模板不允许包含注释");
+        }
+        if (Pattern.compile("\\b(insert|update|delete|drop|truncate|alter|merge|call|execute|grant|revoke|create)\\b", Pattern.CASE_INSENSITIVE).matcher(text).find()) {
+            issues.add("包含高风险关键字");
+        }
+        return issues;
+    }
+
+    private Set<String> extractSqlParamNames(String sqlText) {
+        Set<String> params = new HashSet<>();
+        if (!StringUtils.hasText(sqlText)) {
+            return params;
+        }
+        Matcher matcher = Pattern.compile(":([A-Za-z_][A-Za-z0-9_]*)").matcher(sqlText);
+        while (matcher.find()) {
+            params.add(matcher.group(1));
+        }
+        return params;
     }
 
     private boolean transformProcessingEnabled(ConfigWizardPayload payload) {

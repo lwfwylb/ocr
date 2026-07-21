@@ -277,6 +277,16 @@ body {
   margin-bottom: 8px;
 }
 
+.mb-8 {
+  margin-bottom: 6px;
+}
+
+.mt-8 {
+  margin-top: 6px;
+}
+
+
+
 .mt-16 {
   margin-top: 10px;
 }
@@ -747,6 +757,21 @@ body {
 .rule-list-card,
 .rule-editor-card {
   min-height: 500px;
+}
+
+.sql-check-panel {
+  margin-top: 8px;
+  padding: 10px;
+  background: #f8fafc;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+}
+
+.subsection-title {
+  margin-bottom: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #1f2937;
 }
 
 .rule-item {

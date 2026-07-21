@@ -1074,6 +1074,10 @@ public class ConfigWizardPayload {
         private String sqlResultColumn;
         private Integer sqlMaxRows;
         private Boolean sqlReadonlyChecked;
+        private String sqlNoDataStrategy;
+        private String sqlMultiRowStrategy;
+        private String sqlNullStrategy;
+        private Integer sqlTimeoutSeconds;
 
         public String getId() {
             return id;
@@ -1305,6 +1309,38 @@ public class ConfigWizardPayload {
 
         public void setSqlReadonlyChecked(Boolean sqlReadonlyChecked) {
             this.sqlReadonlyChecked = sqlReadonlyChecked;
+        }
+
+        public String getSqlNoDataStrategy() {
+            return sqlNoDataStrategy;
+        }
+
+        public void setSqlNoDataStrategy(String sqlNoDataStrategy) {
+            this.sqlNoDataStrategy = sqlNoDataStrategy;
+        }
+
+        public String getSqlMultiRowStrategy() {
+            return sqlMultiRowStrategy;
+        }
+
+        public void setSqlMultiRowStrategy(String sqlMultiRowStrategy) {
+            this.sqlMultiRowStrategy = sqlMultiRowStrategy;
+        }
+
+        public String getSqlNullStrategy() {
+            return sqlNullStrategy;
+        }
+
+        public void setSqlNullStrategy(String sqlNullStrategy) {
+            this.sqlNullStrategy = sqlNullStrategy;
+        }
+
+        public Integer getSqlTimeoutSeconds() {
+            return sqlTimeoutSeconds;
+        }
+
+        public void setSqlTimeoutSeconds(Integer sqlTimeoutSeconds) {
+            this.sqlTimeoutSeconds = sqlTimeoutSeconds;
         }
     }
 
