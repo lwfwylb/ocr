@@ -599,10 +599,24 @@ public class ConfigWizardService {
                     if (!StringUtils.hasText(rule.getRuleType())) {
                         issues.add(issue("ERROR", "加工规则类型不能为空：" + rule.getRuleName()));
                     }
-                    if (StringUtils.hasText(rule.getInputField()) && !fieldCodes.contains(rule.getInputField())) {
-                        issues.add(issue("WARN", "加工规则输入字段未在提取字段或目标字段中找到：" + rule.getInputField()));
+                    if (rule.getInputFields() == null || rule.getInputFields().isEmpty()) {
+                        issues.add(issue("ERROR", "加工规则至少需要选择一个依赖字段：" + rule.getRuleName()));
+                    } else {
+                        Set<String> paramNames = new HashSet<>();
+                        for (ConfigWizardPayload.TransformInputField input : rule.getInputFields()) {
+                            if (!StringUtils.hasText(input.getFieldCode())) {
+                                issues.add(issue("ERROR", "加工规则依赖字段不能为空：" + rule.getRuleName()));
+                            } else if (!fieldCodes.contains(input.getFieldCode())) {
+                                issues.add(issue("WARN", "加工规则依赖字段未在结果字段或目标字段中找到：" + input.getFieldCode()));
+                            }
+                            if (!StringUtils.hasText(input.getParamName())) {
+                                issues.add(issue("ERROR", "加工规则参数名不能为空：" + rule.getRuleName()));
+                            } else if (!paramNames.add(input.getParamName())) {
+                                issues.add(issue("ERROR", "加工规则参数名不能重复：" + input.getParamName()));
+                            }
+                        }
                     }
-                    if (!"OVERWRITE_INPUT".equals(rule.getOutputMode()) && !StringUtils.hasText(rule.getOutputField())) {
+                    if (!StringUtils.hasText(rule.getOutputField())) {
                         issues.add(issue("WARN", "加工规则未维护输出字段：" + rule.getRuleName()));
                     }
                 }

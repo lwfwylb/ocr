@@ -980,10 +980,10 @@ public class ExtractionResultService {
             if (rule == null || Boolean.FALSE.equals(rule.getEnabled()) || !conditionPassed(rule, result)) {
                 continue;
             }
-            String inputField = firstText(rule.getInputField());
+            Map<String, Object> inputValues = resolveTransformInputValues(rule, result);
             String outputField = resolveTransformOutputField(rule);
-            Object inputValue = StringUtils.hasText(inputField) ? result.get(inputField) : null;
-            TransformValue transformValue = transformValue(rule, inputValue);
+            Object fallbackValue = firstInputValue(inputValues);
+            TransformValue transformValue = transformValue(rule, inputValues);
             if (transformValue.success()) {
                 result.put(outputField, transformValue.value());
                 confidenceJson.put(outputField, new BigDecimal("0.95"));
@@ -995,12 +995,12 @@ public class ExtractionResultService {
                 result.put(outputField, null);
                 confidenceJson.put(outputField, BigDecimal.ZERO);
             } else if ("REVIEW".equals(onFail) || "BLOCK".equals(onFail)) {
-                result.put(outputField, "KEEP_ORIGINAL".equals(onFail) ? inputValue : null);
+                result.put(outputField, null);
                 confidenceJson.put(outputField, BigDecimal.ZERO);
                 reviewRequired = true;
-            } else if (StringUtils.hasText(outputField) && inputValue != null) {
-                result.put(outputField, inputValue);
-                confidenceJson.put(outputField, confidenceJson.getOrDefault(inputField, new BigDecimal("0.60")));
+            } else if (StringUtils.hasText(outputField) && fallbackValue != null) {
+                result.put(outputField, fallbackValue);
+                confidenceJson.put(outputField, new BigDecimal("0.60"));
             }
         }
         if (!warnings.isEmpty()) {
@@ -1020,44 +1020,89 @@ public class ExtractionResultService {
                 && payload.getTransformRules().stream().anyMatch(rule -> rule != null && Boolean.TRUE.equals(rule.getEnabled()));
     }
 
-    private TransformValue transformValue(ConfigWizardPayload.TransformRule rule, Object inputValue) {
-        if (isBlankValue(inputValue)) {
-            return TransformValue.failed("输入字段为空");
+    private Map<String, Object> resolveTransformInputValues(ConfigWizardPayload.TransformRule rule, Map<String, Object> result) {
+        Map<String, Object> values = new LinkedHashMap<>();
+        if (rule.getInputFields() == null) {
+            return values;
+        }
+        for (ConfigWizardPayload.TransformInputField input : rule.getInputFields()) {
+            String fieldCode = firstText(input.getFieldCode());
+            String paramName = firstText(input.getParamName(), fieldCode);
+            if (!StringUtils.hasText(fieldCode) || !StringUtils.hasText(paramName)) {
+                continue;
+            }
+            Object value = result.get(fieldCode);
+            if (isBlankValue(value) && StringUtils.hasText(input.getDefaultValue())) {
+                value = input.getDefaultValue();
+            }
+            if (Boolean.TRUE.equals(input.getRequired()) && isBlankValue(value)) {
+                return Map.of();
+            }
+            if (!isBlankValue(value)) {
+                values.put(paramName, value);
+            }
+        }
+        return values;
+    }
+
+    private Object firstInputValue(Map<String, Object> inputValues) {
+        return inputValues.values().stream().findFirst().orElse(null);
+    }
+
+    private TransformValue transformValue(ConfigWizardPayload.TransformRule rule, Map<String, Object> inputValues) {
+        if (inputValues.isEmpty()) {
+            return TransformValue.failed("依赖字段为空");
         }
         return switch (firstText(rule.getRuleType(), "DICT")) {
-            case "API" -> TransformValue.success(simulatedApiValue(rule, inputValue));
-            case "SQL" -> TransformValue.success(simulatedSqlValue(rule, inputValue));
-            default -> dictTransformValue(rule, inputValue);
+            case "API" -> TransformValue.success(simulatedApiValue(rule, inputValues));
+            case "SQL" -> TransformValue.success(simulatedSqlValue(rule, inputValues));
+            default -> dictTransformValue(rule, inputValues);
         };
     }
 
-    private TransformValue dictTransformValue(ConfigWizardPayload.TransformRule rule, Object inputValue) {
+    private TransformValue dictTransformValue(ConfigWizardPayload.TransformRule rule, Map<String, Object> inputValues) {
         if (rule.getDictItems() == null || rule.getDictItems().isEmpty()) {
             return TransformValue.failed("未维护字典明细");
         }
-        String inputText = String.valueOf(inputValue).trim();
         String matchMode = firstText(transformRuleText(rule, "dictMatchMode"), "EQUALS");
         for (Map<String, Object> item : rule.getDictItems()) {
-            String source = stringValue(item.get("source"));
-            String target = stringValue(item.get("target"));
-            if (!StringUtils.hasText(source)) {
+            if (item.get("sourceValues") instanceof Map<?, ?> sourceValues && !sourceValues.isEmpty()) {
+                boolean hasConstraint = false;
+                boolean matched = true;
+                for (ConfigWizardPayload.TransformInputField input : rule.getInputFields()) {
+                    String paramName = firstText(input.getParamName(), input.getFieldCode());
+                    Object expected = sourceValues.get(paramName);
+                    String expectedText = expected == null ? "" : String.valueOf(expected).trim();
+                    if (!StringUtils.hasText(expectedText)) {
+                        continue;
+                    }
+                    hasConstraint = true;
+                    String actualText = String.valueOf(inputValues.getOrDefault(paramName, "")).trim();
+                    boolean fieldMatched = switch (matchMode) {
+                        case "CONTAINS" -> actualText.contains(expectedText);
+                        case "REGEX" -> regexMatches(expectedText, actualText);
+                        case "RANGE" -> rangeMatches(expectedText, actualText);
+                        default -> actualText.equals(expectedText);
+                    };
+                    if (!fieldMatched) {
+                        matched = false;
+                        break;
+                    }
+                }
+                matched = matched && hasConstraint;
+                if (matched) {
+                    String target = stringValue(item.get("target"));
+                    return TransformValue.success(StringUtils.hasText(target) ? target : sourceValues.toString());
+                }
                 continue;
-            }
-            boolean matched = switch (matchMode) {
-                case "CONTAINS" -> inputText.contains(source);
-                case "REGEX" -> regexMatches(source, inputText);
-                case "RANGE" -> rangeMatches(source, inputText);
-                default -> inputText.equals(source);
-            };
-            if (matched) {
-                return TransformValue.success(StringUtils.hasText(target) ? target : source);
             }
         }
         return TransformValue.failed("未命中字典映射");
     }
 
-    private Object simulatedApiValue(ConfigWizardPayload.TransformRule rule, Object inputValue) {
-        String key = (firstText(rule.getOutputField(), transformRuleText(rule, "apiResponsePath"), rule.getRuleName()) + " " + inputValue).toLowerCase();
+    private Object simulatedApiValue(ConfigWizardPayload.TransformRule rule, Map<String, Object> inputValues) {
+        Object inputValue = firstInputValue(inputValues);
+        String key = (firstText(rule.getOutputField(), transformRuleText(rule, "apiResponsePath"), rule.getRuleName()) + " " + inputValues).toLowerCase();
         if (key.contains("account") || key.contains("账户") || key.contains("账号")) {
             return "模拟账户名称-" + tailDigits(String.valueOf(inputValue));
         }
@@ -1070,8 +1115,9 @@ public class ExtractionResultService {
         return "模拟API取数-" + inputValue;
     }
 
-    private Object simulatedSqlValue(ConfigWizardPayload.TransformRule rule, Object inputValue) {
-        String key = (firstText(rule.getOutputField(), transformRuleText(rule, "sqlResultColumn"), transformRuleText(rule, "sqlText")) + " " + inputValue).toLowerCase();
+    private Object simulatedSqlValue(ConfigWizardPayload.TransformRule rule, Map<String, Object> inputValues) {
+        Object inputValue = firstInputValue(inputValues);
+        String key = (firstText(rule.getOutputField(), transformRuleText(rule, "sqlResultColumn"), transformRuleText(rule, "sqlText")) + " " + inputValues).toLowerCase();
         if (key.contains("product_name") || key.contains("产品名称")) {
             return "模拟产品名称-" + inputValue;
         }
@@ -1085,17 +1131,22 @@ public class ExtractionResultService {
     }
 
     private String resolveTransformOutputField(ConfigWizardPayload.TransformRule rule) {
-        if ("OVERWRITE_INPUT".equals(rule.getOutputMode())) {
-            return firstText(rule.getInputField(), rule.getOutputField(), firstText(rule.getRuleType(), "transform").toLowerCase());
+        String firstInputField = "";
+        if (rule.getInputFields() != null && !rule.getInputFields().isEmpty()) {
+            firstInputField = firstText(rule.getInputFields().get(0).getFieldCode());
         }
-        return firstText(rule.getOutputField(), rule.getInputField(), firstText(rule.getRuleType(), "transform").toLowerCase());
+        return firstText(rule.getOutputField(), firstInputField, firstText(rule.getRuleType(), "transform").toLowerCase());
     }
 
     private boolean conditionPassed(ConfigWizardPayload.TransformRule rule, Map<String, Object> result) {
         if (!Boolean.TRUE.equals(rule.getConditionEnabled())) {
             return true;
         }
-        Object value = result.get(firstText(rule.getConditionField(), rule.getInputField()));
+        String conditionField = firstText(rule.getConditionField());
+        if (!StringUtils.hasText(conditionField)) {
+            return true;
+        }
+        Object value = result.get(conditionField);
         String operator = firstText(rule.getConditionOperator(), "NOT_EMPTY");
         if ("NOT_EMPTY".equals(operator)) {
             return !isBlankValue(value);

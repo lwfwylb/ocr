@@ -33,15 +33,23 @@ type DictMatchMode = 'EQUALS' | 'CONTAINS' | 'REGEX' | 'RANGE'
 type ValidationRuleType = 'REQUIRED' | 'FORMAT' | 'RANGE' | 'CROSS_FIELD' | 'UNIQUE' | 'MASTER_DATA'
 
 interface DictItem {
-  source: string
+  sourceValues: Record<string, string>
   target: string
+}
+
+interface TransformInputField {
+  fieldCode: string
+  paramName: string
+  required: boolean
+  defaultValue: string
+  sampleValue: string
 }
 
 interface TransformRule {
   id: string
   ruleName: string
   ruleType: TransformRuleType
-  inputField: string
+  inputFields: TransformInputField[]
   outputField: string
   outputMode?: TransformOutputMode
   conditionEnabled?: boolean
@@ -54,7 +62,6 @@ interface TransformRule {
   dictItems: DictItem[]
   apiEndpoint: string
   apiMethod: 'GET' | 'POST'
-  apiParamName: string
   apiResponsePath: string
   apiTimeout?: number
   apiRetryCount?: number
@@ -135,11 +142,46 @@ fields.value.forEach((field) => {
   mutable.regexFlags = ''
   mutable.regexGroup = 1
 })
+const toParamName = (fieldCode: string) => {
+  const normalized = String(fieldCode || '').trim()
+  if (!normalized) return 'param'
+  return normalized.replace(/_([a-zA-Z0-9])/g, (_, char: string) => char.toUpperCase())
+}
+const createTransformInputField = (fieldCode: string): TransformInputField => ({
+  fieldCode,
+  paramName: toParamName(fieldCode),
+  required: true,
+  defaultValue: '',
+  sampleValue: ''
+})
+const ensureDictItemSourceValues = (rule: TransformRule) => {
+  rule.dictItems = (rule.dictItems || []).map((item: any) => {
+    const sourceValues = item.sourceValues || {}
+    rule.inputFields.forEach((input) => {
+      if (sourceValues[input.paramName] === undefined) sourceValues[input.paramName] = ''
+    })
+    return { sourceValues, target: item.target || '' }
+  })
+}
+const normalizeTransformRule = (rule: any): TransformRule => {
+  const inputFields = Array.isArray(rule.inputFields) ? rule.inputFields : []
+  rule.inputFields = inputFields.map((input: any) => ({
+    fieldCode: input.fieldCode || '',
+    paramName: input.paramName || toParamName(input.fieldCode || ''),
+    required: input.required !== false,
+    defaultValue: input.defaultValue || '',
+    sampleValue: input.sampleValue || ''
+  })).filter((input: TransformInputField) => input.fieldCode)
+  rule.dictItems = (rule.dictItems || []).map((item: any) => ({ sourceValues: item.sourceValues || {}, target: item.target || '' }))
+  ensureDictItemSourceValues(rule)
+  return rule as TransformRule
+}
 const transformRules = ref<TransformRule[]>([])
 transformRules.value.forEach((rule) => {
+  normalizeTransformRule(rule)
   rule.outputMode = rule.outputMode || 'DERIVE_FIELD'
-  rule.conditionEnabled = rule.conditionEnabled ?? Boolean(rule.inputField)
-  rule.conditionField = rule.conditionField || rule.inputField
+  rule.conditionEnabled = rule.conditionEnabled ?? false
+  rule.conditionField = rule.conditionField || rule.inputFields[0]?.fieldCode || ''
   rule.conditionOperator = rule.conditionOperator || 'NOT_EMPTY'
   rule.conditionValue = rule.conditionValue || ''
   rule.dictMatchMode = rule.dictMatchMode || (rule.ruleType === 'DICT' ? 'EQUALS' : 'EQUALS')
@@ -259,7 +301,6 @@ const preprocessSteps = ref<PreprocessStep[]>([
     imageFormat: 'PNG'
   }
 ])
-const previewInput = ref('100000-1000000')
 const previewOutput = ref('大额')
 const derivedFieldForm = reactive({
   fieldCode: '',
@@ -692,6 +733,69 @@ const transformTypeLabel: Record<TransformRuleType, string> = {
   API: 'API 取数',
   SQL: 'SQL 查询'
 }
+const transformRuleInputSummary = (rule: TransformRule) => {
+  if (!rule.inputFields?.length) return '待配置依赖字段'
+  return rule.inputFields.map((input) => input.fieldCode).join(' + ')
+}
+const transformRuleOutputSummary = (rule: TransformRule) => {
+  if (rule.outputMode === 'OVERWRITE_INPUT') return rule.outputField ? `覆盖 ${rule.outputField}` : '待选择覆盖字段'
+  return rule.outputField || '待配置输出字段'
+}
+const updateTransformInputFields = (rule: TransformRule, fieldCodes: string[]) => {
+  const existing = new Map((rule.inputFields || []).map((input) => [input.fieldCode, input]))
+  rule.inputFields = fieldCodes.map((fieldCode) => existing.get(fieldCode) || createTransformInputField(fieldCode))
+  if (!rule.conditionField && rule.inputFields.length) rule.conditionField = rule.inputFields[0].fieldCode
+  if (rule.outputMode === 'OVERWRITE_INPUT' && !rule.outputField && rule.inputFields.length) rule.outputField = rule.inputFields[0].fieldCode
+  ensureDictItemSourceValues(rule)
+}
+const handleTransformOutputModeChange = (rule: TransformRule) => {
+  if (rule.outputMode === 'OVERWRITE_INPUT' && !rule.outputField && rule.inputFields.length) {
+    rule.outputField = rule.inputFields[0].fieldCode
+  }
+}
+const fieldLabelByCode = (fieldCode: string) => {
+  const field = fields.value.find((item) => item.fieldCode === fieldCode)
+  return field ? `${field.fieldName}（${field.fieldCode}）` : fieldCode
+}
+const sampleValueByInput = (input: TransformInputField) => input.sampleValue || input.defaultValue || input.fieldCode
+const buildTransformSampleMap = (rule: TransformRule) => {
+  return (rule.inputFields || []).reduce<Record<string, string>>((result, input) => {
+    result[input.paramName] = sampleValueByInput(input)
+    return result
+  }, {})
+}
+const replaceParamPlaceholders = (text: string, values: Record<string, string>) => {
+  return Object.entries(values).reduce((result, [paramName, value]) => result.replace(new RegExp(`\\{${paramName}\\}`, 'g'), value), text)
+}
+const regexMatchesSample = (pattern: string, value: string) => {
+  try {
+    return new RegExp(pattern).test(value)
+  } catch {
+    return false
+  }
+}
+const rangeMatchesSample = (range: string, value: string) => {
+  const numericValue = Number(value)
+  const [min, max] = range.split('-', 2).map((item) => Number(item.trim()))
+  if (!Number.isFinite(numericValue) || !Number.isFinite(min) || !Number.isFinite(max)) return false
+  return numericValue >= min && numericValue <= max
+}
+const transformValueMatches = (mode: DictMatchMode | undefined, expected: string, actual: string) => {
+  if (mode === 'CONTAINS') return actual.includes(expected)
+  if (mode === 'REGEX') return regexMatchesSample(expected, actual)
+  if (mode === 'RANGE') return rangeMatchesSample(expected, actual)
+  return actual === expected
+}
+const dictItemMatchesSample = (rule: TransformRule, item: DictItem, sampleValues: Record<string, string>) => {
+  let hasConstraint = false
+  const matched = (rule.inputFields || []).every((input) => {
+    const expected = String(item.sourceValues?.[input.paramName] || '').trim()
+    if (!expected) return true
+    hasConstraint = true
+    return transformValueMatches(rule.dictMatchMode, expected, String(sampleValues[input.paramName] || '').trim())
+  })
+  return matched && hasConstraint
+}
 
 const hasDuplicate = (values: string[]) => {
   const normalizedValues = values.map((value) => value?.trim()).filter(Boolean)
@@ -1118,7 +1222,7 @@ const removeTransformRule = async (rule: TransformRule) => {
   const currentIndex = transformRules.value.findIndex((item) => item.id === rule.id)
   const referencedRules = transformRules.value
     .slice(currentIndex + 1)
-    .filter((item) => rule.outputField && item.inputField === rule.outputField)
+    .filter((item) => rule.outputField && item.inputFields?.some((input) => input.fieldCode === rule.outputField))
   if (referencedRules.length) {
     ElMessage.warning(`该规则输出字段 ${rule.outputField} 被后续规则「${referencedRules.map((item) => item.ruleName).join('、')}」引用，请先调整后续规则`)
     return
@@ -1153,7 +1257,8 @@ const copyTransformRule = (rule: TransformRule) => {
     ...rule,
     id: `rule-${Date.now()}`,
     ruleName: `${rule.ruleName}-副本`,
-    dictItems: rule.dictItems.map((item) => ({ ...item }))
+    inputFields: rule.inputFields.map((input) => ({ ...input })),
+    dictItems: rule.dictItems.map((item) => ({ sourceValues: { ...item.sourceValues }, target: item.target }))
   }
   const currentIndex = transformRules.value.findIndex((item) => item.id === rule.id)
   transformRules.value.splice(currentIndex + 1, 0, copiedRule)
@@ -1254,21 +1359,20 @@ const addTransformRule = (ruleType: TransformRuleType) => {
     id,
     ruleName: `新增${transformTypeLabel[ruleType]}规则`,
     ruleType,
-    inputField: fields.value[0]?.fieldCode || '',
+    inputFields: fields.value[0]?.fieldCode ? [createTransformInputField(fields.value[0].fieldCode)] : [],
     outputField: '',
     enabled: true,
     onFail: 'REVIEW',
-    dictItems: ruleType === 'DICT' ? [{ source: '', target: '' }] : [],
+    dictItems: ruleType === 'DICT' ? [{ sourceValues: {}, target: '' }] : [],
     apiEndpoint: ruleType === 'API' ? '/api/example/{value}' : '',
     apiMethod: 'GET',
-    apiParamName: 'value',
     apiResponsePath: '$.data.value',
     sqlDatasource: '只读数据源',
-    sqlText: ruleType === 'SQL' ? 'select target_value from table_name where source_value = :source_value' : '',
+    sqlText: ruleType === 'SQL' ? 'select target_value from table_name where source_value = :value' : '',
     sqlResultColumn: 'target_value',
     outputMode: 'DERIVE_FIELD',
-    conditionEnabled: true,
-    conditionField: fields.value[0]?.fieldCode || '',
+    conditionEnabled: false,
+    conditionField: '',
     conditionOperator: 'NOT_EMPTY',
     conditionValue: '',
     dictMatchMode: 'EQUALS',
@@ -1279,11 +1383,16 @@ const addTransformRule = (ruleType: TransformRuleType) => {
     sqlMaxRows: 1,
     sqlReadonlyChecked: true
   })
+  normalizeTransformRule(transformRules.value[transformRules.value.length - 1])
   selectedRuleId.value = id
 }
 const addDictItem = () => {
   if (!selectedTransformRule.value) return
-  selectedTransformRule.value.dictItems.push({ source: '', target: '' })
+  const sourceValues = selectedTransformRule.value.inputFields.reduce<Record<string, string>>((result, input) => {
+    result[input.paramName] = ''
+    return result
+  }, {})
+  selectedTransformRule.value.dictItems.push({ sourceValues, target: '' })
 }
 const runTransformPreview = () => {
   const rule = selectedTransformRule.value
@@ -1291,12 +1400,13 @@ const runTransformPreview = () => {
     ElMessage.warning('请先新增并选择一条加工规则')
     return
   }
+  const sampleValues = buildTransformSampleMap(rule)
   if (rule.ruleType === 'DICT') {
-    previewOutput.value = rule.dictItems.find((item) => item.source === previewInput.value)?.target || '未命中字典，按失败策略处理'
+    previewOutput.value = rule.dictItems.find((item) => dictItemMatchesSample(rule, item, sampleValues))?.target || '未命中字典，按失败策略处理'
   } else if (rule.ruleType === 'API') {
-    previewOutput.value = `模拟调用 ${rule.apiEndpoint.replace('{accountNo}', previewInput.value).replace('{value}', previewInput.value)}，读取 ${rule.apiResponsePath}`
+    previewOutput.value = `模拟调用 ${replaceParamPlaceholders(rule.apiEndpoint, sampleValues)}，参数 ${JSON.stringify(sampleValues)}，读取 ${rule.apiResponsePath}`
   } else {
-    previewOutput.value = `模拟执行只读 SQL，返回 ${rule.sqlResultColumn || 'result'}`
+    previewOutput.value = `模拟执行只读 SQL，参数 ${JSON.stringify(sampleValues)}，返回 ${rule.sqlResultColumn || 'result'}`
   }
   ElMessage.success('已生成加工预览')
 }
@@ -1423,7 +1533,7 @@ const applyWizardPayload = (payload: any) => {
       if (rule.sampleResult) regexPreviewMap.value[rule.fieldCode] = rule.sampleResult
     })
   }
-  transformRules.value = payload.transformRules || []
+  transformRules.value = (payload.transformRules || []).map((rule: any) => normalizeTransformRule(rule))
   selectedRuleId.value = transformRules.value[0]?.id || ''
   validationRules.value = payload.validationRules || []
   form.transformEnabled = payload.processConfig?.transformEnabled ?? transformRules.value.some((rule) => rule.enabled)
@@ -2244,7 +2354,7 @@ onMounted(async () => {
                     {{ transformTypeLabel[rule.ruleType] }}
                   </el-tag>
                 </div>
-                <span>{{ rule.inputField }} -> {{ rule.outputMode === 'OVERWRITE_INPUT' ? '覆盖输入字段' : (rule.outputField || '待配置输出字段') }}</span>
+                <span>{{ transformRuleInputSummary(rule) }} -> {{ transformRuleOutputSummary(rule) }}</span>
               </div>
               <el-switch v-model="rule.enabled" @click.stop />
               <el-dropdown trigger="click" @click.stop>
@@ -2290,19 +2400,47 @@ onMounted(async () => {
             <section class="config-section">
               <div class="config-section-title">字段与输出</div>
               <el-form label-width="120px" class="form-grid">
-              <el-form-item label="输入字段">
-                <el-select v-model="selectedTransformRule.inputField" filterable allow-create>
+              <el-form-item label="依赖字段" class="wide">
+                <el-select
+                  :model-value="selectedTransformRule.inputFields.map((input) => input.fieldCode)"
+                  multiple
+                  filterable
+                  clearable
+                  collapse-tags
+                  collapse-tags-tooltip
+                  placeholder="请选择该加工规则需要读取的字段"
+                  @update:model-value="(value: string[]) => updateTransformInputFields(selectedTransformRule, value)"
+                >
                   <el-option v-for="field in fields" :key="field.fieldCode" :label="`${field.fieldName}（${field.fieldCode}）`" :value="field.fieldCode" />
                 </el-select>
               </el-form-item>
+              <el-form-item label="参数映射" class="wide">
+                <el-table :data="selectedTransformRule.inputFields" size="small" class="transform-param-table">
+                  <el-table-column label="输入字段" min-width="180">
+                    <template #default="{ row }">{{ fieldLabelByCode(row.fieldCode) }}</template>
+                  </el-table-column>
+                  <el-table-column label="参数名" min-width="160">
+                    <template #default="{ row }"><el-input v-model="row.paramName" placeholder="如 productCode" @change="ensureDictItemSourceValues(selectedTransformRule)" /></template>
+                  </el-table-column>
+                  <el-table-column label="必填" width="80">
+                    <template #default="{ row }"><el-switch v-model="row.required" /></template>
+                  </el-table-column>
+                  <el-table-column label="默认值" min-width="150">
+                    <template #default="{ row }"><el-input v-model="row.defaultValue" placeholder="缺失时使用" /></template>
+                  </el-table-column>
+                  <el-table-column label="测试值" min-width="150">
+                    <template #default="{ row }"><el-input v-model="row.sampleValue" placeholder="预览用" /></template>
+                  </el-table-column>
+                </el-table>
+              </el-form-item>
               <el-form-item label="输出方式">
-                <el-select v-model="selectedTransformRule.outputMode">
-                  <el-option label="覆盖输入字段" value="OVERWRITE_INPUT" />
+                <el-select v-model="selectedTransformRule.outputMode" @change="handleTransformOutputModeChange(selectedTransformRule)">
+                  <el-option label="覆盖已有字段" value="OVERWRITE_INPUT" />
                   <el-option label="写入目标字段" value="WRITE_TARGET" />
                   <el-option label="生成衍生字段" value="DERIVE_FIELD" />
                 </el-select>
               </el-form-item>
-              <el-form-item v-if="selectedTransformRule.outputMode !== 'OVERWRITE_INPUT'" label="输出字段">
+              <el-form-item :label="selectedTransformRule.outputMode === 'OVERWRITE_INPUT' ? '覆盖字段' : '输出字段'">
                 <div class="field-select-with-action">
                   <el-select v-model="selectedTransformRule.outputField" filterable clearable placeholder="请选择结果字段">
                     <el-option
@@ -2370,11 +2508,16 @@ onMounted(async () => {
                 </el-form-item>
               </el-form>
               <el-table :data="selectedTransformRule.dictItems">
-                <el-table-column label="原始值/区间">
-                  <template #default="{ row }"><el-input v-model="row.source" placeholder="如：买入、0-100000" /></template>
+                <el-table-column
+                  v-for="input in selectedTransformRule.inputFields"
+                  :key="input.paramName"
+                  :label="`${input.paramName} 匹配值`"
+                  min-width="160"
+                >
+                  <template #default="{ row }"><el-input v-model="row.sourceValues[input.paramName]" placeholder="按该参数匹配" /></template>
                 </el-table-column>
-                <el-table-column label="标准值">
-                  <template #default="{ row }"><el-input v-model="row.target" placeholder="如：BUY、普通金额" /></template>
+                <el-table-column label="转换结果" min-width="180">
+                  <template #default="{ row }"><el-input v-model="row.target" placeholder="如：BUY、普通金额、产品名称" /></template>
                 </el-table-column>
               </el-table>
             </section>
@@ -2388,11 +2531,8 @@ onMounted(async () => {
                     <el-radio-button label="POST">POST</el-radio-button>
                   </el-radio-group>
                 </el-form-item>
-                <el-form-item label="参数名">
-                  <el-input v-model="selectedTransformRule.apiParamName" placeholder="如 accountNo" />
-                </el-form-item>
                 <el-form-item label="接口地址" class="wide">
-                  <el-input v-model="selectedTransformRule.apiEndpoint" placeholder="/master-data/accounts/{accountNo}" />
+                  <el-input v-model="selectedTransformRule.apiEndpoint" placeholder="/master-data/accounts/{productCode}?date={businessDate}" />
                 </el-form-item>
                 <el-form-item label="响应取值路径" class="wide">
                   <el-input v-model="selectedTransformRule.apiResponsePath" placeholder="$.data.accountName" />
@@ -2444,9 +2584,8 @@ onMounted(async () => {
             <section class="rule-preview">
               <div>
                 <strong>转换预览</strong>
-                <span class="muted">输入样例会按当前规则生成模拟输出。</span>
+                <span class="muted">使用上方参数映射中的测试值生成模拟输出。</span>
               </div>
-              <el-input v-model="previewInput" placeholder="输入样例值" />
               <el-button type="primary" @click="runTransformPreview">运行预览</el-button>
               <div class="preview-result">
                 <el-tag type="success">预览通过</el-tag>

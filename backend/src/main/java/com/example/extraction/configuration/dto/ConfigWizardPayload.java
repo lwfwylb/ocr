@@ -1006,11 +1006,30 @@ public class ConfigWizardPayload {
         }
     }
 
+    public static class TransformInputField {
+        private String fieldCode;
+        private String paramName;
+        private Boolean required;
+        private String defaultValue;
+        private String sampleValue;
+
+        public String getFieldCode() { return fieldCode; }
+        public void setFieldCode(String fieldCode) { this.fieldCode = fieldCode; }
+        public String getParamName() { return paramName; }
+        public void setParamName(String paramName) { this.paramName = paramName; }
+        public Boolean getRequired() { return required; }
+        public void setRequired(Boolean required) { this.required = required; }
+        public String getDefaultValue() { return defaultValue; }
+        public void setDefaultValue(String defaultValue) { this.defaultValue = defaultValue; }
+        public String getSampleValue() { return sampleValue; }
+        public void setSampleValue(String sampleValue) { this.sampleValue = sampleValue; }
+    }
+
     public static class TransformRule {
         private String id;
         private String ruleName;
         private String ruleType;
-        private String inputField;
+        private List<TransformInputField> inputFields = new ArrayList<>();
         private String outputField;
         private String outputMode;
         private Boolean conditionEnabled;
@@ -1024,7 +1043,6 @@ public class ConfigWizardPayload {
         private String dictMatchMode;
         private String apiEndpoint;
         private String apiMethod;
-        private String apiParamName;
         private String apiResponsePath;
         private Integer apiTimeout;
         private Integer apiRetryCount;
@@ -1060,12 +1078,12 @@ public class ConfigWizardPayload {
             this.ruleType = ruleType;
         }
 
-        public String getInputField() {
-            return inputField;
+        public List<TransformInputField> getInputFields() {
+            return inputFields;
         }
 
-        public void setInputField(String inputField) {
-            this.inputField = inputField;
+        public void setInputFields(List<TransformInputField> inputFields) {
+            this.inputFields = inputFields;
         }
 
         public String getOutputField() {
@@ -1170,14 +1188,6 @@ public class ConfigWizardPayload {
 
         public void setApiMethod(String apiMethod) {
             this.apiMethod = apiMethod;
-        }
-
-        public String getApiParamName() {
-            return apiParamName;
-        }
-
-        public void setApiParamName(String apiParamName) {
-            this.apiParamName = apiParamName;
         }
 
         public String getApiResponsePath() {

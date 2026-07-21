@@ -307,7 +307,7 @@ create table transform_rule_config (
   rule_name varchar(200) not null,
   rule_type varchar(50) not null,
   sort_no int,
-  input_field varchar(128),
+  input_fields clob,
   output_field varchar(128),
   output_mode varchar(50),
   condition_enabled char(1) default '0',
