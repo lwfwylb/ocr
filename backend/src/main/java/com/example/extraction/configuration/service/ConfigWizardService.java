@@ -615,6 +615,9 @@ public class ConfigWizardService {
                             } else if (!paramNames.add(input.getParamName())) {
                                 issues.add(issue("ERROR", "加工规则参数名不能重复：" + input.getParamName()));
                             }
+                            if (StringUtils.hasText(input.getDictMatchMode()) && !Set.of("EQUALS", "CONTAINS", "REGEX", "RANGE").contains(input.getDictMatchMode())) {
+                                issues.add(issue("ERROR", "加工规则字段级字典匹配方式不支持：" + input.getDictMatchMode()));
+                            }
                         }
                     }
                     if (!StringUtils.hasText(rule.getOutputField())) {

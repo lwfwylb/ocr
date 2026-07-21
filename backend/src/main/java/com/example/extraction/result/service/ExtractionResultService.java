@@ -1078,7 +1078,8 @@ public class ExtractionResultService {
                     }
                     hasConstraint = true;
                     String actualText = String.valueOf(inputValues.getOrDefault(paramName, "")).trim();
-                    boolean fieldMatched = switch (matchMode) {
+                    String fieldMatchMode = firstText(input.getDictMatchMode(), matchMode);
+                    boolean fieldMatched = switch (fieldMatchMode) {
                         case "CONTAINS" -> actualText.contains(expectedText);
                         case "REGEX" -> regexMatches(expectedText, actualText);
                         case "RANGE" -> rangeMatches(expectedText, actualText);

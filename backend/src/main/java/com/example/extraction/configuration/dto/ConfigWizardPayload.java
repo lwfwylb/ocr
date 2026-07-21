@@ -1012,6 +1012,7 @@ public class ConfigWizardPayload {
         private Boolean required;
         private String defaultValue;
         private String sampleValue;
+        private String dictMatchMode;
 
         public String getFieldCode() { return fieldCode; }
         public void setFieldCode(String fieldCode) { this.fieldCode = fieldCode; }
@@ -1023,6 +1024,8 @@ public class ConfigWizardPayload {
         public void setDefaultValue(String defaultValue) { this.defaultValue = defaultValue; }
         public String getSampleValue() { return sampleValue; }
         public void setSampleValue(String sampleValue) { this.sampleValue = sampleValue; }
+        public String getDictMatchMode() { return dictMatchMode; }
+        public void setDictMatchMode(String dictMatchMode) { this.dictMatchMode = dictMatchMode; }
     }
 
     public static class TransformCondition {

@@ -32,6 +32,9 @@ type ResultFieldSourceType = 'EXTRACTED' | 'DERIVED' | 'SYSTEM'
 type DictMatchMode = 'EQUALS' | 'CONTAINS' | 'REGEX' | 'RANGE'
 type TransformConditionLogic = 'ALL' | 'ANY'
 type TransformConditionOperator = 'NOT_EMPTY' | 'EMPTY' | 'EQUALS' | 'NOT_EQUALS' | 'CONTAINS' | 'NOT_CONTAINS' | 'GT' | 'GTE' | 'LT' | 'LTE' | 'REGEX'
+type SqlNoDataStrategy = 'SET_NULL' | 'REVIEW' | 'BLOCK'
+type SqlMultiRowStrategy = 'FIRST' | 'REVIEW' | 'BLOCK'
+type SqlNullStrategy = 'SET_NULL' | 'REVIEW'
 type ValidationRuleType = 'REQUIRED' | 'FORMAT' | 'RANGE' | 'CROSS_FIELD' | 'UNIQUE' | 'MASTER_DATA'
 
 interface DictItem {
@@ -45,6 +48,7 @@ interface TransformInputField {
   required: boolean
   defaultValue: string
   sampleValue: string
+  dictMatchMode?: DictMatchMode
 }
 
 interface TransformCondition {
@@ -80,6 +84,10 @@ interface TransformRule {
   sqlResultColumn: string
   sqlMaxRows?: number
   sqlReadonlyChecked?: boolean
+  sqlNoDataStrategy?: SqlNoDataStrategy
+  sqlMultiRowStrategy?: SqlMultiRowStrategy
+  sqlNullStrategy?: SqlNullStrategy
+  sqlTimeoutSeconds?: number
 }
 
 interface ValidationRule {
@@ -184,7 +192,8 @@ const normalizeTransformRule = (rule: any): TransformRule => {
     paramName: input.paramName || toParamName(input.fieldCode || ''),
     required: input.required !== false,
     defaultValue: input.defaultValue || '',
-    sampleValue: input.sampleValue || ''
+    sampleValue: input.sampleValue || '',
+    dictMatchMode: input.dictMatchMode || ''
   })).filter((input: TransformInputField) => input.fieldCode)
   rule.dictItems = (rule.dictItems || []).map((item: any) => ({ sourceValues: item.sourceValues || {}, target: item.target || '' }))
   const legacyCondition = rule.conditionField ? [{
@@ -219,6 +228,10 @@ transformRules.value.forEach((rule) => {
   rule.apiSuccessRule = rule.apiSuccessRule || '$.code == 0'
   rule.sqlMaxRows = rule.sqlMaxRows ?? 1
   rule.sqlReadonlyChecked = rule.sqlReadonlyChecked ?? true
+  rule.sqlNoDataStrategy = rule.sqlNoDataStrategy || 'REVIEW'
+  rule.sqlMultiRowStrategy = rule.sqlMultiRowStrategy || 'FIRST'
+  rule.sqlNullStrategy = rule.sqlNullStrategy || 'REVIEW'
+  rule.sqlTimeoutSeconds = rule.sqlTimeoutSeconds ?? 5
 })
 const selectedRuleId = ref(transformRules.value[0]?.id || '')
 const activeProcessTab = ref('transform')
@@ -871,7 +884,7 @@ const dictItemMatchesSample = (rule: TransformRule, item: DictItem, sampleValues
     const expected = String(item.sourceValues?.[input.paramName] || '').trim()
     if (!expected) return true
     hasConstraint = true
-    return transformValueMatches(rule.dictMatchMode, expected, String(sampleValues[input.paramName] || '').trim())
+    return transformValueMatches(input.dictMatchMode || rule.dictMatchMode, expected, String(sampleValues[input.paramName] || '').trim())
   })
   return matched && hasConstraint
 }
@@ -1462,7 +1475,11 @@ const addTransformRule = (ruleType: TransformRuleType) => {
     apiAuthMode: 'SYSTEM',
     apiSuccessRule: '$.code == 0',
     sqlMaxRows: 1,
-    sqlReadonlyChecked: true
+    sqlReadonlyChecked: true,
+    sqlNoDataStrategy: 'REVIEW',
+    sqlMultiRowStrategy: 'FIRST',
+    sqlNullStrategy: 'REVIEW',
+    sqlTimeoutSeconds: 5
   })
   normalizeTransformRule(transformRules.value[transformRules.value.length - 1])
   selectedRuleId.value = id
@@ -2537,6 +2554,17 @@ onMounted(async () => {
                       </el-tooltip>
                     </template>
                   </el-table-column>
+                  <el-table-column v-if="selectedTransformRule.ruleType === 'DICT'" label="字典匹配" min-width="120">
+                    <template #default="{ row }">
+                      <el-select v-model="row.dictMatchMode" placeholder="匹配方式">
+                        <el-option label="继承默认" value="" />
+                        <el-option label="等于" value="EQUALS" />
+                        <el-option label="包含" value="CONTAINS" />
+                        <el-option label="正则" value="REGEX" />
+                        <el-option label="区间" value="RANGE" />
+                      </el-select>
+                    </template>
+                  </el-table-column>
                   <el-table-column label="必填" width="80">
                     <template #default="{ row }"><el-switch v-model="row.required" /></template>
                   </el-table-column>
@@ -2651,9 +2679,9 @@ onMounted(async () => {
                 <h3>类型配置：字典映射</h3>
                 <el-button size="small" @click="addDictItem">添加映射</el-button>
               </div>
-              <p class="muted mb-12">字典映射按参数名组合匹配；同一行维护多个匹配值时，需要全部命中才返回转换结果。</p>
+              <p class="muted mb-12">字典映射按参数名组合匹配；每个依赖字段可在“参数映射”中单独设置匹配方式，同一行多个匹配值需要全部命中才返回转换结果。</p>
               <el-form label-width="90px" class="form-grid mb-12">
-                <el-form-item label="匹配方式">
+                <el-form-item label="默认方式">
                   <el-select v-model="selectedTransformRule.dictMatchMode">
                     <el-option label="等于" value="EQUALS" />
                     <el-option label="包含" value="CONTAINS" />
