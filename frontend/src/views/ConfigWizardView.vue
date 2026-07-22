@@ -715,6 +715,7 @@ const formatDbColumnType = (column: any) => {
   if (column.dbType === 'int') return 'int'
   return column.dbType
 }
+const formatTargetColumnLabel = (column: any) => `${column.columnCnName || column.columnName}（${column.columnName}${column.dbType ? `，${formatDbColumnType(column)}` : ''}）`
 const storageDdlPreview = computed(() => {
   if (!form.storageEnabled) {
     return '-- 当前配置未启用结果落库\n-- 不生成 DDL，不写入结果表，仅保留提取、加工、复核和下游推送能力。'
@@ -926,7 +927,7 @@ const resultFieldSourceTagType = (sourceType?: ResultFieldSourceType | string) =
   if (sourceType === 'SYSTEM') return 'info'
   return 'success'
 }
-const storageTargetColumnOptions = computed(() => targetTableColumns.value.map((column) => ({ label: `${column.columnCnName || column.columnName}（${column.columnName}）`, value: column.columnName })))
+const storageTargetColumnOptions = computed(() => targetTableColumns.value.map((column) => ({ label: formatTargetColumnLabel(column), value: column.columnName })))
 const extractedResultFields = computed(() => fields.value.filter((field: any) => (field.sourceType || 'EXTRACTED') === 'EXTRACTED'))
 const transformTypeLabel: Record<TransformRuleType, string> = {
   DICT: '字典转换',
@@ -1200,6 +1201,9 @@ const validateFieldStorageStep = () => {
     if (!field.targetColumn?.trim()) errors.push(`${rowLabel}：目标字段不能为空`)
     if (field.targetColumn && !targetColumnOptions.value.includes(field.targetColumn)) errors.push(`${rowLabel}：目标字段 ${field.targetColumn} 不存在于目标表字段定义中`)
   })
+  const mappedColumns = fields.value.map((field) => field.targetColumn).filter(Boolean) as string[]
+  const duplicatedTargetColumns = Array.from(new Set(mappedColumns.filter((column, index) => mappedColumns.indexOf(column) !== index)))
+  if (duplicatedTargetColumns.length) errors.push(`目标字段不能重复映射：${duplicatedTargetColumns.join('、')}。如需合并多个字段，请先通过加工规则生成一个结果字段后再映射。`)
 
   const enabledConstraints = uniqueConstraints.value.filter((constraint) => constraint.enabled)
   if (hasDuplicate(enabledConstraints.map((constraint) => constraint.constraintName))) errors.push('启用的唯一约束名称不能重复')
@@ -1551,6 +1555,7 @@ const publish = async () => {
 const addField = () => {
   const fieldCode = `field_${fields.value.length + 1}`
   const fieldId = createFieldId(fieldCode)
+  const matchedColumn = targetColumnOptions.value.find((column) => column === fieldCode) || ''
   fields.value.push({
     fieldId,
     fieldCode,
@@ -1562,7 +1567,7 @@ const addField = () => {
     required: false,
     extractRequired: false,
     multiple: false,
-    targetColumn: fieldCode,
+    targetColumn: matchedColumn,
     extractByRegex: false,
     traditionalRuleEnabled: false,
     traditionalRuleType: 'REGEX',
@@ -1571,7 +1576,7 @@ const addField = () => {
     regexFlags: '',
     regexGroup: 1
   } as any)
-  form.targetServices.forEach((serviceCode) => updateDownstreamField(serviceCode, fieldId, fieldCode))
+  form.targetServices.forEach((serviceCode) => updateDownstreamField(serviceCode, fieldId, matchedColumn || fieldCode))
 }
 const autoMapFields = () => {
   fields.value.forEach((field) => {
@@ -2643,10 +2648,14 @@ watch(() => route.query.id, async (nextId, previousId) => {
           </el-table-column>
           <el-table-column v-if="isStorageEnabled" label="目标字段" min-width="260">
             <template #default="{ row }">
-              <el-select v-if="form.storageMode === 'REUSE'" v-model="row.targetColumn" filterable clearable>
-                <el-option v-for="column in targetColumnOptions" :key="column" :label="column" :value="column" />
+              <el-select v-model="row.targetColumn" filterable clearable placeholder="请选择目标字段">
+                <el-option
+                  v-for="column in storageTargetColumnOptions"
+                  :key="column.value"
+                  :label="column.label"
+                  :value="column.value"
+                />
               </el-select>
-              <el-input v-else v-model="row.targetColumn" />
             </template>
           </el-table-column>
           <el-table-column v-if="isStorageEnabled" label="映射说明" min-width="160">
@@ -3647,10 +3656,9 @@ watch(() => route.query.id, async (nextId, previousId) => {
             </el-select>
           </el-form-item>
           <el-form-item v-if="isStorageEnabled" label="目标字段">
-            <el-select v-if="form.storageMode === 'REUSE'" v-model="derivedFieldForm.targetColumn" filterable clearable placeholder="请选择已有目标字段">
+            <el-select v-model="derivedFieldForm.targetColumn" filterable clearable placeholder="请选择目标字段">
               <el-option v-for="column in storageTargetColumnOptions" :key="column.value" :label="column.label" :value="column.value" />
             </el-select>
-            <el-input v-else v-model="derivedFieldForm.targetColumn" placeholder="默认同字段编码" />
           </el-form-item>
           <el-form-item v-if="isStorageEnabled && form.storageMode === 'CREATE'" label="同步目标字段" class="wide">
             <el-switch v-model="derivedFieldForm.autoAddTargetColumn" active-text="自动加入目标表字段定义" inactive-text="仅作为结果字段" />
