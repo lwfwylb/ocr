@@ -1165,7 +1165,6 @@ const hasDuplicate = (values: string[]) => {
 const validateFieldStorageStep = () => {
   const errors: string[] = []
   if (!fields.value.length) errors.push('至少维护 1 个结果字段')
-  syncFieldReferences()
   if (hasDuplicate(fields.value.map((field) => field.fieldCode))) errors.push('结果字段编码不能重复')
   if (hasDuplicate(fields.value.map((field) => field.fieldId))) errors.push('结果字段内部ID不能重复，请刷新页面后重试')
   fields.value.forEach((field, index) => {
@@ -1301,6 +1300,7 @@ const next = () => {
   if (activeStep.value === 0 && showStepErrors(0, '请先完善基础信息')) return
   if (activeStep.value === 2 && showStepErrors(2, '请完善字段与落库配置')) return
   if (activeStep.value === 2) {
+    syncFieldReferences()
     const errors = validateFieldStorageStep()
     if (errors.length) {
       ElMessageBox.alert(errors.map((error, index) => `${index + 1}. ${error}`).join('<br />'), '请完善字段与落库配置', {
