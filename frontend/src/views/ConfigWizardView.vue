@@ -917,7 +917,7 @@ const conditionFieldGroups = (rule: TransformRule) => {
   ].filter((group) => group.options.length)
 }
 const firstAvailableConditionFieldCode = (rule: TransformRule) => conditionFieldGroups(rule)[0]?.options[0]?.fieldCode || ''
-const sampleValueByInput = (input: TransformInputField) => input.sampleValue || input.defaultValue || input.fieldCode
+const sampleValueByInput = (input: TransformInputField) => input.sampleValue || input.defaultValue || ''
 const buildTransformSampleMap = (rule: TransformRule) => {
   return (rule.inputFields || []).reduce<Record<string, string>>((result, input) => {
     result[input.paramName] = sampleValueByInput(input)

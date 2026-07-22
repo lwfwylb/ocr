@@ -1025,6 +1025,7 @@ public class ExtractionResultService {
         if (rule.getInputFields() == null) {
             return values;
         }
+        boolean allowBlankValue = "DICT".equals(firstText(rule.getRuleType(), "DICT"));
         for (ConfigWizardPayload.TransformInputField input : rule.getInputFields()) {
             String fieldCode = firstText(input.getFieldCode());
             String paramName = firstText(input.getParamName(), fieldCode);
@@ -1035,11 +1036,11 @@ public class ExtractionResultService {
             if (isBlankValue(value) && StringUtils.hasText(input.getDefaultValue())) {
                 value = input.getDefaultValue();
             }
-            if (Boolean.TRUE.equals(input.getRequired()) && isBlankValue(value)) {
+            if (!allowBlankValue && Boolean.TRUE.equals(input.getRequired()) && isBlankValue(value)) {
                 return Map.of();
             }
-            if (!isBlankValue(value)) {
-                values.put(paramName, value);
+            if (allowBlankValue || !isBlankValue(value)) {
+                values.put(paramName, value == null ? "" : value);
             }
         }
         return values;
