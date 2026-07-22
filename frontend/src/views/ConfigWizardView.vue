@@ -199,7 +199,7 @@ const ocrEngineOptions = ref<OcrEngineOption[]>([])
 const fields = ref<ResultField[]>(initialConfigFields.map((item, index) => normalizeResultField({ ...item }, index)))
 fields.value.forEach((field) => {
   const mutable = field as any
-  mutable.fieldDescription = mutable.fieldDescription || `从文档中识别${field.fieldName}`
+  mutable.fieldDescription = mutable.fieldDescription || ''
   mutable.extractRequired = field.required
   mutable.extractByRegex = field.fieldCode === 'amount' || field.fieldCode === 'payee_account'
   mutable.traditionalRuleEnabled = mutable.extractByRegex
@@ -1580,7 +1580,7 @@ const addField = (sourceType: ResultFieldSourceType = 'EXTRACTED') => {
     fieldCode,
     fieldName: isDerived ? `加工衍生字段${sourceCount}` : '新增提取字段',
     sourceType,
-    fieldDescription: isDerived ? '' : '补充该字段的业务含义，用于生成 AI 提示词',
+    fieldDescription: '',
     dataType: 'string',
     fieldLength: 100,
     required: false,
@@ -1605,8 +1605,6 @@ const handleResultFieldSourceChange = (row: ResultField) => {
     row.multiple = false
     ;(row as any).extractByRegex = false
     ;(row as any).traditionalRuleEnabled = false
-  } else if (!row.fieldDescription) {
-    row.fieldDescription = '补充该字段的业务含义，用于生成 AI 提示词'
   }
   syncFieldReferences()
 }
@@ -2016,7 +2014,7 @@ const applyWizardPayload = (rawPayload: any, summary?: ConfigSummary) => {
       ...field,
       sourceType: field.sourceType || 'EXTRACTED',
       generatedByRuleId: field.generatedByRuleId || '',
-      fieldDescription: field.fieldDescription || `从文档中识别${field.fieldName}`,
+      fieldDescription: field.fieldDescription || '',
       required: field.extractRequired,
       targetColumn: field.targetColumn || '',
       traditionalRuleEnabled: field.traditionalRuleEnabled ?? field.extractByRegex ?? false,
@@ -2598,9 +2596,9 @@ watch(() => route.query.id, async (nextId, previousId) => {
           <el-table-column label="结果字段名称" min-width="150">
             <template #default="{ row }"><el-input v-model="row.fieldName" @change="syncFieldReferences" /></template>
           </el-table-column>
-          <el-table-column label="字段描述" min-width="220">
+          <el-table-column label="提取规则说明" min-width="240">
             <template #default="{ row }">
-              <el-input v-if="(row.sourceType || 'EXTRACTED') === 'EXTRACTED'" v-model="row.fieldDescription" placeholder="用于生成 AI 提示词" />
+              <el-input v-if="(row.sourceType || 'EXTRACTED') === 'EXTRACTED'" v-model="row.fieldDescription" placeholder="如：右下方落款日期，转为 yyyyMMdd 格式，如 20260715" />
               <span v-else class="muted">加工规则生成，不参与 AI 提示词</span>
             </template>
           </el-table-column>
