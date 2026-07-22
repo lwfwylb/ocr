@@ -388,7 +388,6 @@ const activeProcessTab = ref('transform')
 const draggingDictItemId = ref('')
 const validationRules = ref<ValidationRule[]>([])
 const selectedExtractFieldCode = ref(fields.value[0]?.fieldCode || '')
-const mappingProfileDrawerVisible = ref(false)
 const ddlPreviewVisible = ref(false)
 const aiEnabled = ref(true)
 const activeExtractTab = ref('ai')
@@ -586,20 +585,6 @@ const supportedPreprocessSteps = (steps: any[] = []) =>
 const targetTableColumns = ref<any[]>([])
 const targetColumnOptions = computed(() => targetTableColumns.value.map((column) => column.columnName))
 const uniqueConstraints = ref<any[]>([])
-const mappingProfiles = [
-  {
-    name: '划款指令-资金结果表映射',
-    documentType: '划款指令',
-    targetTable: 'ext_fund_business_result',
-    mapping: 'payer_name -> payer_name, payee_account -> counterparty_account, amount -> business_amount'
-  },
-  {
-    name: '银行回单-资金结果表映射',
-    documentType: '银行回单',
-    targetTable: 'ext_fund_business_result',
-    mapping: 'payer_name -> counterparty_name, transaction_no -> biz_no, amount -> business_amount'
-  }
-]
 const promptFieldItems = computed(() => fields.value
   .filter((field: any) => (field.fieldCode || field.fieldName) && (field.sourceType || 'EXTRACTED') === 'EXTRACTED')
   .map((field: any) => {
@@ -2667,10 +2652,6 @@ watch(() => route.query.id, async (nextId, previousId) => {
             <p class="muted">结果字段统一包含提取字段、加工衍生字段和系统字段；加工、校验、落库、复核和推送都基于这套字段目录。</p>
           </div>
           <div class="header-actions">
-            <span v-if="isStorageEnabled" class="mapping-profile-hint">
-              <el-tag size="small" type="info">已复用 {{ mappingProfiles.length }} 个方案</el-tag>
-              <el-button link type="primary" @click="mappingProfileDrawerVisible = true">查看已有映射</el-button>
-            </span>
             <el-button v-if="isStorageEnabled" @click="autoMapFields">自动生成映射</el-button>
             <el-button @click="addField('DERIVED')">添加加工衍生字段</el-button>
             <el-button type="primary" @click="addField('EXTRACTED')">添加提取字段</el-button>
@@ -3676,21 +3657,6 @@ watch(() => route.query.id, async (nextId, previousId) => {
           <el-empty v-else description="暂无验证明细" />
         </el-card>
       </template>
-
-      <el-drawer v-model="mappingProfileDrawerVisible" title="已有映射方案" size="720px">
-        <el-alert
-          class="mb-12"
-          title="这里仅用于查看同一结果表的复用情况，不影响当前配置保存。"
-          type="info"
-          :closable="false"
-        />
-        <el-table :data="mappingProfiles">
-          <el-table-column prop="name" label="映射方案" min-width="190" />
-          <el-table-column prop="documentType" label="适用文档" width="110" />
-          <el-table-column prop="targetTable" label="复用表" min-width="190" />
-          <el-table-column prop="mapping" label="映射摘要" min-width="320" />
-        </el-table>
-      </el-drawer>
 
       <div class="wizard-actions">
         <el-button :disabled="activeStep === 0" @click="prev">上一步</el-button>

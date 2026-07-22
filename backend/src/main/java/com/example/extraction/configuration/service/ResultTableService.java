@@ -12,7 +12,6 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
 import java.time.LocalDateTime;
-import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -29,14 +28,15 @@ public class ResultTableService {
 
     @Transactional
     public List<Map<String, Object>> listOptions(String keyword) {
-        ensureDefaultTables();
-        return resultTableMapper.selectTables(keyword, "ENABLED").stream().map(this::toOption).toList();
+        return resultTableMapper.selectTables(keyword, "ENABLED").stream()
+                .filter(this::isReusableTable)
+                .map(this::toOption)
+                .toList();
     }
 
     @Transactional
     public ResultTableDetailResponse detail(String tableCode) {
-        ensureDefaultTables();
-        ResultTableRecord table = requireTable(tableCode);
+        ResultTableRecord table = requireReusableTable(tableCode);
         return toDetail(table, resultTableMapper.selectColumnsByTableId(table.getId()));
     }
 
@@ -52,7 +52,6 @@ public class ResultTableService {
         if (!StringUtils.hasText(storageConfig.getTargetTable())) {
             return;
         }
-        ensureDefaultTables();
         if ("CREATE".equals(storageConfig.getStorageMode())) {
             upsertCreatedTable(payload, operator);
             return;
@@ -88,8 +87,7 @@ public class ResultTableService {
                                      List<ConfigWizardPayload.ResultTableColumn> payloadColumns,
                                      List<ConfigWizardPayload.ExtractField> extractFields,
                                      List<ConfigWizardPayload.UniqueConstraint> uniqueConstraints) {
-        ensureDefaultTables();
-        ResultTableRecord table = requireTable(tableCode);
+        ResultTableRecord table = requireReusableTable(tableCode);
         List<ResultTableColumnRecord> records = resultTableMapper.selectColumnsByTableId(table.getId());
         Set<String> tableColumns = new HashSet<>();
         for (ResultTableColumnRecord record : records) {
@@ -199,6 +197,18 @@ public class ResultTableService {
         return table;
     }
 
+    private ResultTableRecord requireReusableTable(String tableCode) {
+        ResultTableRecord table = requireTable(tableCode);
+        if (!isReusableTable(table)) {
+            throw new BusinessException("RESULT_TABLE_400", "结果表尚未完成物理建表，不能作为复用已有表使用：" + tableCode);
+        }
+        return table;
+    }
+
+    private boolean isReusableTable(ResultTableRecord table) {
+        return table != null && "1".equals(table.getAutoCreateTable()) && "CREATED".equals(table.getDdlStatus());
+    }
+
     private ResultTableDetailResponse toDetail(ResultTableRecord table, List<ResultTableColumnRecord> records) {
         ResultTableDetailResponse response = new ResultTableDetailResponse();
         response.setId(table.getId());
@@ -248,86 +258,5 @@ public class ResultTableService {
             return precision + "," + scale;
         }
         return null;
-    }
-
-    private void ensureDefaultTables() {
-        if (resultTableMapper.countTables() > 0) {
-            return;
-        }
-        seedTable("ext_fund_business_result", "基金业务要素结果表", "保存基金申购、赎回、划款、回单等业务场景的结构化要素结果", defaultFundColumns());
-        seedTable("ext_payment_instruction", "划款指令结果表", "保存运营划款指令类文档的结构化识别结果", defaultPaymentColumns());
-        seedTable("ext_bank_receipt", "银行回单结果表", "保存银行回单、流水回执等文档的结构化识别结果", defaultReceiptColumns());
-    }
-
-    private void seedTable(String tableCode, String tableName, String tableComment, List<ConfigWizardPayload.ResultTableColumn> columns) {
-        LocalDateTime now = LocalDateTime.now();
-        ResultTableRecord table = new ResultTableRecord();
-        table.setId(IdGenerator.nextId("RT"));
-        table.setTableCode(tableCode);
-        table.setTableName(tableName);
-        table.setTableComment(tableComment);
-        table.setStorageDatasource("DEFAULT");
-        table.setAutoCreateTable("0");
-        table.setAutoAddColumn("0");
-        table.setDdlStatus("REGISTERED");
-        table.setStatus("ENABLED");
-        table.setCreatedBy("system");
-        table.setCreatedAt(now);
-        table.setUpdatedAt(now);
-        resultTableMapper.insertTable(table);
-        replaceColumns(table.getId(), columns, now);
-    }
-
-    private List<ConfigWizardPayload.ResultTableColumn> defaultFundColumns() {
-        List<ConfigWizardPayload.ResultTableColumn> columns = new ArrayList<>();
-        columns.add(column("biz_no", "业务编号", "varchar", 64, null, null, false, "", "唯一性校验"));
-        columns.add(column("source_system", "来源系统", "varchar", 32, null, null, true, "OCR", "非空"));
-        columns.add(column("document_type", "文档类型", "varchar", 64, null, null, true, "", "非空"));
-        columns.add(column("payer_name", "付款方名称", "varchar", 200, null, null, true, "", "非空"));
-        columns.add(column("payee_account", "收款账号", "varchar", 64, null, null, true, "", "账号格式"));
-        columns.add(column("amount", "业务金额", "decimal", null, 18, 2, true, "", "金额格式"));
-        columns.add(column("counterparty_account", "交易对手账号", "varchar", 64, null, null, false, "", "账号格式"));
-        columns.add(column("business_amount", "业务金额", "decimal", null, 18, 2, true, "", "金额格式"));
-        columns.add(column("business_date", "业务日期", "date", null, null, null, false, "", "日期格式"));
-        columns.add(column("product_code", "产品代码", "varchar", 32, null, null, false, "", "产品主数据校验"));
-        return columns;
-    }
-
-    private List<ConfigWizardPayload.ResultTableColumn> defaultPaymentColumns() {
-        List<ConfigWizardPayload.ResultTableColumn> columns = new ArrayList<>();
-        columns.add(column("instruction_no", "指令编号", "varchar", 64, null, null, false, "", "唯一性校验"));
-        columns.add(column("payer_name", "付款方名称", "varchar", 200, null, null, true, "", "非空"));
-        columns.add(column("payee_name", "收款方名称", "varchar", 200, null, null, false, "", ""));
-        columns.add(column("payee_account", "收款账号", "varchar", 64, null, null, true, "", "账号格式"));
-        columns.add(column("amount", "划款金额", "decimal", null, 18, 2, true, "", "金额格式"));
-        columns.add(column("business_date", "业务日期", "date", null, null, null, false, "", "日期格式"));
-        return columns;
-    }
-
-    private List<ConfigWizardPayload.ResultTableColumn> defaultReceiptColumns() {
-        List<ConfigWizardPayload.ResultTableColumn> columns = new ArrayList<>();
-        columns.add(column("receipt_no", "回单编号", "varchar", 64, null, null, false, "", "唯一性校验"));
-        columns.add(column("account_no", "账号", "varchar", 64, null, null, true, "", "账号格式"));
-        columns.add(column("counterparty_name", "交易对手名称", "varchar", 200, null, null, false, "", ""));
-        columns.add(column("counterparty_account", "交易对手账号", "varchar", 64, null, null, false, "", "账号格式"));
-        columns.add(column("business_amount", "交易金额", "decimal", null, 18, 2, true, "", "金额格式"));
-        columns.add(column("business_date", "交易日期", "date", null, null, null, false, "", "日期格式"));
-        return columns;
-    }
-
-    private ConfigWizardPayload.ResultTableColumn column(String columnName, String columnCnName, String dbType,
-                                                         Integer length, Integer precision, Integer scale,
-                                                         boolean required, String defaultValue, String validationRule) {
-        ConfigWizardPayload.ResultTableColumn column = new ConfigWizardPayload.ResultTableColumn();
-        column.setColumnName(columnName);
-        column.setColumnCnName(columnCnName);
-        column.setDbType(dbType);
-        column.setLength(length);
-        column.setPrecision(precision);
-        column.setScale(scale);
-        column.setRequired(required);
-        column.setDefaultValue(defaultValue);
-        column.setValidationRule(validationRule);
-        return column;
     }
 }
