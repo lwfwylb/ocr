@@ -43,6 +43,7 @@ public class ConfigWizardService {
     private final SystemDictionaryService dictionaryService;
     private final SystemAccessService systemAccessService;
     private final ResultTableService resultTableService;
+    private final ResultTableDdlService resultTableDdlService;
     private final ObjectMapper objectMapper;
 
     public ConfigWizardService(ExtractConfigMapper extractConfigMapper,
@@ -52,6 +53,7 @@ public class ConfigWizardService {
                                SystemDictionaryService dictionaryService,
                                SystemAccessService systemAccessService,
                                ResultTableService resultTableService,
+                               ResultTableDdlService resultTableDdlService,
                                ObjectMapper objectMapper) {
         this.extractConfigMapper = extractConfigMapper;
         this.ocrEngineConfigMapper = ocrEngineConfigMapper;
@@ -60,6 +62,7 @@ public class ConfigWizardService {
         this.dictionaryService = dictionaryService;
         this.systemAccessService = systemAccessService;
         this.resultTableService = resultTableService;
+        this.resultTableDdlService = resultTableDdlService;
         this.objectMapper = objectMapper;
     }
 
@@ -173,9 +176,14 @@ public class ConfigWizardService {
     @Transactional
     public ConfigDetailResponse publish(String id) {
         ExtractConfigRecord record = requireRecord(id);
+        if (!List.of("DRAFT", "TESTING").contains(record.getStatus())) {
+            throw new BusinessException("CONFIG_409", "仅草稿或验证中的配置允许发布");
+        }
         ConfigWizardPayload payload = readPayload(record);
         validatePublish(payload);
         resultTableService.syncFromWizard(payload, record.getCreatedBy());
+        resultTableDdlService.createTableIfNecessary(payload);
+        resultTableService.markDdlCreated(payload, record.getCreatedBy());
         extractConfigMapper.disablePublishedByConfigCode(record.getConfigCode(), id);
         int updated = extractConfigMapper.publish(id);
         if (updated == 0) {
@@ -213,7 +221,7 @@ public class ConfigWizardService {
         result.put("errors", errors);
         result.put("warnings", warnings);
         result.put("sections", sections);
-        result.put("ddlPreview", buildDdlPreview(payload));
+        result.put("ddlPreview", buildDdlPreviewSafely(payload));
         result.put("checkedAt", LocalDateTime.now());
         result.put("message", errors.isEmpty() ? "配置验证通过，可发布配置" : "配置存在阻断项，请补充后再发布");
         return result;
@@ -466,7 +474,11 @@ public class ConfigWizardService {
             }
         }
         if ("CREATE".equals(storageConfig.getStorageMode())) {
-            issues.add(issue("WARN", "验证阶段只预览 DDL，不会真正创建物理结果表；保存草稿时会登记结果表元数据台账"));
+            try {
+                issues.addAll(resultTableDdlService.validateCreateTable(payload));
+            } catch (BusinessException e) {
+                issues.add(issue("ERROR", e.getMessage()));
+            }
         } else if ("REUSE".equals(storageConfig.getStorageMode()) && StringUtils.hasText(storageConfig.getTargetTable())) {
             try {
                 resultTableService.validateReuseColumns(storageConfig.getTargetTable(), columns, payload.getExtractFields(), payload.getUniqueConstraints());
@@ -1067,48 +1079,12 @@ public class ConfigWizardService {
         return messages;
     }
 
-    private String buildDdlPreview(ConfigWizardPayload payload) {
-        ConfigWizardPayload.StorageConfig storageConfig = payload.getStorageConfig() == null ? new ConfigWizardPayload.StorageConfig() : payload.getStorageConfig();
-        if (!storageEnabled(payload)) {
-            return "-- 当前配置未启用结果落库\n-- 不生成 DDL，不写入结果表，仅保留提取、加工、复核和下游推送能力。";
+    private String buildDdlPreviewSafely(ConfigWizardPayload payload) {
+        try {
+            return resultTableDdlService.previewDdl(payload);
+        } catch (BusinessException e) {
+            return "-- DDL 预览生成失败：" + e.getMessage();
         }
-        if (!"CREATE".equals(storageConfig.getStorageMode())) {
-            return "-- 复用已有表: " + nullToDash(storageConfig.getTargetTable()) + "\n-- 验证阶段不执行 DDL，仅校验目标字段映射。";
-        }
-        StringBuilder ddl = new StringBuilder();
-        ddl.append("-- 验证阶段仅预览 DDL，不会真正建表\n");
-        ddl.append("CREATE TABLE ").append(nullToDash(storageConfig.getTargetTable())).append(" (\n");
-        List<String> lines = new ArrayList<>();
-        if (payload.getResultTableColumns() != null) {
-            for (ConfigWizardPayload.ResultTableColumn column : payload.getResultTableColumns()) {
-                lines.add("  " + column.getColumnName() + " " + formatDbColumnType(column) + (Boolean.TRUE.equals(column.getRequired()) ? " NOT NULL" : ""));
-            }
-        }
-        if (payload.getUniqueConstraints() != null) {
-            for (ConfigWizardPayload.UniqueConstraint constraint : payload.getUniqueConstraints()) {
-                if (Boolean.TRUE.equals(constraint.getEnabled()) && Boolean.TRUE.equals(constraint.getGenerateDbIndex())
-                        && constraint.getUniqueColumns() != null && !constraint.getUniqueColumns().isEmpty()) {
-                    lines.add("  UNIQUE KEY " + constraint.getConstraintName() + " (" + String.join(", ", constraint.getUniqueColumns()) + ")");
-                }
-            }
-        }
-        ddl.append(String.join(",\n", lines));
-        ddl.append("\n);");
-        return ddl.toString();
-    }
-
-    private String formatDbColumnType(ConfigWizardPayload.ResultTableColumn column) {
-        if (List.of("varchar", "char").contains(column.getDbType())) {
-            return column.getDbType() + "(" + (column.getLength() == null ? 100 : column.getLength()) + ")";
-        }
-        if (List.of("decimal", "number").contains(column.getDbType())) {
-            return column.getDbType() + "(" + (column.getPrecision() == null ? 18 : column.getPrecision()) + "," + (column.getScale() == null ? 2 : column.getScale()) + ")";
-        }
-        return StringUtils.hasText(column.getDbType()) ? column.getDbType() : "varchar(100)";
-    }
-
-    private String nullToDash(String value) {
-        return StringUtils.hasText(value) ? value : "-";
     }
 
     private boolean storageEnabled(ConfigWizardPayload payload) {

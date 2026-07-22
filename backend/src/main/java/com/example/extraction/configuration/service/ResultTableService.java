@@ -63,6 +63,27 @@ public class ResultTableService {
     }
 
     @Transactional
+    public void markDdlCreated(ConfigWizardPayload payload, String operator) {
+        if (payload == null || payload.getStorageConfig() == null) {
+            return;
+        }
+        ConfigWizardPayload.StorageConfig storageConfig = payload.getStorageConfig();
+        if (Boolean.FALSE.equals(storageConfig.getStorageEnabled()) || !"CREATE".equals(storageConfig.getStorageMode())
+                || !StringUtils.hasText(storageConfig.getTargetTable())) {
+            return;
+        }
+        ResultTableRecord table = resultTableMapper.selectTableByCode(storageConfig.getTargetTable());
+        if (table == null) {
+            return;
+        }
+        table.setAutoCreateTable("1");
+        table.setAutoAddColumn("0");
+        table.setDdlStatus("CREATED");
+        table.setUpdatedAt(LocalDateTime.now());
+        resultTableMapper.updateTable(table);
+    }
+
+    @Transactional
     public void validateReuseColumns(String tableCode,
                                      List<ConfigWizardPayload.ResultTableColumn> payloadColumns,
                                      List<ConfigWizardPayload.ExtractField> extractFields,
