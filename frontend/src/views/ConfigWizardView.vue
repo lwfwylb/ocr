@@ -49,6 +49,7 @@ interface DictItem {
 
 interface DictCondition {
   id: string
+  fieldId?: string
   fieldCode: string
   paramName: string
   operator: DictConditionOperator
@@ -56,6 +57,7 @@ interface DictCondition {
 }
 
 interface TransformInputField {
+  fieldId: string
   fieldCode: string
   paramName: string
   required: boolean
@@ -65,6 +67,7 @@ interface TransformInputField {
 
 interface TransformCondition {
   id: string
+  fieldId: string
   fieldCode: string
   operator: TransformConditionOperator
   value: string
@@ -83,6 +86,7 @@ interface TransformRule {
   ruleName: string
   ruleType: TransformRuleType
   inputFields: TransformInputField[]
+  outputFieldId?: string
   outputField: string
   outputMode?: TransformOutputMode
   conditionEnabled?: boolean
@@ -113,6 +117,7 @@ interface ValidationRule {
   id: string
   ruleName: string
   ruleType: ValidationRuleType
+  fieldId: string
   fieldCode: string
   enabled: boolean
   severity: 'WARN' | 'REVIEW' | 'BLOCK'
@@ -134,10 +139,41 @@ interface PreprocessStep {
 
 type OptionItem = Record<string, any>
 
-const initialConfigFields = [
-  { fieldCode: 'payer_name', fieldName: '付款方名称', sourceType: 'EXTRACTED', dataType: 'string', fieldLength: 200, required: true, multiple: false, targetColumn: 'payer_name' },
-  { fieldCode: 'payee_account', fieldName: '收款账号', sourceType: 'EXTRACTED', dataType: 'string', fieldLength: 64, required: true, multiple: false, targetColumn: 'payee_account' },
-  { fieldCode: 'amount', fieldName: '划款金额', sourceType: 'EXTRACTED', dataType: 'amount', fieldLength: 18, required: true, multiple: false, targetColumn: 'amount' }
+interface ResultField {
+  fieldId: string
+  fieldCode: string
+  fieldName: string
+  sourceType: ResultFieldSourceType | string
+  dataType: string
+  fieldLength?: number
+  fieldDescription?: string
+  required?: boolean
+  extractRequired?: boolean
+  multiple?: boolean
+  targetColumn?: string
+  generatedByRuleId?: string
+  [key: string]: any
+}
+
+const createFieldId = (fieldCode = '') => `fld_${String(fieldCode || Date.now()).trim().replace(/[^A-Za-z0-9_]/g, '_')}_${Math.random().toString(36).slice(2, 6)}`
+const normalizeFieldId = (field: Partial<ResultField>, fallbackCode = '') => field.fieldId || `fld_${String(field.fieldCode || fallbackCode || Date.now()).trim().replace(/[^A-Za-z0-9_]/g, '_')}`
+const normalizeResultField = (field: Partial<ResultField>, index = 0): ResultField => {
+  const fieldCode = String(field.fieldCode || `field_${index + 1}`).trim()
+  return {
+    ...field,
+    fieldId: normalizeFieldId(field, fieldCode),
+    fieldCode,
+    fieldName: field.fieldName || fieldCode,
+    sourceType: field.sourceType || 'EXTRACTED',
+    dataType: field.dataType || 'string',
+    targetColumn: field.targetColumn || fieldCode
+  } as ResultField
+}
+
+const initialConfigFields: ResultField[] = [
+  { fieldId: 'fld_payer_name', fieldCode: 'payer_name', fieldName: '付款方名称', sourceType: 'EXTRACTED', dataType: 'string', fieldLength: 200, required: true, multiple: false, targetColumn: 'payer_name' },
+  { fieldId: 'fld_payee_account', fieldCode: 'payee_account', fieldName: '收款账号', sourceType: 'EXTRACTED', dataType: 'string', fieldLength: 64, required: true, multiple: false, targetColumn: 'payee_account' },
+  { fieldId: 'fld_amount', fieldCode: 'amount', fieldName: '划款金额', sourceType: 'EXTRACTED', dataType: 'amount', fieldLength: 18, required: true, multiple: false, targetColumn: 'amount' }
 ]
 
 const activeStep = ref(0)
@@ -159,7 +195,7 @@ const options = ref<ConfigOptions>({
 })
 const llmModelOptions = ref<LlmModelOption[]>([])
 const ocrEngineOptions = ref<OcrEngineOption[]>([])
-const fields = ref(initialConfigFields.map((item) => ({ ...item })))
+const fields = ref<ResultField[]>(initialConfigFields.map((item, index) => normalizeResultField({ ...item }, index)))
 fields.value.forEach((field) => {
   const mutable = field as any
   mutable.fieldDescription = mutable.fieldDescription || `从文档中识别${field.fieldName}`
@@ -182,23 +218,39 @@ const toParamName = (fieldCode: string) => {
   if (!normalized) return 'param'
   return normalized.replace(/_([a-zA-Z0-9])/g, (_, char: string) => char.toUpperCase())
 }
-const createTransformInputField = (fieldCode: string): TransformInputField => ({
-  fieldCode,
-  paramName: toParamName(fieldCode),
-  required: true,
-  defaultValue: '',
-  sampleValue: ''
-})
-const createTransformCondition = (fieldCode = ''): TransformCondition => ({
-  id: `cond-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-  fieldCode,
-  operator: 'NOT_EMPTY',
-  value: ''
-})
+const fieldById = (fieldId = '') => fields.value.find((field) => field.fieldId === fieldId)
+const fieldByCode = (fieldCode = '') => fields.value.find((field) => field.fieldCode === fieldCode)
+const fieldIdByCode = (fieldCode = '') => fieldByCode(fieldCode)?.fieldId || ''
+const fieldCodeById = (fieldId = '') => fieldById(fieldId)?.fieldCode || ''
+const resolveField = (fieldId = '', fieldCode = '') => fieldById(fieldId) || fieldByCode(fieldCode)
+const createTransformInputField = (fieldIdOrCode: string): TransformInputField => {
+  const field = resolveField(fieldIdOrCode, fieldIdOrCode)
+  const fieldId = field?.fieldId || fieldIdOrCode
+  const fieldCode = field?.fieldCode || fieldIdOrCode
+  return {
+    fieldId,
+    fieldCode,
+    paramName: toParamName(fieldCode),
+    required: true,
+    defaultValue: '',
+    sampleValue: ''
+  }
+}
+const createTransformCondition = (fieldIdOrCode = ''): TransformCondition => {
+  const field = resolveField(fieldIdOrCode, fieldIdOrCode)
+  return {
+    id: `cond-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    fieldId: field?.fieldId || fieldIdOrCode,
+    fieldCode: field?.fieldCode || fieldIdOrCode,
+    operator: 'NOT_EMPTY',
+    value: ''
+  }
+}
 const createDictCondition = (input?: TransformInputField): DictCondition => ({
   id: `dict-cond-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+  fieldId: input?.fieldId || '',
   fieldCode: input?.fieldCode || '',
-  paramName: input?.paramName || '',
+  paramName: input?.paramName || toParamName(input?.fieldCode || ''),
   operator: 'EQUALS',
   value: ''
 })
@@ -223,9 +275,10 @@ const normalizeConditionLogic = (logic: any): TransformConditionLogic => logic =
 const normalizeDictCondition = (condition: any, rule: TransformRule): DictCondition => {
   const input = condition.paramName
     ? rule.inputFields.find((item) => item.paramName === condition.paramName)
-    : rule.inputFields.find((item) => item.fieldCode === condition.fieldCode)
+    : rule.inputFields.find((item) => item.fieldId === condition.fieldId || item.fieldCode === condition.fieldCode)
   return {
     id: condition.id || `dict-cond-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    fieldId: condition.fieldId || input?.fieldId || fieldIdByCode(condition.fieldCode || '') || '',
     fieldCode: condition.fieldCode || input?.fieldCode || '',
     paramName: condition.paramName || input?.paramName || toParamName(condition.fieldCode || ''),
     operator: normalizeDictOperator(condition.operator || condition.matchMode),
@@ -240,6 +293,7 @@ const normalizeDictItem = (item: any, rule: TransformRule, index: number): DictI
         const input = rule.inputFields.find((field) => field.paramName === paramName)
         return {
           id: `dict-cond-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+          fieldId: input?.fieldId || fieldIdByCode(input?.fieldCode || '') || '',
           fieldCode: input?.fieldCode || '',
           paramName,
           operator: 'EQUALS' as DictConditionOperator,
@@ -274,29 +328,41 @@ const normalizeDictItemPriorities = (rule?: TransformRule) => {
 }
 const normalizeTransformRule = (rule: any): TransformRule => {
   const inputFields = Array.isArray(rule.inputFields) ? rule.inputFields : []
-  rule.inputFields = inputFields.map((input: any) => ({
-    fieldCode: input.fieldCode || '',
-    paramName: input.paramName || toParamName(input.fieldCode || ''),
-    required: input.required !== false,
-    defaultValue: input.defaultValue || '',
-    sampleValue: input.sampleValue || ''
-  })).filter((input: TransformInputField) => input.fieldCode)
+  rule.inputFields = inputFields.map((input: any) => {
+    const field = resolveField(input.fieldId, input.fieldCode)
+    const fieldCode = field?.fieldCode || input.fieldCode || ''
+    return {
+      fieldId: field?.fieldId || input.fieldId || fieldIdByCode(fieldCode),
+      fieldCode,
+      paramName: input.paramName || toParamName(fieldCode),
+      required: input.required !== false,
+      defaultValue: input.defaultValue || '',
+      sampleValue: input.sampleValue || ''
+    }
+  }).filter((input: TransformInputField) => input.fieldId || input.fieldCode)
+  if (!rule.outputFieldId && rule.outputField) rule.outputFieldId = fieldIdByCode(rule.outputField)
+  if (rule.outputFieldId && !rule.outputField) rule.outputField = fieldCodeById(rule.outputFieldId)
   rule.enabled = normalizeBoolean(rule.enabled, true)
   rule.conditionEnabled = normalizeBoolean(rule.conditionEnabled, false)
   rule.dictItems = rule.dictItems || []
   const legacyCondition = rule.conditionField ? [{
     id: `cond-${rule.id || Date.now()}-legacy`,
+    fieldId: fieldIdByCode(rule.conditionField),
     fieldCode: rule.conditionField,
     operator: rule.conditionOperator || 'NOT_EMPTY',
     value: rule.conditionValue || ''
   }] : []
   rule.conditionLogic = rule.conditionLogic || 'ALL'
-  rule.conditions = (Array.isArray(rule.conditions) && rule.conditions.length ? rule.conditions : legacyCondition).map((condition: any) => ({
-    id: condition.id || `cond-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-    fieldCode: condition.fieldCode || '',
-    operator: condition.operator || 'NOT_EMPTY',
-    value: condition.value || ''
-  }))
+  rule.conditions = (Array.isArray(rule.conditions) && rule.conditions.length ? rule.conditions : legacyCondition).map((condition: any) => {
+    const field = resolveField(condition.fieldId, condition.fieldCode)
+    return {
+      id: condition.id || `cond-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      fieldId: field?.fieldId || condition.fieldId || fieldIdByCode(condition.fieldCode || ''),
+      fieldCode: field?.fieldCode || condition.fieldCode || '',
+      operator: condition.operator || 'NOT_EMPTY',
+      value: condition.value || ''
+    }
+  })
   delete rule.conditionField
   delete rule.conditionOperator
   delete rule.conditionValue
@@ -731,8 +797,9 @@ const ensurePushServiceFieldMap = (serviceCode: string) => {
   if (!serviceCode) return {}
   if (!downstreamFieldMap[serviceCode]) downstreamFieldMap[serviceCode] = {}
   fields.value.forEach((field: any) => {
-    if (!downstreamFieldMap[serviceCode][field.fieldCode]) {
-      downstreamFieldMap[serviceCode][field.fieldCode] = defaultPushSourceField(field)
+    const fieldKey = field.fieldId || field.fieldCode
+    if (!downstreamFieldMap[serviceCode][fieldKey]) {
+      downstreamFieldMap[serviceCode][fieldKey] = downstreamFieldMap[serviceCode][field.fieldCode] || defaultPushSourceField(field)
     }
   })
   return downstreamFieldMap[serviceCode]
@@ -740,17 +807,18 @@ const ensurePushServiceFieldMap = (serviceCode: string) => {
 const pushFieldMappingsForService = (serviceCode: string) => {
   const serviceMap = ensurePushServiceFieldMap(serviceCode)
   return fields.value.map((field: any) => ({
+    fieldId: field.fieldId,
     fieldCode: field.fieldCode,
     resultFieldCode: field.fieldCode,
     sourceType: field.sourceType || 'EXTRACTED',
     sourceField: defaultPushSourceField(field),
-    downstreamField: serviceMap[field.fieldCode] || defaultPushSourceField(field),
+    downstreamField: serviceMap[field.fieldId || field.fieldCode] || serviceMap[field.fieldCode] || defaultPushSourceField(field),
     fieldName: field.fieldName
   }))
 }
-const updateDownstreamField = (serviceCode: string, fieldCode: string, downstreamField: string) => {
+const updateDownstreamField = (serviceCode: string, fieldIdOrCode: string, downstreamField: string) => {
   const serviceMap = ensurePushServiceFieldMap(serviceCode)
-  serviceMap[fieldCode] = downstreamField
+  serviceMap[fieldIdOrCode] = downstreamField
 }
 const renderIdempotentKeyPreview = (serviceCode: string) => {
   return (form.idempotentKey || '${traceId}-${taskId}-${serviceCode}')
@@ -783,7 +851,9 @@ const initializePushServiceMaps = (pushRules: any[] = []) => {
     const rule = pushRules.find((item) => item?.serviceCode === serviceCode) || (pushRules.length === 1 ? pushRules[0] : undefined)
     ;(rule?.fieldMappings || []).forEach((mapping: any) => {
       const fieldCode = mapping.fieldCode || mapping.resultFieldCode || mapping.extractFieldCode
-      if (fieldCode) serviceMap[fieldCode] = mapping.downstreamField || mapping.targetField || mapping.sourceField || serviceMap[fieldCode] || fieldCode
+      const fieldId = mapping.fieldId || fieldIdByCode(fieldCode)
+      const fieldKey = fieldId || fieldCode
+      if (fieldKey) serviceMap[fieldKey] = mapping.downstreamField || mapping.targetField || mapping.sourceField || serviceMap[fieldKey] || fieldCode
     })
   })
   activePushServiceCode.value = form.targetServices.includes(activePushServiceCode.value) ? activePushServiceCode.value : (form.targetServices[0] || '')
@@ -886,11 +956,12 @@ const dictConditionOperatorLabel: Record<DictConditionOperator, string> = {
 }
 const transformRuleInputSummary = (rule: TransformRule) => {
   if (!rule.inputFields?.length) return '待配置依赖字段'
-  return rule.inputFields.map((input) => input.fieldCode).join(' + ')
+  return rule.inputFields.map((input) => fieldById(input.fieldId)?.fieldCode || input.fieldCode).join(' + ')
 }
 const transformRuleOutputSummary = (rule: TransformRule) => {
-  if (rule.outputMode === 'OVERWRITE_INPUT') return rule.outputField ? `覆盖 ${rule.outputField}` : '待选择覆盖字段'
-  return rule.outputField || '待配置输出字段'
+  const outputLabel = fieldLabelById(rule.outputFieldId || '', rule.outputField)
+  if (rule.outputMode === 'OVERWRITE_INPUT') return rule.outputFieldId || rule.outputField ? `覆盖 ${outputLabel}` : '待选择覆盖字段'
+  return rule.outputFieldId || rule.outputField ? outputLabel : '待配置输出字段'
 }
 const transformParamNameError = (rule: TransformRule, input: TransformInputField) => {
   const paramName = String(input.paramName || '').trim()
@@ -900,19 +971,31 @@ const transformParamNameError = (rule: TransformRule, input: TransformInputField
   if (duplicateCount > 1) return '参数名不能重复'
   return ''
 }
-const updateTransformInputFields = (rule: TransformRule, fieldCodes: string[]) => {
-  const existing = new Map((rule.inputFields || []).map((input) => [input.fieldCode, input]))
-  rule.inputFields = fieldCodes.map((fieldCode) => existing.get(fieldCode) || createTransformInputField(fieldCode))
-  if (rule.outputMode === 'OVERWRITE_INPUT' && !rule.outputField && rule.inputFields.length) rule.outputField = rule.inputFields[0].fieldCode
+const updateTransformInputFields = (rule: TransformRule, fieldIds: string[]) => {
+  const existing = new Map((rule.inputFields || []).map((input) => [input.fieldId || input.fieldCode, input]))
+  rule.inputFields = fieldIds.map((fieldId) => {
+    const field = fieldById(fieldId) || fieldByCode(fieldId)
+    const existingInput = existing.get(field?.fieldId || fieldId) || existing.get(field?.fieldCode || fieldId)
+    return existingInput ? { ...existingInput, fieldId: field?.fieldId || existingInput.fieldId, fieldCode: field?.fieldCode || existingInput.fieldCode } : createTransformInputField(field?.fieldId || fieldId)
+  })
+  if (rule.outputMode === 'OVERWRITE_INPUT' && !rule.outputFieldId && rule.inputFields.length) {
+    rule.outputFieldId = rule.inputFields[0].fieldId
+    rule.outputField = rule.inputFields[0].fieldCode
+  }
   ensureDictItems(rule)
 }
 const handleTransformOutputModeChange = (rule: TransformRule) => {
-  if (rule.outputMode === 'OVERWRITE_INPUT' && !rule.outputField && rule.inputFields.length) {
+  if (rule.outputMode === 'OVERWRITE_INPUT' && !rule.outputFieldId && rule.inputFields.length) {
+    rule.outputFieldId = rule.inputFields[0].fieldId
     rule.outputField = rule.inputFields[0].fieldCode
   }
 }
+const fieldLabelById = (fieldId: string, fallbackCode = '') => {
+  const field = resolveField(fieldId, fallbackCode)
+  return field ? `${field.fieldName}（${field.fieldCode}）` : fallbackCode || fieldId
+}
 const fieldLabelByCode = (fieldCode: string) => {
-  const field = fields.value.find((item) => item.fieldCode === fieldCode)
+  const field = resolveField('', fieldCode)
   return field ? `${field.fieldName}（${field.fieldCode}）` : fieldCode
 }
 const transformRuleIndex = (rule: TransformRule) => transformRules.value.findIndex((item) => item.id === rule.id)
@@ -922,22 +1005,23 @@ const conditionFieldGroups = (rule: TransformRule) => {
     transformRules.value
       .slice(0, currentIndex < 0 ? 0 : currentIndex)
       .filter((item) => item.enabled && item.outputField)
-      .map((item) => item.outputField)
+      .map((item) => item.outputFieldId || fieldIdByCode(item.outputField))
   )
   const baseFields = fields.value.filter((field: any) => !['DERIVED', 'SYSTEM'].includes(field.sourceType || 'EXTRACTED'))
   const systemFields = fields.value.filter((field: any) => (field.sourceType || 'EXTRACTED') === 'SYSTEM')
-  const previousDerivedFields = fields.value.filter((field: any) => (field.sourceType || 'EXTRACTED') === 'DERIVED' && previousOutputFields.has(field.fieldCode))
+  const previousDerivedFields = fields.value.filter((field: any) => (field.sourceType || 'EXTRACTED') === 'DERIVED' && previousOutputFields.has(field.fieldId))
   return [
     { label: '提取字段', options: baseFields },
     { label: '前序加工字段', options: previousDerivedFields },
     { label: '系统字段', options: systemFields }
   ].filter((group) => group.options.length)
 }
-const firstAvailableConditionFieldCode = (rule: TransformRule) => conditionFieldGroups(rule)[0]?.options[0]?.fieldCode || ''
+const firstAvailableConditionFieldId = (rule: TransformRule) => conditionFieldGroups(rule)[0]?.options[0]?.fieldId || ''
 const sampleValueByInput = (input: TransformInputField) => input.sampleValue || input.defaultValue || ''
 const buildTransformSampleMap = (rule: TransformRule) => {
   return (rule.inputFields || []).reduce<Record<string, string>>((result, input) => {
     result[input.paramName] = sampleValueByInput(input)
+    result[input.fieldId] = sampleValueByInput(input)
     result[input.fieldCode] = sampleValueByInput(input)
     return result
   }, {})
@@ -1004,7 +1088,7 @@ const transformValueMatches = (mode: DictConditionOperator | undefined, expected
   return actual === expected
 }
 const dictConditionActualValue = (condition: DictCondition, sampleValues: Record<string, string>) => {
-  return String(sampleValues[condition.paramName] ?? sampleValues[condition.fieldCode] ?? '').trim()
+  return String(sampleValues[condition.paramName] ?? sampleValues[condition.fieldId || ''] ?? sampleValues[condition.fieldCode] ?? '').trim()
 }
 const dictConditionMatchesSample = (condition: DictCondition, sampleValues: Record<string, string>) => {
   return transformValueMatches(condition.operator || 'EQUALS', String(condition.value || '').trim(), dictConditionActualValue(condition, sampleValues))
@@ -1014,7 +1098,7 @@ const dictItemConditionSummary = (item: DictItem) => {
   if (!conditions.length) return '待配置命中条件'
   const joiner = item.conditionLogic === 'ANY' ? ' 或 ' : ' 且 '
   return conditions.map((condition) => {
-    const fieldName = fieldLabelByCode(condition.fieldCode)
+    const fieldName = fieldLabelById(condition.fieldId || '', condition.fieldCode)
     const operator = dictConditionOperatorLabel[condition.operator || 'EQUALS']
     const value = ['EMPTY', 'NOT_EMPTY'].includes(condition.operator) ? '' : ` ${condition.value || '待填写'}`
     return `${fieldName} ${operator}${value}`
@@ -1027,9 +1111,11 @@ const dictItemMatchStatus = (item: DictItem, sampleValues: Record<string, string
 }
 const dictItemMatchStatusByRule = (item: DictItem, rule: TransformRule) => dictItemMatchStatus(item, buildTransformSampleMap(rule))
 const dictItemMatchTagType = (item: DictItem, rule: TransformRule) => dictItemMatchStatusByRule(item, rule) === '命中' ? 'success' : 'info'
-const dictInputByFieldCode = (rule: TransformRule, fieldCode: string) => rule.inputFields.find((input) => input.fieldCode === fieldCode)
+const dictInputByFieldId = (rule: TransformRule, fieldId: string, fieldCode = '') => rule.inputFields.find((input) => input.fieldId === fieldId || input.fieldCode === fieldCode)
 const handleDictConditionFieldChange = (rule: TransformRule, condition: DictCondition) => {
-  const input = dictInputByFieldCode(rule, condition.fieldCode)
+  const input = dictInputByFieldId(rule, condition.fieldId || '', condition.fieldCode || '')
+  condition.fieldId = input?.fieldId || condition.fieldId
+  condition.fieldCode = input?.fieldCode || condition.fieldCode
   condition.paramName = input?.paramName || toParamName(condition.fieldCode)
 }
 const addDictCondition = (item: DictItem) => {
@@ -1040,7 +1126,7 @@ const removeDictCondition = (item: DictItem, condition: DictCondition) => {
   item.conditions = item.conditions.filter((row) => row.id !== condition.id)
 }
 const conditionValueMatches = (condition: TransformCondition, sampleValues: Record<string, string>) => {
-  const actual = String(sampleValues[toParamName(condition.fieldCode)] ?? sampleValues[condition.fieldCode] ?? '').trim()
+  const actual = String(sampleValues[condition.fieldId] ?? sampleValues[toParamName(condition.fieldCode)] ?? sampleValues[condition.fieldCode] ?? '').trim()
   const expected = String(condition.value || '').trim()
   const numericActual = Number(actual)
   const numericExpected = Number(expected)
@@ -1078,7 +1164,9 @@ const hasDuplicate = (values: string[]) => {
 const validateFieldStorageStep = () => {
   const errors: string[] = []
   if (!fields.value.length) errors.push('至少维护 1 个结果字段')
+  syncFieldReferences()
   if (hasDuplicate(fields.value.map((field) => field.fieldCode))) errors.push('结果字段编码不能重复')
+  if (hasDuplicate(fields.value.map((field) => field.fieldId))) errors.push('结果字段内部ID不能重复，请刷新页面后重试')
   fields.value.forEach((field, index) => {
     const rowLabel = `结果字段第 ${index + 1} 行`
     if (!field.fieldCode?.trim()) errors.push(`${rowLabel}：字段编码不能为空`)
@@ -1226,17 +1314,62 @@ const next = () => {
 const prev = () => {
   if (activeStep.value > 0) activeStep.value -= 1
 }
+const syncFieldReferences = () => {
+  const existingFieldIds = new Set(fields.value.map((field) => field.fieldId))
+  transformRules.value.forEach((rule) => {
+    rule.inputFields = (rule.inputFields || []).map((input) => {
+      const field = resolveField(input.fieldId, input.fieldCode)
+      return { ...input, fieldId: field?.fieldId || input.fieldId, fieldCode: field?.fieldCode || input.fieldCode }
+    }).filter((input) => input.fieldId ? existingFieldIds.has(input.fieldId) : Boolean(fieldByCode(input.fieldCode)))
+    if (rule.outputFieldId) {
+      const outputField = fieldById(rule.outputFieldId)
+      rule.outputField = outputField?.fieldCode || rule.outputField
+    } else if (rule.outputField) {
+      rule.outputFieldId = fieldIdByCode(rule.outputField)
+    }
+    rule.conditions = (rule.conditions || []).map((condition) => {
+      const field = resolveField(condition.fieldId, condition.fieldCode)
+      return { ...condition, fieldId: field?.fieldId || condition.fieldId, fieldCode: field?.fieldCode || condition.fieldCode }
+    }).filter((condition) => condition.fieldId ? existingFieldIds.has(condition.fieldId) : Boolean(fieldByCode(condition.fieldCode)))
+    ;(rule.dictItems || []).forEach((item) => {
+      item.conditions = (item.conditions || []).map((condition) => {
+        const field = resolveField(condition.fieldId || '', condition.fieldCode || '')
+        const input = (rule.inputFields || []).find((row) => row.fieldId === field?.fieldId || row.fieldCode === field?.fieldCode)
+        return {
+          ...condition,
+          fieldId: input?.fieldId || field?.fieldId || condition.fieldId,
+          fieldCode: input?.fieldCode || field?.fieldCode || condition.fieldCode,
+          paramName: input?.paramName || condition.paramName || toParamName(field?.fieldCode || condition.fieldCode || '')
+        }
+      }).filter((condition) => condition.fieldId ? existingFieldIds.has(condition.fieldId) : Boolean(fieldByCode(condition.fieldCode)))
+    })
+  })
+  validationRules.value = validationRules.value.map((rule) => {
+    const field = resolveField(rule.fieldId, rule.fieldCode)
+    return { ...rule, fieldId: field?.fieldId || rule.fieldId, fieldCode: field?.fieldCode || rule.fieldCode }
+  }).filter((rule) => rule.fieldId ? existingFieldIds.has(rule.fieldId) : Boolean(fieldByCode(rule.fieldCode)))
+}
 const transformRulesForPayload = () => transformRules.value.map((rule) => ({
   ...rule,
-  inputFields: (rule.inputFields || []).map((input) => ({ ...input })),
-  conditions: (rule.conditions || []).map((condition) => ({ ...condition })),
+  outputField: fieldCodeById(rule.outputFieldId || '') || rule.outputField,
+  inputFields: (rule.inputFields || []).map((input) => {
+    const field = resolveField(input.fieldId, input.fieldCode)
+    return { ...input, fieldId: field?.fieldId || input.fieldId, fieldCode: field?.fieldCode || input.fieldCode }
+  }),
+  conditions: (rule.conditions || []).map((condition) => {
+    const field = resolveField(condition.fieldId, condition.fieldCode)
+    return { ...condition, fieldId: field?.fieldId || condition.fieldId, fieldCode: field?.fieldCode || condition.fieldCode }
+  }),
   dictItems: (rule.dictItems || []).map((item, index) => ({
     ...item,
     priority: index + 1,
-    conditions: (item.conditions || []).map((condition) => ({ ...condition }))
+    conditions: (item.conditions || []).map((condition) => {
+      const field = resolveField(condition.fieldId || '', condition.fieldCode || '')
+      return { ...condition, fieldId: field?.fieldId || condition.fieldId, fieldCode: field?.fieldCode || condition.fieldCode }
+    })
   }))
 }))
-const buildWizardPayload = () => ({
+const buildWizardPayload = () => (syncFieldReferences(), {
   baseInfo: {
     configName: form.configName,
     category: form.category,
@@ -1268,6 +1401,7 @@ const buildWizardPayload = () => ({
   resultTableColumns: targetTableColumns.value,
   uniqueConstraints: uniqueConstraints.value,
   extractFields: fields.value.map((field: any) => ({
+    fieldId: field.fieldId,
     fieldCode: field.fieldCode,
     fieldName: field.fieldName,
     fieldDescription: field.fieldDescription,
@@ -1283,6 +1417,7 @@ const buildWizardPayload = () => ({
   })),
   fieldMappings: form.storageEnabled
     ? fields.value.map((field: any) => ({
+      fieldId: field.fieldId,
       extractFieldCode: field.fieldCode,
       resultFieldCode: field.fieldCode,
       sourceType: field.sourceType || 'EXTRACTED',
@@ -1309,6 +1444,7 @@ const buildWizardPayload = () => ({
   regexRules: fields.value
     .filter((field: any) => field.extractByRegex || field.regexPattern || field.traditionalRuleType)
     .map((field: any) => ({
+      fieldId: field.fieldId,
       fieldCode: field.fieldCode,
       ruleName: `${field.fieldName}${traditionalRuleTypeLabel(field.traditionalRuleType || 'REGEX')}取数`,
       ruleType: field.traditionalRuleType || 'REGEX',
@@ -1413,7 +1549,9 @@ const publish = async () => {
 }
 const addField = () => {
   const fieldCode = `field_${fields.value.length + 1}`
+  const fieldId = createFieldId(fieldCode)
   fields.value.push({
+    fieldId,
     fieldCode,
     fieldName: '新增字段',
     sourceType: 'EXTRACTED',
@@ -1432,7 +1570,7 @@ const addField = () => {
     regexFlags: '',
     regexGroup: 1
   } as any)
-  form.targetServices.forEach((serviceCode) => updateDownstreamField(serviceCode, fieldCode, fieldCode))
+  form.targetServices.forEach((serviceCode) => updateDownstreamField(serviceCode, fieldId, fieldCode))
 }
 const autoMapFields = () => {
   fields.value.forEach((field) => {
@@ -1494,19 +1632,21 @@ const removeTargetColumn = (row: any) => {
   }
 }
 const removeExtractField = (row: any) => {
-  fields.value = fields.value.filter((field) => field.fieldCode !== row.fieldCode)
+  const removedFieldId = row.fieldId || fieldIdByCode(row.fieldCode)
+  fields.value = fields.value.filter((field) => field.fieldId !== removedFieldId)
   Object.values(downstreamFieldMap).forEach((serviceMap) => delete serviceMap[row.fieldCode])
   delete regexPreviewMap.value[row.fieldCode]
   if (selectedExtractFieldCode.value === row.fieldCode) {
     selectedExtractFieldCode.value = fields.value[0]?.fieldCode || ''
   }
+  syncFieldReferences()
   ElMessage.success('已删除结果字段')
 }
 const removeTransformRule = async (rule: TransformRule) => {
   const currentIndex = transformRules.value.findIndex((item) => item.id === rule.id)
   const referencedRules = transformRules.value
     .slice(currentIndex + 1)
-    .filter((item) => rule.outputField && item.inputFields?.some((input) => input.fieldCode === rule.outputField))
+    .filter((item) => (rule.outputFieldId || rule.outputField) && item.inputFields?.some((input) => input.fieldId === rule.outputFieldId || input.fieldCode === rule.outputField))
   if (referencedRules.length) {
     ElMessage.warning(`该规则输出字段 ${rule.outputField} 被后续规则「${referencedRules.map((item) => item.ruleName).join('、')}」引用，请先调整后续规则`)
     return
@@ -1557,11 +1697,13 @@ const copyTransformRule = (rule: TransformRule) => {
   ElMessage.success('已复制加工规则')
 }
 const addValidationRule = () => {
+  const field = fields.value[0]
   validationRules.value.push({
     id: `valid-${Date.now()}`,
     ruleName: '新增校验规则',
     ruleType: 'REQUIRED',
-    fieldCode: fields.value[0]?.fieldCode || '',
+    fieldId: field?.fieldId || '',
+    fieldCode: field?.fieldCode || '',
     enabled: true,
     severity: 'REVIEW',
     expression: '',
@@ -1603,7 +1745,9 @@ const confirmDerivedField = () => {
     ElMessage.warning(`目标字段 ${targetColumn} 不存在于当前复用表，请先选择已有目标字段`)
     return
   }
+  const fieldId = createFieldId(fieldCode)
   fields.value.push({
+    fieldId,
     fieldCode,
     fieldName,
     sourceType: 'DERIVED',
@@ -1636,8 +1780,12 @@ const confirmDerivedField = () => {
       validationRule: ''
     } as any)
   }
-  if (selectedTransformRule.value) selectedTransformRule.value.outputField = fieldCode
-  form.targetServices.forEach((serviceCode) => updateDownstreamField(serviceCode, fieldCode, targetColumn))
+  if (selectedTransformRule.value) {
+    const newField = fieldByCode(fieldCode)
+    selectedTransformRule.value.outputFieldId = newField?.fieldId || ''
+    selectedTransformRule.value.outputField = fieldCode
+  }
+  form.targetServices.forEach((serviceCode) => updateDownstreamField(serviceCode, fieldId, targetColumn))
   derivedFieldDialogVisible.value = false
   ElMessage.success('已新增衍生结果字段，并自动回填到当前加工规则')
 }
@@ -1646,13 +1794,15 @@ const runValidationPreview = () => {
 }
 const addTransformRule = (ruleType: TransformRuleType) => {
   const id = `rule-${Date.now()}`
-  const defaultFieldCode = fields.value[0]?.fieldCode || ''
+  const defaultField = fields.value[0]
+  const defaultFieldCode = defaultField?.fieldCode || ''
   const defaultParamName = toParamName(defaultFieldCode)
   transformRules.value.push({
     id,
     ruleName: `新增${transformTypeLabel[ruleType]}规则`,
     ruleType,
-    inputFields: defaultFieldCode ? [createTransformInputField(defaultFieldCode)] : [],
+    inputFields: defaultField?.fieldId ? [createTransformInputField(defaultField.fieldId)] : [],
+    outputFieldId: '',
     outputField: '',
     enabled: true,
     onFail: 'REVIEW',
@@ -1666,7 +1816,7 @@ const addTransformRule = (ruleType: TransformRuleType) => {
     outputMode: 'DERIVE_FIELD',
     conditionEnabled: false,
     conditionLogic: 'ALL',
-    conditions: fields.value[0]?.fieldCode ? [createTransformCondition(fields.value[0].fieldCode)] : [],
+    conditions: defaultField?.fieldId ? [createTransformCondition(defaultField.fieldId)] : [],
     apiTimeout: 5,
     apiRetryCount: 1,
     apiAuthMode: 'SYSTEM',
@@ -1683,7 +1833,7 @@ const addTransformRule = (ruleType: TransformRuleType) => {
 }
 const addTransformCondition = () => {
   if (!selectedTransformRule.value) return
-  selectedTransformRule.value.conditions.push(createTransformCondition(firstAvailableConditionFieldCode(selectedTransformRule.value)))
+  selectedTransformRule.value.conditions.push(createTransformCondition(firstAvailableConditionFieldId(selectedTransformRule.value)))
 }
 const removeTransformCondition = (condition: TransformCondition) => {
   if (!selectedTransformRule.value) return
@@ -1877,7 +2027,7 @@ const applyWizardPayload = (payload: any) => {
   if (payload.resultTableColumns?.length) targetTableColumns.value = payload.resultTableColumns
   if (payload.uniqueConstraints?.length) uniqueConstraints.value = payload.uniqueConstraints
   if (payload.extractFields?.length) {
-    fields.value = payload.extractFields.map((field: any) => ({
+    fields.value = payload.extractFields.map((field: any, index: number) => normalizeResultField({
       ...field,
       sourceType: field.sourceType || 'EXTRACTED',
       generatedByRuleId: field.generatedByRuleId || '',
@@ -1887,11 +2037,11 @@ const applyWizardPayload = (payload: any) => {
       traditionalRuleEnabled: field.traditionalRuleEnabled ?? field.extractByRegex ?? false,
       traditionalRuleType: field.traditionalRuleType || 'REGEX',
       traditionalRuleConfig: field.traditionalRuleConfig || {}
-    }))
+    }, index))
   }
   if (payload.regexRules?.length) {
     payload.regexRules.forEach((rule: any) => {
-      const field = fields.value.find((item: any) => item.fieldCode === rule.fieldCode) as any
+      const field = resolveField(rule.fieldId, rule.fieldCode) as any
       if (!field) return
       field.extractByRegex = rule.enabled
       field.traditionalRuleEnabled = rule.enabled
@@ -1905,7 +2055,11 @@ const applyWizardPayload = (payload: any) => {
   }
   transformRules.value = (payload.transformRules || []).map((rule: any) => normalizeTransformRule(rule))
   selectedRuleId.value = transformRules.value[0]?.id || ''
-  validationRules.value = payload.validationRules || []
+  validationRules.value = (payload.validationRules || []).map((rule: any) => {
+    const field = resolveField(rule.fieldId, rule.fieldCode)
+    return { ...rule, fieldId: field?.fieldId || rule.fieldId || fieldIdByCode(rule.fieldCode || ''), fieldCode: field?.fieldCode || rule.fieldCode || '' }
+  })
+  syncFieldReferences()
   form.transformEnabled = payload.processConfig?.transformEnabled ?? transformRules.value.some((rule) => rule.enabled)
   form.validationEnabled = payload.processConfig?.validationEnabled ?? validationRules.value.some((rule) => rule.enabled)
   const savedUserPrompt = String(extractStrategy.userPrompt || '').trim()
@@ -2432,10 +2586,12 @@ onMounted(async () => {
             </template>
           </el-table-column>
           <el-table-column label="结果字段编码" min-width="150">
-            <template #default="{ row }"><el-input v-model="row.fieldCode" /></template>
+            <template #default="{ row }">
+              <el-input v-model="row.fieldCode" @change="syncFieldReferences" />
+            </template>
           </el-table-column>
           <el-table-column label="结果字段名称" min-width="150">
-            <template #default="{ row }"><el-input v-model="row.fieldName" /></template>
+            <template #default="{ row }"><el-input v-model="row.fieldName" @change="syncFieldReferences" /></template>
           </el-table-column>
           <el-table-column label="字段描述" min-width="220">
             <template #default="{ row }"><el-input v-model="row.fieldDescription" placeholder="用于生成 AI 提示词" /></template>
@@ -2774,7 +2930,7 @@ onMounted(async () => {
                 <div class="field-hint-block">
                   <span class="muted">依赖字段是加工规则实际取数使用的字段；参数名用于 API 地址占位、SQL 参数和字典组合匹配。</span>
                 <el-select
-                  :model-value="selectedTransformRule.inputFields.map((input) => input.fieldCode)"
+                  :model-value="selectedTransformRule.inputFields.map((input) => input.fieldId || fieldIdByCode(input.fieldCode))"
                   multiple
                   filterable
                   clearable
@@ -2783,14 +2939,14 @@ onMounted(async () => {
                   placeholder="请选择该加工规则需要读取的字段"
                   @update:model-value="(value: string[]) => updateTransformInputFields(selectedTransformRule, value)"
                 >
-                  <el-option v-for="field in fields" :key="field.fieldCode" :label="`${field.fieldName}（${field.fieldCode}）`" :value="field.fieldCode" />
+                  <el-option v-for="field in fields" :key="field.fieldId" :label="`${field.fieldName}（${field.fieldCode}）`" :value="field.fieldId" />
                 </el-select>
                 </div>
               </el-form-item>
               <el-form-item label="参数映射" class="wide">
                 <el-table :data="selectedTransformRule.inputFields" size="small" class="transform-param-table">
                   <el-table-column label="输入字段" min-width="180">
-                    <template #default="{ row }">{{ fieldLabelByCode(row.fieldCode) }}</template>
+                    <template #default="{ row }">{{ fieldLabelById(row.fieldId, row.fieldCode) }}</template>
                   </el-table-column>
                   <el-table-column label="参数名" min-width="160">
                     <template #default="{ row }">
@@ -2824,12 +2980,18 @@ onMounted(async () => {
               </el-form-item>
               <el-form-item :label="selectedTransformRule.outputMode === 'OVERWRITE_INPUT' ? '覆盖字段' : '输出字段'">
                 <div class="field-select-with-action">
-                  <el-select v-model="selectedTransformRule.outputField" filterable clearable placeholder="请选择结果字段">
+                  <el-select
+                    v-model="selectedTransformRule.outputFieldId"
+                    filterable
+                    clearable
+                    placeholder="请选择结果字段"
+                    @change="selectedTransformRule.outputField = fieldCodeById(selectedTransformRule.outputFieldId || '')"
+                  >
                     <el-option
                       v-for="field in fields"
-                      :key="field.fieldCode"
+                      :key="field.fieldId"
                       :label="`${field.fieldName}（${field.fieldCode}）`"
-                      :value="field.fieldCode"
+                      :value="field.fieldId"
                     >
                       <span>{{ field.fieldName }}（{{ field.fieldCode }}）</span>
                       <el-tag class="option-tag" size="small" :type="resultFieldSourceTagType((field as any).sourceType)">{{ resultFieldSourceLabel((field as any).sourceType) }}</el-tag>
@@ -2875,9 +3037,15 @@ onMounted(async () => {
                   <el-table :data="selectedTransformRule.conditions" size="small" class="condition-table">
                     <el-table-column label="条件字段" min-width="220">
                       <template #default="{ row }">
-                        <el-select v-model="row.fieldCode" filterable clearable placeholder="请选择当前规则执行前可用字段">
+                        <el-select
+                          v-model="row.fieldId"
+                          filterable
+                          clearable
+                          placeholder="请选择当前规则执行前可用字段"
+                          @change="row.fieldCode = fieldCodeById(row.fieldId || '')"
+                        >
                           <el-option-group v-for="group in conditionFieldGroups(selectedTransformRule)" :key="group.label" :label="group.label">
-                            <el-option v-for="field in group.options" :key="field.fieldCode" :label="`${field.fieldName}（${field.fieldCode}）`" :value="field.fieldCode" />
+                            <el-option v-for="field in group.options" :key="field.fieldId" :label="`${field.fieldName}（${field.fieldCode}）`" :value="field.fieldId" />
                           </el-option-group>
                         </el-select>
                       </template>
@@ -2932,8 +3100,8 @@ onMounted(async () => {
                       </div>
                       <div class="dict-condition-list">
                         <div v-for="condition in row.conditions" :key="condition.id" class="dict-condition-row">
-                          <el-select v-model="condition.fieldCode" filterable placeholder="选择依赖字段" @change="handleDictConditionFieldChange(selectedTransformRule, condition)">
-                            <el-option v-for="input in selectedTransformRule.inputFields" :key="input.fieldCode" :label="fieldLabelByCode(input.fieldCode)" :value="input.fieldCode" />
+                          <el-select v-model="condition.fieldId" filterable placeholder="选择依赖字段" @change="handleDictConditionFieldChange(selectedTransformRule, condition)">
+                            <el-option v-for="input in selectedTransformRule.inputFields" :key="input.fieldId || input.fieldCode" :label="fieldLabelById(input.fieldId, input.fieldCode)" :value="input.fieldId" />
                           </el-select>
                           <el-select v-model="condition.operator" placeholder="匹配方式">
                             <el-option label="等于" value="EQUALS" />
@@ -3142,8 +3310,8 @@ onMounted(async () => {
               </el-table-column>
               <el-table-column label="校验字段" min-width="150">
                 <template #default="{ row }">
-                  <el-select v-model="row.fieldCode" filterable allow-create>
-                    <el-option v-for="field in fields" :key="field.fieldCode" :label="`${field.fieldName}（${field.fieldCode}）`" :value="field.fieldCode" />
+                  <el-select v-model="row.fieldId" filterable clearable @change="row.fieldCode = fieldCodeById(row.fieldId || '')">
+                    <el-option v-for="field in fields" :key="field.fieldId" :label="`${field.fieldName}（${field.fieldCode}）`" :value="field.fieldId" />
                   </el-select>
                 </template>
               </el-table-column>
@@ -3297,7 +3465,7 @@ onMounted(async () => {
                       <el-input
                         :model-value="row.downstreamField"
                         placeholder="填写下游接口接收字段名"
-                        @update:model-value="(value: string) => updateDownstreamField(service.serviceCode, row.fieldCode, value)"
+                        @update:model-value="(value: string) => updateDownstreamField(service.serviceCode, row.fieldId || row.fieldCode, value)"
                       />
                     </template>
                   </el-table-column>

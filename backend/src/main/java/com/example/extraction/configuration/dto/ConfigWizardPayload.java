@@ -632,6 +632,7 @@ public class ConfigWizardPayload {
     }
 
     public static class ExtractField {
+        private String fieldId;
         private String fieldCode;
         private String fieldName;
         private String fieldDescription;
@@ -644,6 +645,14 @@ public class ConfigWizardPayload {
         private String traditionalRuleType;
         private Map<String, Object> traditionalRuleConfig;
         private String targetColumn;
+
+        public String getFieldId() {
+            return fieldId;
+        }
+
+        public void setFieldId(String fieldId) {
+            this.fieldId = fieldId;
+        }
 
         public String getFieldCode() {
             return fieldCode;
@@ -743,12 +752,21 @@ public class ConfigWizardPayload {
     }
 
     public static class FieldMapping {
+        private String fieldId;
         private String extractFieldCode;
         private String resultFieldCode;
         private String sourceType;
         private String targetColumn;
         private Boolean multiple;
         private Boolean requiredForStorage;
+
+        public String getFieldId() {
+            return fieldId;
+        }
+
+        public void setFieldId(String fieldId) {
+            this.fieldId = fieldId;
+        }
 
         public String getExtractFieldCode() {
             return extractFieldCode;
@@ -905,6 +923,7 @@ public class ConfigWizardPayload {
     }
 
     public static class RegexRule {
+        private String fieldId;
         private String fieldCode;
         private String ruleName;
         private String ruleType;
@@ -916,6 +935,14 @@ public class ConfigWizardPayload {
         private String sampleResult;
         private String validationStatus;
         private Boolean enabled;
+
+        public String getFieldId() {
+            return fieldId;
+        }
+
+        public void setFieldId(String fieldId) {
+            this.fieldId = fieldId;
+        }
 
         public String getFieldCode() {
             return fieldCode;
@@ -1007,6 +1034,7 @@ public class ConfigWizardPayload {
     }
 
     public static class TransformInputField {
+        private String fieldId;
         private String fieldCode;
         private String paramName;
         private Boolean required;
@@ -1014,6 +1042,8 @@ public class ConfigWizardPayload {
         private String sampleValue;
         private String dictMatchMode;
 
+        public String getFieldId() { return fieldId; }
+        public void setFieldId(String fieldId) { this.fieldId = fieldId; }
         public String getFieldCode() { return fieldCode; }
         public void setFieldCode(String fieldCode) { this.fieldCode = fieldCode; }
         public String getParamName() { return paramName; }
@@ -1030,12 +1060,15 @@ public class ConfigWizardPayload {
 
     public static class TransformCondition {
         private String id;
+        private String fieldId;
         private String fieldCode;
         private String operator;
         private String value;
 
         public String getId() { return id; }
         public void setId(String id) { this.id = id; }
+        public String getFieldId() { return fieldId; }
+        public void setFieldId(String fieldId) { this.fieldId = fieldId; }
         public String getFieldCode() { return fieldCode; }
         public void setFieldCode(String fieldCode) { this.fieldCode = fieldCode; }
         public String getOperator() { return operator; }
@@ -1049,6 +1082,7 @@ public class ConfigWizardPayload {
         private String ruleName;
         private String ruleType;
         private List<TransformInputField> inputFields = new ArrayList<>();
+        private String outputFieldId;
         private String outputField;
         private String outputMode;
         private Boolean conditionEnabled;
@@ -1109,6 +1143,14 @@ public class ConfigWizardPayload {
 
         public void setInputFields(List<TransformInputField> inputFields) {
             this.inputFields = inputFields;
+        }
+
+        public String getOutputFieldId() {
+            return outputFieldId;
+        }
+
+        public void setOutputFieldId(String outputFieldId) {
+            this.outputFieldId = outputFieldId;
         }
 
         public String getOutputField() {
@@ -1347,6 +1389,7 @@ public class ConfigWizardPayload {
     public static class ValidationRule {
         private String ruleName;
         private String ruleType;
+        private String fieldId;
         private String fieldCode;
         private Boolean enabled;
         private String severity;
@@ -1367,6 +1410,14 @@ public class ConfigWizardPayload {
 
         public void setRuleType(String ruleType) {
             this.ruleType = ruleType;
+        }
+
+        public String getFieldId() {
+            return fieldId;
+        }
+
+        public void setFieldId(String fieldId) {
+            this.fieldId = fieldId;
         }
 
         public String getFieldCode() {
