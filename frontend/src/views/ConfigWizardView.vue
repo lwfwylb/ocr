@@ -167,15 +167,11 @@ const normalizeResultField = (field: Partial<ResultField>, index = 0): ResultFie
     fieldName: field.fieldName || fieldCode,
     sourceType: field.sourceType || 'EXTRACTED',
     dataType: field.dataType || 'string',
-    targetColumn: field.targetColumn || fieldCode
+    targetColumn: field.targetColumn ?? fieldCode
   } as ResultField
 }
 
-const initialConfigFields: ResultField[] = [
-  { fieldId: 'fld_payer_name', fieldCode: 'payer_name', fieldName: '付款方名称', sourceType: 'EXTRACTED', dataType: 'string', fieldLength: 200, required: true, multiple: false, targetColumn: 'payer_name' },
-  { fieldId: 'fld_payee_account', fieldCode: 'payee_account', fieldName: '收款账号', sourceType: 'EXTRACTED', dataType: 'string', fieldLength: 64, required: true, multiple: false, targetColumn: 'payee_account' },
-  { fieldId: 'fld_amount', fieldCode: 'amount', fieldName: '划款金额', sourceType: 'EXTRACTED', dataType: 'amount', fieldLength: 18, required: true, multiple: false, targetColumn: 'amount' }
-]
+const initialConfigFields: ResultField[] = []
 
 const activeStep = ref(0)
 const route = useRoute()
@@ -513,11 +509,11 @@ const form = reactive({
   parseMode: 'FULL',
   pageBatchSize: 10,
   storageEnabled: true,
-  storageMode: 'REUSE',
-  mappingProfileName: '划款指令-资金结果表映射',
-  targetTable: 'ext_fund_business_result',
-  targetTableName: '基金业务要素结果表',
-  targetTableComment: '保存基金申购、赎回、划款、回单等业务场景的结构化要素结果',
+  storageMode: 'CREATE',
+  mappingProfileName: '',
+  targetTable: '',
+  targetTableName: '',
+  targetTableComment: '',
   saveMode: 'SINGLE',
   outputMode: 'SINGLE',
   llmModelCode: '',
@@ -587,30 +583,9 @@ const preprocessPipelinePreview = computed(() => {
 })
 const supportedPreprocessSteps = (steps: any[] = []) =>
   steps.filter((step) => ['PAGE_RANGE', 'KEYWORD_FILTER', 'PDF_TO_IMAGE'].includes(step?.stepType))
-const targetTableColumns = ref([
-  { columnName: 'biz_no', columnCnName: '业务编号', dbType: 'varchar', length: 64, precision: undefined, scale: undefined, required: false, defaultValue: '', validationRule: '唯一性校验' },
-  { columnName: 'source_system', columnCnName: '来源系统', dbType: 'varchar', length: 32, precision: undefined, scale: undefined, required: true, defaultValue: 'OCR', validationRule: '非空' },
-  { columnName: 'document_type', columnCnName: '文档类型', dbType: 'varchar', length: 64, precision: undefined, scale: undefined, required: true, defaultValue: '', validationRule: '非空' },
-  { columnName: 'payer_name', columnCnName: '付款方名称', dbType: 'varchar', length: 200, precision: undefined, scale: undefined, required: true, defaultValue: '', validationRule: '非空' },
-  { columnName: 'payee_account', columnCnName: '收款账号', dbType: 'varchar', length: 64, precision: undefined, scale: undefined, required: true, defaultValue: '', validationRule: '账号格式' },
-  { columnName: 'amount', columnCnName: '业务金额', dbType: 'decimal', length: undefined, precision: 18, scale: 2, required: true, defaultValue: '', validationRule: '金额格式' },
-  { columnName: 'counterparty_account', columnCnName: '交易对手账号', dbType: 'varchar', length: 64, precision: undefined, scale: undefined, required: false, defaultValue: '', validationRule: '账号格式' },
-  { columnName: 'business_amount', columnCnName: '业务金额', dbType: 'decimal', length: undefined, precision: 18, scale: 2, required: true, defaultValue: '', validationRule: '金额格式' },
-  { columnName: 'business_date', columnCnName: '业务日期', dbType: 'date', length: undefined, precision: undefined, scale: undefined, required: false, defaultValue: '', validationRule: '日期格式' },
-  { columnName: 'product_code', columnCnName: '产品代码', dbType: 'varchar', length: 32, precision: undefined, scale: undefined, required: false, defaultValue: '', validationRule: '产品主数据校验' }
-])
+const targetTableColumns = ref<any[]>([])
 const targetColumnOptions = computed(() => targetTableColumns.value.map((column) => column.columnName))
-const uniqueConstraints = ref([
-  {
-    id: 'uk-1',
-    enabled: true,
-    constraintName: 'uk_ext_fund_result_biz',
-    uniqueColumns: ['document_type', 'payee_account', 'amount'],
-    duplicateScope: 'TARGET_TABLE',
-    duplicateStrategy: 'REVIEW',
-    generateDbIndex: false
-  }
-])
+const uniqueConstraints = ref<any[]>([])
 const mappingProfiles = [
   {
     name: '划款指令-资金结果表映射',
@@ -730,7 +705,7 @@ const cleanupTargetColumnReferences = () => {
     if (field.targetColumn && !validColumns.has(field.targetColumn)) field.targetColumn = ''
   })
   uniqueConstraints.value.forEach((constraint) => {
-    constraint.uniqueColumns = constraint.uniqueColumns.filter((column) => validColumns.has(column))
+    constraint.uniqueColumns = constraint.uniqueColumns.filter((column: string) => validColumns.has(column))
   })
 }
 const normalizeResultTableColumns = (columns: any[] = []) =>
@@ -743,15 +718,98 @@ const normalizeResultTableColumns = (columns: any[] = []) =>
     scale: column.scale,
     required: Boolean(column.required),
     defaultValue: column.defaultValue || '',
-    validationRule: column.validationRule || ''
+    validationRule: column.validationRule || '',
+    previousColumnName: column.columnName || '',
+    previousColumnCnName: column.columnCnName || ''
   }))
+const createResultFieldFromTargetColumn = (column: any): ResultField => {
+  const columnName = String(column.columnName || '').trim()
+  const columnCnName = String(column.columnCnName || columnName).trim()
+  return normalizeResultField({
+    fieldId: createFieldId(columnName),
+    fieldCode: columnName,
+    fieldName: columnCnName,
+    sourceType: 'EXTRACTED',
+    dataType: column.dbType === 'decimal' || column.dbType === 'number' ? 'amount' : column.dbType === 'date' ? 'date' : 'string',
+    fieldDescription: '',
+    required: true,
+    extractRequired: true,
+    multiple: false,
+    targetColumn: columnName,
+    autoGeneratedFromColumn: true,
+    autoSyncColumnName: columnName,
+    autoSyncColumnCnName: columnCnName,
+    extractByRegex: false,
+    traditionalRuleEnabled: false,
+    traditionalRuleType: 'REGEX',
+    traditionalRuleConfig: {},
+    regexPattern: '',
+    regexFlags: '',
+    regexGroup: 1
+  }, fields.value.length)
+}
+const ensureResultFieldForTargetColumn = (column: any) => {
+  const columnName = String(column.columnName || '').trim()
+  if (!columnName || fields.value.some((field) => field.targetColumn === columnName)) return
+  const field = createResultFieldFromTargetColumn(column)
+  fields.value.push(field)
+  form.targetServices.forEach((serviceCode) => updateDownstreamField(serviceCode, field.fieldId, columnName))
+}
+const handleTargetColumnChange = (column: any) => {
+  const previousName = column.previousColumnName || ''
+  const previousCnName = column.previousColumnCnName || previousName
+  const nextName = String(column.columnName || '').trim()
+  const nextCnName = String(column.columnCnName || nextName).trim()
+  if (!previousName) {
+    column.previousColumnName = nextName
+    column.previousColumnCnName = nextCnName
+    ensureResultFieldForTargetColumn(column)
+    return
+  }
+  fields.value.forEach((field: any) => {
+    const canSyncCode = field.autoGeneratedFromColumn && field.targetColumn === previousName && field.fieldCode === previousName
+    const canSyncName = field.autoGeneratedFromColumn && field.targetColumn === previousName && field.fieldName === previousCnName
+    if (field.targetColumn === previousName) field.targetColumn = nextName
+    if (canSyncCode) {
+      field.fieldCode = nextName
+      field.autoSyncColumnName = nextName
+    }
+    if (canSyncName) {
+      field.fieldName = nextCnName
+      field.autoSyncColumnCnName = nextCnName
+    }
+  })
+  uniqueConstraints.value.forEach((constraint) => {
+    constraint.uniqueColumns = constraint.uniqueColumns.map((name: string) => name === previousName ? nextName : name).filter(Boolean)
+  })
+  column.previousColumnName = nextName
+  column.previousColumnCnName = nextCnName
+  syncFieldReferences()
+}
+const handleTargetColumnCnNameChange = (column: any) => {
+  const columnName = String(column.columnName || '').trim()
+  const previousCnName = column.previousColumnCnName || columnName
+  const nextCnName = String(column.columnCnName || columnName).trim()
+  fields.value.forEach((field: any) => {
+    if (field.autoGeneratedFromColumn && field.targetColumn === columnName && field.fieldName === previousCnName) {
+      field.fieldName = nextCnName
+      field.autoSyncColumnCnName = nextCnName
+    }
+  })
+  column.previousColumnCnName = nextCnName
+  syncFieldReferences()
+}
 const handleTargetTableChange = async (tableCode: string) => {
   const matchedTable = existingTables.value.find((table) => table.value === tableCode)
   if (matchedTable) {
     form.targetTableName = matchedTable.tableName
     form.targetTableComment = matchedTable.comment
   }
-  if (!tableCode) return
+  if (!tableCode) {
+    targetTableColumns.value = []
+    cleanupTargetColumnReferences()
+    return
+  }
   try {
     const detail = await getResultTableDetail(tableCode)
     form.targetTableName = detail.tableName || form.targetTableName
@@ -773,6 +831,11 @@ const handleStorageModeChange = (storageMode: string) => {
     form.targetTable = ''
     form.targetTableName = ''
     form.targetTableComment = ''
+  }
+  if (storageMode === 'CREATE') {
+    targetTableColumns.value = []
+    uniqueConstraints.value = []
+    cleanupTargetColumnReferences()
   }
 }
 const handleStorageEnabledChange = (enabled: string | number | boolean) => {
@@ -1227,7 +1290,7 @@ const validateFieldStorageStep = () => {
     const rowLabel = `唯一约束第 ${index + 1} 行`
     if (!constraint.constraintName?.trim()) errors.push(`${rowLabel}：约束名称不能为空`)
     if (!constraint.uniqueColumns.length) errors.push(`${rowLabel}：唯一字段组合至少选择 1 个字段`)
-    constraint.uniqueColumns.forEach((column) => {
+    constraint.uniqueColumns.forEach((column: string) => {
       if (!targetColumnOptions.value.includes(column)) errors.push(`${rowLabel}：唯一字段 ${column} 不存在于目标表字段定义中`)
     })
   })
@@ -1420,7 +1483,17 @@ const buildWizardPayload = () => (syncFieldReferences(), {
     targetTableComment: form.targetTableComment,
     saveMode: form.saveMode
   },
-  resultTableColumns: targetTableColumns.value,
+  resultTableColumns: targetTableColumns.value.map((column: any) => ({
+    columnName: column.columnName,
+    columnCnName: column.columnCnName,
+    dbType: column.dbType,
+    length: column.length,
+    precision: column.precision,
+    scale: column.scale,
+    required: column.required,
+    defaultValue: column.defaultValue,
+    validationRule: column.validationRule
+  })),
   uniqueConstraints: uniqueConstraints.value,
   extractFields: fields.value.map((field: any) => ({
     fieldId: field.fieldId,
@@ -1583,8 +1656,8 @@ const addField = (sourceType: ResultFieldSourceType = 'EXTRACTED') => {
     fieldDescription: '',
     dataType: 'string',
     fieldLength: 100,
-    required: false,
-    extractRequired: false,
+    required: !isDerived,
+    extractRequired: !isDerived,
     multiple: false,
     targetColumn: matchedColumn,
     extractByRegex: false,
@@ -1611,7 +1684,7 @@ const handleResultFieldSourceChange = (row: ResultField) => {
 const autoMapFields = () => {
   fields.value.forEach((field) => {
     const matchedColumn = targetColumnOptions.value.find((column) => column === field.fieldCode || column === field.targetColumn)
-    field.targetColumn = matchedColumn || field.targetColumn || field.fieldCode
+    field.targetColumn = matchedColumn || ''
   })
   ElMessage.success('已按同名字段自动生成映射')
 }
@@ -1621,7 +1694,7 @@ const addTargetColumn = () => {
     return
   }
   const columnName = `column_${targetTableColumns.value.length + 1}`
-  targetTableColumns.value.push({
+  const column = {
     columnName,
     columnCnName: '新增目标字段',
     dbType: 'varchar',
@@ -1630,8 +1703,12 @@ const addTargetColumn = () => {
     scale: undefined,
     required: false,
     defaultValue: '',
-    validationRule: ''
-  })
+    validationRule: '',
+    previousColumnName: columnName,
+    previousColumnCnName: '新增目标字段'
+  }
+  targetTableColumns.value.push(column)
+  ensureResultFieldForTargetColumn(column)
 }
 const addUniqueConstraint = () => {
   uniqueConstraints.value.push({
@@ -1653,16 +1730,27 @@ const removeTargetColumn = (row: any) => {
     ElMessage.warning('复用已有表时，不能在当前配置中删除目标字段')
     return
   }
-  const usedCount = fields.value.filter((field) => field.targetColumn === row.columnName).length
+  const relatedFields = fields.value.filter((field: any) => field.targetColumn === row.columnName)
+  const autoGeneratedFields = relatedFields.filter((field: any) => field.autoGeneratedFromColumn && field.fieldCode === row.columnName)
+  const autoGeneratedIds = new Set(autoGeneratedFields.map((field) => field.fieldId))
   targetTableColumns.value = targetTableColumns.value.filter((column) => column.columnName !== row.columnName)
   uniqueConstraints.value.forEach((constraint) => {
-    constraint.uniqueColumns = constraint.uniqueColumns.filter((column) => column !== row.columnName)
+    constraint.uniqueColumns = constraint.uniqueColumns.filter((column: string) => column !== row.columnName)
   })
-  if (usedCount > 0) {
+  if (relatedFields.length > 0) {
+    fields.value = fields.value.filter((field: any) => !autoGeneratedIds.has(field.fieldId))
     fields.value.forEach((field) => {
       if (field.targetColumn === row.columnName) field.targetColumn = ''
     })
-    ElMessage.warning(`已删除目标字段，并清空 ${usedCount} 个结果字段映射`)
+    Object.values(downstreamFieldMap).forEach((serviceMap) => {
+      autoGeneratedFields.forEach((field) => {
+        delete serviceMap[field.fieldId]
+        delete serviceMap[field.fieldCode]
+      })
+    })
+    syncFieldReferences()
+    const manualCount = relatedFields.length - autoGeneratedFields.length
+    ElMessage.warning(`已删除目标字段，自动移除 ${autoGeneratedFields.length} 个默认结果字段${manualCount > 0 ? `，并清空 ${manualCount} 个手工结果字段映射` : ''}`)
   } else {
     ElMessage.success('已删除目标字段')
   }
@@ -1985,7 +2073,7 @@ const applyWizardPayload = (rawPayload: any, summary?: ConfigSummary) => {
     pageBatchSize: parseConfig.pageBatchSize || form.pageBatchSize,
     storageEnabled: storageConfig.storageEnabled ?? form.storageEnabled,
     storageMode: storageConfig.storageMode || form.storageMode,
-    mappingProfileName: storageConfig.mappingProfileName || form.mappingProfileName,
+    mappingProfileName: storageConfig.mappingProfileName ?? form.mappingProfileName,
     targetTable: storageConfig.targetTable || summary?.targetTable || form.targetTable,
     targetTableName: storageConfig.targetTableName || form.targetTableName,
     targetTableComment: storageConfig.targetTableComment || form.targetTableComment,
@@ -2007,20 +2095,29 @@ const applyWizardPayload = (rawPayload: any, summary?: ConfigSummary) => {
   const payloadPreprocessSteps = supportedPreprocessSteps(payload.preprocessSteps)
   preprocessEnabled.value = parseConfig.preprocessEnabled ?? payloadPreprocessSteps.some((step: any) => step.enabled)
   if (payloadPreprocessSteps.length) preprocessSteps.value = payloadPreprocessSteps
-  if (payload.resultTableColumns?.length) targetTableColumns.value = payload.resultTableColumns
-  if (payload.uniqueConstraints?.length) uniqueConstraints.value = payload.uniqueConstraints
+  targetTableColumns.value = Array.isArray(payload.resultTableColumns) ? normalizeResultTableColumns(payload.resultTableColumns) : []
+  uniqueConstraints.value = Array.isArray(payload.uniqueConstraints) ? payload.uniqueConstraints : []
   if (payload.extractFields?.length) {
-    fields.value = payload.extractFields.map((field: any, index: number) => normalizeResultField({
-      ...field,
-      sourceType: field.sourceType || 'EXTRACTED',
-      generatedByRuleId: field.generatedByRuleId || '',
-      fieldDescription: field.fieldDescription || '',
-      required: field.extractRequired,
-      targetColumn: field.targetColumn || '',
-      traditionalRuleEnabled: field.traditionalRuleEnabled ?? field.extractByRegex ?? false,
-      traditionalRuleType: field.traditionalRuleType || 'REGEX',
-      traditionalRuleConfig: field.traditionalRuleConfig || {}
-    }, index))
+    fields.value = payload.extractFields.map((field: any, index: number) => {
+      const targetColumn = targetTableColumns.value.find((column: any) => column.columnName === field.targetColumn)
+      const isDefaultColumnMapping = Boolean(targetColumn && field.fieldCode === targetColumn.columnName && field.fieldName === targetColumn.columnCnName && (field.sourceType || 'EXTRACTED') === 'EXTRACTED')
+      return normalizeResultField({
+        ...field,
+        sourceType: field.sourceType || 'EXTRACTED',
+        generatedByRuleId: field.generatedByRuleId || '',
+        fieldDescription: field.fieldDescription || '',
+        required: field.extractRequired,
+        targetColumn: field.targetColumn || '',
+        autoGeneratedFromColumn: Boolean(field.autoGeneratedFromColumn ?? isDefaultColumnMapping),
+        autoSyncColumnName: field.autoSyncColumnName || (isDefaultColumnMapping ? targetColumn?.columnName : ''),
+        autoSyncColumnCnName: field.autoSyncColumnCnName || (isDefaultColumnMapping ? targetColumn?.columnCnName : ''),
+        traditionalRuleEnabled: field.traditionalRuleEnabled ?? field.extractByRegex ?? false,
+        traditionalRuleType: field.traditionalRuleType || 'REGEX',
+        traditionalRuleConfig: field.traditionalRuleConfig || {}
+      }, index)
+    })
+  } else {
+    fields.value = []
   }
   if (payload.regexRules?.length) {
     payload.regexRules.forEach((rule: any) => {
@@ -2427,10 +2524,10 @@ watch(() => route.query.id, async (nextId, previousId) => {
         </div>
         <el-table v-if="isStorageEnabled" :data="targetTableColumns" class="mb-12" height="300">
           <el-table-column label="目标字段名" min-width="160" fixed>
-            <template #default="{ row }"><el-input v-model="row.columnName" :readonly="isReuseStorageMode" /></template>
+            <template #default="{ row }"><el-input v-model="row.columnName" :readonly="isReuseStorageMode" @change="handleTargetColumnChange(row)" /></template>
           </el-table-column>
           <el-table-column label="字段中文名" min-width="140">
-            <template #default="{ row }"><el-input v-model="row.columnCnName" :readonly="isReuseStorageMode" /></template>
+            <template #default="{ row }"><el-input v-model="row.columnCnName" :readonly="isReuseStorageMode" @change="handleTargetColumnCnNameChange(row)" /></template>
           </el-table-column>
           <el-table-column label="数据库类型" width="130">
             <template #default="{ row }">
