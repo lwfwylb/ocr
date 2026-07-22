@@ -393,7 +393,6 @@ const draggingDictItemId = ref('')
 const validationRules = ref<ValidationRule[]>([])
 const selectedExtractFieldCode = ref(fields.value[0]?.fieldCode || '')
 const mappingProfileDrawerVisible = ref(false)
-const derivedFieldDialogVisible = ref(false)
 const ddlPreviewVisible = ref(false)
 const aiEnabled = ref(true)
 const activeExtractTab = ref('ai')
@@ -498,14 +497,6 @@ const preprocessSteps = ref<PreprocessStep[]>([
   }
 ])
 const previewOutput = ref('大额')
-const derivedFieldForm = reactive({
-  fieldCode: '',
-  fieldName: '',
-  fieldDescription: '',
-  dataType: 'string',
-  targetColumn: '',
-  autoAddTargetColumn: true
-})
 const form = reactive({
   configName: '',
   category: '',
@@ -929,6 +920,16 @@ const resultFieldSourceTagType = (sourceType?: ResultFieldSourceType | string) =
 }
 const storageTargetColumnOptions = computed(() => targetTableColumns.value.map((column) => ({ label: formatTargetColumnLabel(column), value: column.columnName })))
 const extractedResultFields = computed(() => fields.value.filter((field: any) => (field.sourceType || 'EXTRACTED') === 'EXTRACTED'))
+const derivedResultFields = computed(() => fields.value.filter((field: any) => (field.sourceType || 'EXTRACTED') === 'DERIVED'))
+const transformOutputFieldOptions = (rule: TransformRule) => {
+  if (rule.outputMode === 'DERIVE_FIELD') return derivedResultFields.value
+  return extractedResultFields.value
+}
+const transformOutputPlaceholder = (rule: TransformRule) => {
+  if (rule.outputMode === 'DERIVE_FIELD') return '请选择加工衍生字段'
+  if (rule.outputMode === 'OVERWRITE_INPUT') return '请选择要覆盖的提取字段'
+  return '请选择要写入的提取字段'
+}
 const transformTypeLabel: Record<TransformRuleType, string> = {
   DICT: '字典转换',
   API: 'API 取数',
@@ -973,6 +974,23 @@ const transformParamNameError = (rule: TransformRule, input: TransformInputField
   if (duplicateCount > 1) return '参数名不能重复'
   return ''
 }
+const syncTransformOutputField = (rule: TransformRule) => {
+  const validOptions = transformOutputFieldOptions(rule)
+  const selected = validOptions.find((field: any) => field.fieldId === rule.outputFieldId || field.fieldCode === rule.outputField)
+  if (selected) {
+    rule.outputFieldId = selected.fieldId
+    rule.outputField = selected.fieldCode
+    return
+  }
+  if (rule.outputMode === 'OVERWRITE_INPUT' && rule.inputFields.length) {
+    const inputField = extractedResultFields.value.find((field: any) => field.fieldId === rule.inputFields[0].fieldId || field.fieldCode === rule.inputFields[0].fieldCode)
+    rule.outputFieldId = inputField?.fieldId || ''
+    rule.outputField = inputField?.fieldCode || ''
+    return
+  }
+  rule.outputFieldId = ''
+  rule.outputField = ''
+}
 const updateTransformInputFields = (rule: TransformRule, fieldIds: string[]) => {
   const existing = new Map((rule.inputFields || []).map((input) => [input.fieldId || input.fieldCode, input]))
   rule.inputFields = fieldIds.map((fieldId) => {
@@ -984,13 +1002,11 @@ const updateTransformInputFields = (rule: TransformRule, fieldIds: string[]) => 
     rule.outputFieldId = rule.inputFields[0].fieldId
     rule.outputField = rule.inputFields[0].fieldCode
   }
+  syncTransformOutputField(rule)
   ensureDictItems(rule)
 }
 const handleTransformOutputModeChange = (rule: TransformRule) => {
-  if (rule.outputMode === 'OVERWRITE_INPUT' && !rule.outputFieldId && rule.inputFields.length) {
-    rule.outputFieldId = rule.inputFields[0].fieldId
-    rule.outputField = rule.inputFields[0].fieldCode
-  }
+  syncTransformOutputField(rule)
 }
 const fieldLabelById = (fieldId: string, fallbackCode = '') => {
   const field = resolveField(fieldId, fallbackCode)
@@ -1332,6 +1348,7 @@ const syncFieldReferences = () => {
     } else if (rule.outputField) {
       rule.outputFieldId = fieldIdByCode(rule.outputField)
     }
+    syncTransformOutputField(rule)
     rule.conditions = (rule.conditions || []).map((condition) => {
       const field = resolveField(condition.fieldId, condition.fieldCode)
       return { ...condition, fieldId: field?.fieldId || condition.fieldId, fieldCode: field?.fieldCode || condition.fieldCode }
@@ -1552,16 +1569,18 @@ const publish = async () => {
     if (error !== 'cancel') ElMessage.error(error instanceof Error ? error.message : '发布失败')
   }
 }
-const addField = () => {
-  const fieldCode = `field_${fields.value.length + 1}`
+const addField = (sourceType: ResultFieldSourceType = 'EXTRACTED') => {
+  const isDerived = sourceType === 'DERIVED'
+  const sourceCount = fields.value.filter((field: any) => (field.sourceType || 'EXTRACTED') === sourceType).length + 1
+  const fieldCode = isDerived ? `derived_field_${sourceCount}` : `field_${sourceCount}`
   const fieldId = createFieldId(fieldCode)
   const matchedColumn = targetColumnOptions.value.find((column) => column === fieldCode) || ''
   fields.value.push({
     fieldId,
     fieldCode,
-    fieldName: '新增字段',
-    sourceType: 'EXTRACTED',
-    fieldDescription: '补充该字段的业务含义，用于生成 AI 提示词',
+    fieldName: isDerived ? `加工衍生字段${sourceCount}` : '新增提取字段',
+    sourceType,
+    fieldDescription: isDerived ? '' : '补充该字段的业务含义，用于生成 AI 提示词',
     dataType: 'string',
     fieldLength: 100,
     required: false,
@@ -1577,6 +1596,19 @@ const addField = () => {
     regexGroup: 1
   } as any)
   form.targetServices.forEach((serviceCode) => updateDownstreamField(serviceCode, fieldId, matchedColumn || fieldCode))
+}
+const handleResultFieldSourceChange = (row: ResultField) => {
+  if ((row.sourceType || 'EXTRACTED') === 'DERIVED') {
+    row.fieldDescription = ''
+    row.extractRequired = false
+    row.required = false
+    row.multiple = false
+    ;(row as any).extractByRegex = false
+    ;(row as any).traditionalRuleEnabled = false
+  } else if (!row.fieldDescription) {
+    row.fieldDescription = '补充该字段的业务含义，用于生成 AI 提示词'
+  }
+  syncFieldReferences()
 }
 const autoMapFields = () => {
   fields.value.forEach((field) => {
@@ -1719,81 +1751,6 @@ const addValidationRule = () => {
 const removeValidationRule = (row: ValidationRule) => {
   validationRules.value = validationRules.value.filter((rule) => rule.id !== row.id)
   ElMessage.success('已删除校验规则')
-}
-const openDerivedFieldDialog = () => {
-  const rule = selectedTransformRule.value
-  if (!rule) {
-    ElMessage.warning('请先选择加工规则')
-    return
-  }
-  const index = fields.value.filter((field: any) => field.sourceType === 'DERIVED').length + 1
-  derivedFieldForm.fieldCode = rule.outputField || `derived_field_${index}`
-  derivedFieldForm.fieldName = rule.outputField ? rule.outputField : `衍生字段${index}`
-  derivedFieldForm.fieldDescription = `由加工规则「${rule.ruleName}」生成`
-  derivedFieldForm.dataType = 'string'
-  derivedFieldForm.targetColumn = rule.outputField || `derived_field_${index}`
-  derivedFieldForm.autoAddTargetColumn = form.storageEnabled && form.storageMode === 'CREATE'
-  derivedFieldDialogVisible.value = true
-}
-const confirmDerivedField = () => {
-  const fieldCode = derivedFieldForm.fieldCode.trim()
-  const fieldName = derivedFieldForm.fieldName.trim()
-  if (!fieldCode || !fieldName) {
-    ElMessage.warning('请维护衍生字段编码和名称')
-    return
-  }
-  if (fields.value.some((field) => field.fieldCode === fieldCode)) {
-    ElMessage.warning(`结果字段 ${fieldCode} 已存在，请直接选择已有字段或更换编码`)
-    return
-  }
-  const targetColumn = form.storageEnabled ? (derivedFieldForm.targetColumn.trim() || fieldCode) : fieldCode
-  if (form.storageEnabled && form.storageMode === 'REUSE' && targetColumn && !targetColumnOptions.value.includes(targetColumn)) {
-    ElMessage.warning(`目标字段 ${targetColumn} 不存在于当前复用表，请先选择已有目标字段`)
-    return
-  }
-  const fieldId = createFieldId(fieldCode)
-  fields.value.push({
-    fieldId,
-    fieldCode,
-    fieldName,
-    sourceType: 'DERIVED',
-    generatedByRuleId: selectedTransformRule.value?.id || '',
-    dataType: derivedFieldForm.dataType,
-    fieldLength: derivedFieldForm.dataType === 'amount' ? 18 : 200,
-    fieldDescription: derivedFieldForm.fieldDescription || `由加工规则生成 ${fieldName}`,
-    required: false,
-    extractRequired: false,
-    multiple: false,
-    targetColumn,
-    extractByRegex: false,
-    traditionalRuleEnabled: false,
-    traditionalRuleType: 'REGEX',
-    traditionalRuleConfig: {},
-    regexPattern: '',
-    regexFlags: '',
-    regexGroup: 1
-  } as any)
-  if (form.storageEnabled && form.storageMode === 'CREATE' && derivedFieldForm.autoAddTargetColumn && !targetColumnOptions.value.includes(targetColumn)) {
-    targetTableColumns.value.push({
-      columnName: targetColumn,
-      columnCnName: fieldName,
-      dbType: derivedFieldForm.dataType === 'amount' ? 'decimal' : derivedFieldForm.dataType === 'date' ? 'date' : 'varchar',
-      length: derivedFieldForm.dataType === 'string' ? 200 : undefined,
-      precision: derivedFieldForm.dataType === 'amount' ? 18 : undefined,
-      scale: derivedFieldForm.dataType === 'amount' ? 2 : undefined,
-      required: false,
-      defaultValue: '',
-      validationRule: ''
-    } as any)
-  }
-  if (selectedTransformRule.value) {
-    const newField = fieldByCode(fieldCode)
-    selectedTransformRule.value.outputFieldId = newField?.fieldId || ''
-    selectedTransformRule.value.outputField = fieldCode
-  }
-  form.targetServices.forEach((serviceCode) => updateDownstreamField(serviceCode, fieldId, targetColumn))
-  derivedFieldDialogVisible.value = false
-  ElMessage.success('已新增衍生结果字段，并自动回填到当前加工规则')
 }
 const runValidationPreview = () => {
   ElMessage.success('已基于当前样本模拟执行校验规则')
@@ -2620,13 +2577,17 @@ watch(() => route.query.id, async (nextId, previousId) => {
               <el-button link type="primary" @click="mappingProfileDrawerVisible = true">查看已有映射</el-button>
             </span>
             <el-button v-if="isStorageEnabled" @click="autoMapFields">自动生成映射</el-button>
-            <el-button type="primary" @click="addField">添加结果字段</el-button>
+            <el-button @click="addField('DERIVED')">添加加工衍生字段</el-button>
+            <el-button type="primary" @click="addField('EXTRACTED')">添加提取字段</el-button>
           </div>
         </div>
         <el-table :data="fields">
           <el-table-column label="字段来源" width="110">
             <template #default="{ row }">
-              <el-tag :type="resultFieldSourceTagType(row.sourceType)">{{ resultFieldSourceLabel(row.sourceType) }}</el-tag>
+              <el-select v-model="row.sourceType" @change="handleResultFieldSourceChange(row)">
+                <el-option label="提取字段" value="EXTRACTED" />
+                <el-option label="加工衍生" value="DERIVED" />
+              </el-select>
             </template>
           </el-table-column>
           <el-table-column label="结果字段编码" min-width="150">
@@ -2638,13 +2599,16 @@ watch(() => route.query.id, async (nextId, previousId) => {
             <template #default="{ row }"><el-input v-model="row.fieldName" @change="syncFieldReferences" /></template>
           </el-table-column>
           <el-table-column label="字段描述" min-width="220">
-            <template #default="{ row }"><el-input v-model="row.fieldDescription" placeholder="用于生成 AI 提示词" /></template>
+            <template #default="{ row }">
+              <el-input v-if="(row.sourceType || 'EXTRACTED') === 'EXTRACTED'" v-model="row.fieldDescription" placeholder="用于生成 AI 提示词" />
+              <span v-else class="muted">加工规则生成，不参与 AI 提示词</span>
+            </template>
           </el-table-column>
           <el-table-column label="提取必填" width="90">
-            <template #default="{ row }"><el-switch v-model="row.extractRequired" /></template>
+            <template #default="{ row }"><el-switch v-if="(row.sourceType || 'EXTRACTED') === 'EXTRACTED'" v-model="row.extractRequired" /><span v-else class="muted">-</span></template>
           </el-table-column>
           <el-table-column label="多值" width="80">
-            <template #default="{ row }"><el-switch v-model="row.multiple" /></template>
+            <template #default="{ row }"><el-switch v-if="(row.sourceType || 'EXTRACTED') === 'EXTRACTED'" v-model="row.multiple" /><span v-else class="muted">-</span></template>
           </el-table-column>
           <el-table-column v-if="isStorageEnabled" label="目标字段" min-width="260">
             <template #default="{ row }">
@@ -3022,7 +2986,7 @@ watch(() => route.query.id, async (nextId, previousId) => {
               <el-form-item label="输出方式">
                 <el-select v-model="selectedTransformRule.outputMode" @change="handleTransformOutputModeChange(selectedTransformRule)">
                   <el-option label="覆盖已有字段" value="OVERWRITE_INPUT" />
-                  <el-option label="写入目标字段" value="WRITE_TARGET" />
+                  <el-option label="写入已有提取字段" value="WRITE_TARGET" />
                   <el-option label="生成衍生字段" value="DERIVE_FIELD" />
                 </el-select>
               </el-form-item>
@@ -3032,11 +2996,11 @@ watch(() => route.query.id, async (nextId, previousId) => {
                     v-model="selectedTransformRule.outputFieldId"
                     filterable
                     clearable
-                    placeholder="请选择结果字段"
+                    :placeholder="transformOutputPlaceholder(selectedTransformRule)"
                     @change="selectedTransformRule.outputField = fieldCodeById(selectedTransformRule.outputFieldId || '')"
                   >
                     <el-option
-                      v-for="field in fields"
+                      v-for="field in transformOutputFieldOptions(selectedTransformRule)"
                       :key="field.fieldId"
                       :label="`${field.fieldName}（${field.fieldCode}）`"
                       :value="field.fieldId"
@@ -3045,8 +3009,8 @@ watch(() => route.query.id, async (nextId, previousId) => {
                       <el-tag class="option-tag" size="small" :type="resultFieldSourceTagType((field as any).sourceType)">{{ resultFieldSourceLabel((field as any).sourceType) }}</el-tag>
                     </el-option>
                   </el-select>
-                  <el-button v-if="selectedTransformRule.outputMode === 'DERIVE_FIELD'" @click="openDerivedFieldDialog">新增衍生字段</el-button>
                 </div>
+                <span v-if="selectedTransformRule.outputMode === 'DERIVE_FIELD' && !derivedResultFields.length" class="muted block">请先在“字段与落库配置”中添加加工衍生字段，再回到这里选择输出字段。</span>
               </el-form-item>
               <el-form-item label="失败策略">
                 <el-select v-model="selectedTransformRule.onFail">
@@ -3632,46 +3596,6 @@ watch(() => route.query.id, async (nextId, previousId) => {
           <el-table-column prop="mapping" label="映射摘要" min-width="320" />
         </el-table>
       </el-drawer>
-
-      <el-dialog v-model="derivedFieldDialogVisible" title="新增衍生结果字段" width="620px">
-        <el-alert
-          class="mb-12"
-          title="衍生字段会加入结果字段目录，并可像普通字段一样映射目标字段、参与落库、复核和下游推送。"
-          type="info"
-          :closable="false"
-        />
-        <el-form :model="derivedFieldForm" label-width="120px" class="form-grid">
-          <el-form-item label="字段编码">
-            <el-input v-model="derivedFieldForm.fieldCode" placeholder="如 product_name" />
-          </el-form-item>
-          <el-form-item label="字段名称">
-            <el-input v-model="derivedFieldForm.fieldName" placeholder="如 产品名称" />
-          </el-form-item>
-          <el-form-item label="字段类型">
-            <el-select v-model="derivedFieldForm.dataType">
-              <el-option label="字符串" value="string" />
-              <el-option label="金额" value="amount" />
-              <el-option label="日期" value="date" />
-              <el-option label="数字" value="number" />
-            </el-select>
-          </el-form-item>
-          <el-form-item v-if="isStorageEnabled" label="目标字段">
-            <el-select v-model="derivedFieldForm.targetColumn" filterable clearable placeholder="请选择目标字段">
-              <el-option v-for="column in storageTargetColumnOptions" :key="column.value" :label="column.label" :value="column.value" />
-            </el-select>
-          </el-form-item>
-          <el-form-item v-if="isStorageEnabled && form.storageMode === 'CREATE'" label="同步目标字段" class="wide">
-            <el-switch v-model="derivedFieldForm.autoAddTargetColumn" active-text="自动加入目标表字段定义" inactive-text="仅作为结果字段" />
-          </el-form-item>
-          <el-form-item label="字段说明" class="wide">
-            <el-input v-model="derivedFieldForm.fieldDescription" type="textarea" :rows="3" placeholder="说明该字段如何由加工规则生成" />
-          </el-form-item>
-        </el-form>
-        <template #footer>
-          <el-button @click="derivedFieldDialogVisible = false">取消</el-button>
-          <el-button type="primary" @click="confirmDerivedField">确认新增</el-button>
-        </template>
-      </el-dialog>
 
       <div class="wizard-actions">
         <el-button :disabled="activeStep === 0" @click="prev">上一步</el-button>
