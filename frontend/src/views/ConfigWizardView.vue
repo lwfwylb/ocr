@@ -202,10 +202,15 @@ const createDictCondition = (input?: TransformInputField): DictCondition => ({
   operator: 'EQUALS',
   value: ''
 })
+const normalizeBoolean = (value: any, fallback = false) => {
+  if (value === true || value === 'true' || value === '1' || value === 1) return true
+  if (value === false || value === 'false' || value === '0' || value === 0) return false
+  return fallback
+}
 const createDictItem = (rule: TransformRule, seed?: Partial<DictItem>): DictItem => ({
   id: seed?.id || `dict-rule-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
   ruleName: seed?.ruleName || `映射规则${(rule.dictItems || []).length + 1}`,
-  enabled: seed?.enabled !== false,
+  enabled: normalizeBoolean(seed?.enabled, true),
   priority: seed?.priority || (rule.dictItems || []).length + 1,
   conditionLogic: normalizeConditionLogic(seed?.conditionLogic),
   conditions: seed?.conditions?.length ? seed.conditions : [createDictCondition(rule.inputFields[0])],
@@ -248,7 +253,7 @@ const normalizeDictItem = (item: any, rule: TransformRule, index: number): DictI
   return createDictItem(rule, {
     id: item.id,
     ruleName: item.ruleName || `映射规则${index + 1}`,
-    enabled: item.enabled !== false,
+    enabled: normalizeBoolean(item.enabled, true),
     priority: Number(item.priority || index + 1),
     conditionLogic: normalizeConditionLogic(item.conditionLogic),
     conditions: conditions.length ? conditions : [createDictCondition(rule.inputFields[0])],
@@ -256,7 +261,16 @@ const normalizeDictItem = (item: any, rule: TransformRule, index: number): DictI
   })
 }
 const ensureDictItems = (rule: TransformRule) => {
-  rule.dictItems = (rule.dictItems || []).map((item: any, index) => normalizeDictItem(item, rule, index))
+  rule.dictItems = (rule.dictItems || [])
+    .map((item: any, index) => normalizeDictItem(item, rule, index))
+    .sort((a, b) => (a.priority || 0) - (b.priority || 0))
+  normalizeDictItemPriorities(rule)
+}
+const normalizeDictItemPriorities = (rule?: TransformRule) => {
+  if (!rule) return
+  ;(rule.dictItems || []).forEach((item, index) => {
+    item.priority = index + 1
+  })
 }
 const normalizeTransformRule = (rule: any): TransformRule => {
   const inputFields = Array.isArray(rule.inputFields) ? rule.inputFields : []
@@ -267,6 +281,8 @@ const normalizeTransformRule = (rule: any): TransformRule => {
     defaultValue: input.defaultValue || '',
     sampleValue: input.sampleValue || ''
   })).filter((input: TransformInputField) => input.fieldCode)
+  rule.enabled = normalizeBoolean(rule.enabled, true)
+  rule.conditionEnabled = normalizeBoolean(rule.conditionEnabled, false)
   rule.dictItems = rule.dictItems || []
   const legacyCondition = rule.conditionField ? [{
     id: `cond-${rule.id || Date.now()}-legacy`,
@@ -291,7 +307,7 @@ const transformRules = ref<TransformRule[]>([])
 transformRules.value.forEach((rule) => {
   normalizeTransformRule(rule)
   rule.outputMode = rule.outputMode || 'DERIVE_FIELD'
-  rule.conditionEnabled = rule.conditionEnabled ?? false
+  rule.conditionEnabled = normalizeBoolean(rule.conditionEnabled, false)
   rule.conditionLogic = rule.conditionLogic || 'ALL'
   rule.apiTimeout = rule.apiTimeout ?? 5
   rule.apiRetryCount = rule.apiRetryCount ?? 1
@@ -306,6 +322,7 @@ transformRules.value.forEach((rule) => {
 })
 const selectedRuleId = ref(transformRules.value[0]?.id || '')
 const activeProcessTab = ref('transform')
+const draggingDictItemId = ref('')
 const validationRules = ref<ValidationRule[]>([])
 const selectedExtractFieldCode = ref(fields.value[0]?.fieldCode || '')
 const mappingProfileDrawerVisible = ref(false)
@@ -1209,6 +1226,16 @@ const next = () => {
 const prev = () => {
   if (activeStep.value > 0) activeStep.value -= 1
 }
+const transformRulesForPayload = () => transformRules.value.map((rule) => ({
+  ...rule,
+  inputFields: (rule.inputFields || []).map((input) => ({ ...input })),
+  conditions: (rule.conditions || []).map((condition) => ({ ...condition })),
+  dictItems: (rule.dictItems || []).map((item, index) => ({
+    ...item,
+    priority: index + 1,
+    conditions: (item.conditions || []).map((condition) => ({ ...condition }))
+  }))
+}))
 const buildWizardPayload = () => ({
   baseInfo: {
     configName: form.configName,
@@ -1294,7 +1321,7 @@ const buildWizardPayload = () => ({
       validationStatus: regexPreviewMap.value[field.fieldCode] ? 'PASSED' : 'NOT_TESTED',
       enabled: field.extractByRegex
     })),
-  transformRules: transformRules.value,
+  transformRules: transformRulesForPayload(),
   validationRules: validationRules.value,
   reviewPolicy: {
     confidenceThreshold: form.confidenceThreshold,
@@ -1523,6 +1550,7 @@ const copyTransformRule = (rule: TransformRule) => {
       conditions: item.conditions.map((condition) => ({ ...condition, id: `dict-cond-${Date.now()}-${Math.random().toString(36).slice(2, 8)}` }))
     }))
   }
+  normalizeDictItemPriorities(copiedRule)
   const currentIndex = transformRules.value.findIndex((item) => item.id === rule.id)
   transformRules.value.splice(currentIndex + 1, 0, copiedRule)
   selectedRuleId.value = copiedRule.id
@@ -1664,6 +1692,7 @@ const removeTransformCondition = (condition: TransformCondition) => {
 const addDictItem = () => {
   if (!selectedTransformRule.value) return
   selectedTransformRule.value.dictItems.push(createDictItem(selectedTransformRule.value))
+  normalizeDictItemPriorities(selectedTransformRule.value)
 }
 const copyDictItem = (row: DictItem) => {
   if (!selectedTransformRule.value) return
@@ -1674,10 +1703,49 @@ const copyDictItem = (row: DictItem) => {
     ruleName: `${row.ruleName}-副本`,
     conditions: row.conditions.map((condition) => ({ ...condition, id: `dict-cond-${Date.now()}-${Math.random().toString(36).slice(2, 8)}` }))
   }))
+  normalizeDictItemPriorities(selectedTransformRule.value)
 }
 const removeDictItem = (row: DictItem) => {
   if (!selectedTransformRule.value) return
   selectedTransformRule.value.dictItems = selectedTransformRule.value.dictItems.filter((item) => item !== row)
+  normalizeDictItemPriorities(selectedTransformRule.value)
+}
+const dictItemIndex = (rule: TransformRule | undefined, row: DictItem) => rule?.dictItems?.indexOf(row) ?? -1
+const moveDictItem = (row: DictItem, direction: -1 | 1) => {
+  const rule = selectedTransformRule.value
+  if (!rule) return
+  const currentIndex = dictItemIndex(rule, row)
+  const nextIndex = currentIndex + direction
+  if (currentIndex < 0 || nextIndex < 0 || nextIndex >= rule.dictItems.length) return
+  const [current] = rule.dictItems.splice(currentIndex, 1)
+  rule.dictItems.splice(nextIndex, 0, current)
+  normalizeDictItemPriorities(rule)
+}
+const moveDictItemTo = (row: DictItem, targetRow: DictItem) => {
+  const rule = selectedTransformRule.value
+  if (!rule || row === targetRow) return
+  const fromIndex = dictItemIndex(rule, row)
+  const toIndex = dictItemIndex(rule, targetRow)
+  if (fromIndex < 0 || toIndex < 0) return
+  const [current] = rule.dictItems.splice(fromIndex, 1)
+  rule.dictItems.splice(toIndex, 0, current)
+  normalizeDictItemPriorities(rule)
+}
+const handleDictDragStart = (row: DictItem, event: DragEvent) => {
+  draggingDictItemId.value = row.id
+  event.dataTransfer?.setData('text/plain', row.id)
+  if (event.dataTransfer) event.dataTransfer.effectAllowed = 'move'
+}
+const handleDictDrop = (targetRow: DictItem, event: DragEvent) => {
+  event.preventDefault()
+  const rule = selectedTransformRule.value
+  const sourceId = draggingDictItemId.value || event.dataTransfer?.getData('text/plain')
+  const sourceRow = rule?.dictItems.find((item) => item.id === sourceId)
+  if (sourceRow) moveDictItemTo(sourceRow, targetRow)
+  draggingDictItemId.value = ''
+}
+const handleDictDragEnd = () => {
+  draggingDictItemId.value = ''
 }
 const runTransformPreview = () => {
   const rule = selectedTransformRule.value
@@ -1692,7 +1760,8 @@ const runTransformPreview = () => {
     return
   }
   if (rule.ruleType === 'DICT') {
-    const matchedItem = [...rule.dictItems].sort((a, b) => (a.priority || 0) - (b.priority || 0)).find((item) => dictItemMatchesSample(item, sampleValues))
+    normalizeDictItemPriorities(rule)
+    const matchedItem = rule.dictItems.find((item) => dictItemMatchesSample(item, sampleValues))
     previewOutput.value = matchedItem ? `命中${matchedItem.ruleName || '映射规则'}，输出 ${matchedItem.target || '未填写'}` : '未命中字典映射，按失败策略处理'
   } else if (rule.ruleType === 'API') {
     previewOutput.value = `模拟调用 ${replaceParamPlaceholders(rule.apiEndpoint, sampleValues)}；请求参数 ${JSON.stringify(sampleValues)}；响应取值 ${rule.apiResponsePath}`
@@ -2849,7 +2918,7 @@ onMounted(async () => {
                 <h3>类型配置：字典映射</h3>
                 <el-button size="small" type="primary" @click="addDictItem">新增映射规则</el-button>
               </div>
-              <p class="muted mb-12">每条映射规则独立维护命中条件，可配置“产品代码等于 + 摘要包含”等组合；按优先级从小到大匹配，命中第一条后停止。</p>
+              <p class="muted mb-12">每条映射规则独立维护命中条件，可配置“产品代码等于 + 摘要包含”等组合；系统按列表从上到下匹配，命中第一条后停止。新增规则默认追加到最后，可拖动或点击上移、下移调整顺序。</p>
               <el-table :data="selectedTransformRule.dictItems" row-key="id" border>
                 <el-table-column type="expand">
                   <template #default="{ row }">
@@ -2884,8 +2953,21 @@ onMounted(async () => {
                 <el-table-column label="启用" width="70">
                   <template #default="{ row }"><el-switch v-model="row.enabled" /></template>
                 </el-table-column>
-                <el-table-column label="优先级" width="100">
-                  <template #default="{ row }"><el-input-number v-model="row.priority" :min="1" :max="999" controls-position="right" /></template>
+                <el-table-column label="顺序" width="88">
+                  <template #default="{ row }">
+                    <div
+                      class="dict-order-cell"
+                      :class="{ dragging: draggingDictItemId === row.id }"
+                      draggable="true"
+                      @dragstart="handleDictDragStart(row, $event)"
+                      @dragover.prevent
+                      @drop="handleDictDrop(row, $event)"
+                      @dragend="handleDictDragEnd"
+                    >
+                      <span class="dict-drag-handle">拖动</span>
+                      <strong>{{ dictItemIndex(selectedTransformRule, row) + 1 }}</strong>
+                    </div>
+                  </template>
                 </el-table-column>
                 <el-table-column label="规则名称" min-width="170">
                   <template #default="{ row }"><el-input v-model="row.ruleName" placeholder="如 申购识别" /></template>
@@ -2899,8 +2981,10 @@ onMounted(async () => {
                 <el-table-column label="样本状态" width="100">
                   <template #default="{ row }"><el-tag :type="dictItemMatchTagType(row, selectedTransformRule)">{{ dictItemMatchStatusByRule(row, selectedTransformRule) }}</el-tag></template>
                 </el-table-column>
-                <el-table-column label="操作" width="110" fixed="right">
+                <el-table-column label="操作" width="180" fixed="right">
                   <template #default="{ row }">
+                    <el-button link :disabled="dictItemIndex(selectedTransformRule, row) <= 0" @click="moveDictItem(row, -1)">上移</el-button>
+                    <el-button link :disabled="dictItemIndex(selectedTransformRule, row) >= selectedTransformRule.dictItems.length - 1" @click="moveDictItem(row, 1)">下移</el-button>
                     <el-button link @click="copyDictItem(row)">复制</el-button>
                     <el-button link type="danger" @click="removeDictItem(row)">删除</el-button>
                   </template>

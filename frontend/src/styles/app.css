@@ -774,6 +774,32 @@ body {
   border-radius: 6px;
 }
 
+.dict-order-cell {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 64px;
+  cursor: move;
+  user-select: none;
+}
+
+.dict-order-cell.dragging {
+  opacity: 0.55;
+}
+
+.dict-drag-handle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 22px;
+  padding: 0 6px;
+  border: 1px solid #d8dee8;
+  border-radius: 4px;
+  color: #64748b;
+  background: #fff;
+  font-size: 12px;
+}
+
 .dict-condition-list {
   display: flex;
   flex-direction: column;
