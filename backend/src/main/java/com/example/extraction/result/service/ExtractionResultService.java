@@ -1064,41 +1064,77 @@ public class ExtractionResultService {
         if (rule.getDictItems() == null || rule.getDictItems().isEmpty()) {
             return TransformValue.failed("未维护字典明细");
         }
-        String matchMode = firstText(transformRuleText(rule, "dictMatchMode"), "EQUALS");
-        for (Map<String, Object> item : rule.getDictItems()) {
-            if (item.get("sourceValues") instanceof Map<?, ?> sourceValues && !sourceValues.isEmpty()) {
-                boolean hasConstraint = false;
-                boolean matched = true;
-                for (ConfigWizardPayload.TransformInputField input : rule.getInputFields()) {
-                    String paramName = firstText(input.getParamName(), input.getFieldCode());
-                    Object expected = sourceValues.get(paramName);
-                    String expectedText = expected == null ? "" : String.valueOf(expected).trim();
-                    if (!StringUtils.hasText(expectedText)) {
-                        continue;
-                    }
-                    hasConstraint = true;
-                    String actualText = String.valueOf(inputValues.getOrDefault(paramName, "")).trim();
-                    String fieldMatchMode = firstText(input.getDictMatchMode(), matchMode);
-                    boolean fieldMatched = switch (fieldMatchMode) {
-                        case "CONTAINS" -> actualText.contains(expectedText);
-                        case "REGEX" -> regexMatches(expectedText, actualText);
-                        case "RANGE" -> rangeMatches(expectedText, actualText);
-                        default -> actualText.equals(expectedText);
-                    };
-                    if (!fieldMatched) {
-                        matched = false;
-                        break;
-                    }
-                }
-                matched = matched && hasConstraint;
-                if (matched) {
-                    String target = stringValue(item.get("target"));
-                    return TransformValue.success(StringUtils.hasText(target) ? target : sourceValues.toString());
-                }
-                continue;
+        List<Map<String, Object>> sortedItems = rule.getDictItems().stream()
+                .filter(item -> item != null && !Boolean.FALSE.equals(item.get("enabled")))
+                .sorted((left, right) -> Integer.compare(intValue(left.get("priority"), 999), intValue(right.get("priority"), 999)))
+                .toList();
+        for (Map<String, Object> item : sortedItems) {
+            if (dictItemMatched(item, inputValues)) {
+                String target = stringValue(item.get("target"));
+                return TransformValue.success(StringUtils.hasText(target) ? target : firstText(stringValue(item.get("ruleName")), "字典映射命中"));
             }
         }
         return TransformValue.failed("未命中字典映射");
+    }
+
+    private boolean dictItemMatched(Map<String, Object> item, Map<String, Object> inputValues) {
+        if (item.get("conditions") instanceof List<?> conditions && !conditions.isEmpty()) {
+            List<Map<?, ?>> conditionMaps = new ArrayList<>();
+            for (Object condition : conditions) {
+                if (condition instanceof Map<?, ?> conditionMap) {
+                    conditionMaps.add(conditionMap);
+                }
+            }
+            if (conditionMaps.isEmpty()) {
+                return false;
+            }
+            String logic = firstText(stringValue(item.get("conditionLogic")), "ALL");
+            if ("ANY".equals(logic)) {
+                return conditionMaps.stream().anyMatch(condition -> dictConditionMatched(condition, inputValues));
+            }
+            return conditionMaps.stream().allMatch(condition -> dictConditionMatched(condition, inputValues));
+        }
+        if (item.get("sourceValues") instanceof Map<?, ?> sourceValues && !sourceValues.isEmpty()) {
+            return sourceValues.entrySet().stream().allMatch(entry -> {
+                String expected = stringValue(entry.getValue());
+                if (!StringUtils.hasText(expected)) {
+                    return true;
+                }
+                String actual = stringValue(inputValues.get(entry.getKey()));
+                return StringUtils.hasText(actual) && actual.trim().equals(expected.trim());
+            });
+        }
+        return false;
+    }
+
+    private boolean dictConditionMatched(Map<?, ?> condition, Map<String, Object> inputValues) {
+        String paramName = firstText(stringValue(condition.get("paramName")), stringValue(condition.get("fieldCode")));
+        String operator = firstText(stringValue(condition.get("operator")), "EQUALS");
+        Object rawActual = inputValues.get(paramName);
+        String actual = rawActual == null ? "" : String.valueOf(rawActual).trim();
+        String expected = firstText(stringValue(condition.get("value")), "").trim();
+        return switch (operator) {
+            case "EMPTY" -> !StringUtils.hasText(actual);
+            case "NOT_EMPTY" -> StringUtils.hasText(actual);
+            case "CONTAINS" -> actual.contains(expected);
+            case "REGEX" -> regexMatches(expected, actual);
+            case "RANGE" -> rangeMatches(expected, actual);
+            default -> actual.equals(expected);
+        };
+    }
+
+    private int intValue(Object value, int fallback) {
+        if (value instanceof Number number) {
+            return number.intValue();
+        }
+        if (value instanceof String text && StringUtils.hasText(text)) {
+            try {
+                return Integer.parseInt(text.trim());
+            } catch (NumberFormatException ignored) {
+                return fallback;
+            }
+        }
+        return fallback;
     }
 
     private Object simulatedApiValue(ConfigWizardPayload.TransformRule rule, Map<String, Object> inputValues) {

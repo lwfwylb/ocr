@@ -616,9 +616,6 @@ public class ConfigWizardService {
                             } else if (!paramNames.add(input.getParamName())) {
                                 issues.add(issue("ERROR", "加工规则参数名不能重复：" + input.getParamName()));
                             }
-                            if (StringUtils.hasText(input.getDictMatchMode()) && !Set.of("EQUALS", "CONTAINS", "REGEX", "RANGE").contains(input.getDictMatchMode())) {
-                                issues.add(issue("ERROR", "加工规则字段级字典匹配方式不支持：" + input.getDictMatchMode()));
-                            }
                         }
                     }
                     if (!StringUtils.hasText(rule.getOutputField())) {
@@ -626,6 +623,9 @@ public class ConfigWizardService {
                     }
                     if (Boolean.TRUE.equals(rule.getConditionEnabled())) {
                         validateTransformConditions(rule, fieldCodes, availableTransformConditionFields, issues);
+                    }
+                    if ("DICT".equals(rule.getRuleType())) {
+                        validateDictTransformRule(rule, issues);
                     }
                     if ("SQL".equals(rule.getRuleType())) {
                         validateSqlTransformRule(rule, issues);
@@ -668,6 +668,91 @@ public class ConfigWizardService {
             issues.add(issue("INFO", "加工规则和校验规则基础检查通过"));
         }
         return issues;
+    }
+
+    private void validateDictTransformRule(ConfigWizardPayload.TransformRule rule, List<Map<String, Object>> issues) {
+        if (rule.getDictItems() == null || rule.getDictItems().isEmpty()) {
+            issues.add(issue("ERROR", "字典转换规则至少需要维护一条映射规则：" + rule.getRuleName()));
+            return;
+        }
+        Set<String> inputFieldCodes = new HashSet<>();
+        Set<String> inputParamNames = new HashSet<>();
+        if (rule.getInputFields() != null) {
+            for (ConfigWizardPayload.TransformInputField input : rule.getInputFields()) {
+                if (StringUtils.hasText(input.getFieldCode())) {
+                    inputFieldCodes.add(input.getFieldCode());
+                }
+                if (StringUtils.hasText(input.getParamName())) {
+                    inputParamNames.add(input.getParamName());
+                }
+            }
+        }
+        boolean hasEnabledItem = false;
+        for (Map<String, Object> item : rule.getDictItems()) {
+            if (item == null || Boolean.FALSE.equals(item.get("enabled"))) {
+                continue;
+            }
+            hasEnabledItem = true;
+            String itemName = firstText(textValue(item.get("ruleName")), "映射规则");
+            if (!StringUtils.hasText(textValue(item.get("target")))) {
+                issues.add(issue("ERROR", "字典映射规则命中后输出不能为空：" + itemName + "，加工规则：" + rule.getRuleName()));
+            }
+            String logic = firstText(textValue(item.get("conditionLogic")), "ALL");
+            if (!Set.of("ALL", "ANY").contains(logic)) {
+                issues.add(issue("ERROR", "字典映射规则条件关系不支持：" + logic + "，" + itemName));
+            }
+            List<?> conditions = item.get("conditions") instanceof List<?> list ? list : List.of();
+            if (conditions.isEmpty()) {
+                Map<?, ?> sourceValues = item.get("sourceValues") instanceof Map<?, ?> values ? values : Map.of();
+                if (sourceValues.isEmpty()) {
+                    issues.add(issue("ERROR", "字典映射规则至少需要维护一个命中条件：" + itemName));
+                }
+                continue;
+            }
+            for (Object conditionValue : conditions) {
+                if (!(conditionValue instanceof Map<?, ?> condition)) {
+                    issues.add(issue("ERROR", "字典映射规则条件格式不正确：" + itemName));
+                    continue;
+                }
+                validateDictCondition(rule, itemName, condition, inputFieldCodes, inputParamNames, issues);
+            }
+        }
+        if (!hasEnabledItem) {
+            issues.add(issue("WARN", "字典转换规则已启用，但所有映射规则均未启用：" + rule.getRuleName()));
+        }
+    }
+
+    private void validateDictCondition(ConfigWizardPayload.TransformRule rule, String itemName, Map<?, ?> condition,
+                                       Set<String> inputFieldCodes, Set<String> inputParamNames, List<Map<String, Object>> issues) {
+        String fieldCode = textValue(condition.get("fieldCode"));
+        String paramName = textValue(condition.get("paramName"));
+        String operator = firstText(textValue(condition.get("operator")), "EQUALS");
+        String value = textValue(condition.get("value"));
+        if (!StringUtils.hasText(fieldCode) && !StringUtils.hasText(paramName)) {
+            issues.add(issue("ERROR", "字典映射条件字段不能为空：" + itemName));
+        }
+        if (StringUtils.hasText(fieldCode) && !inputFieldCodes.contains(fieldCode)) {
+            issues.add(issue("ERROR", "字典映射条件字段必须来自加工规则依赖字段：" + fieldCode + "，" + itemName));
+        }
+        if (StringUtils.hasText(paramName) && !inputParamNames.contains(paramName)) {
+            issues.add(issue("ERROR", "字典映射条件参数必须来自加工规则参数映射：" + paramName + "，" + itemName));
+        }
+        if (!Set.of("EQUALS", "CONTAINS", "REGEX", "RANGE", "EMPTY", "NOT_EMPTY").contains(operator)) {
+            issues.add(issue("ERROR", "字典映射匹配方式不支持：" + operator + "，" + itemName));
+        }
+        if (!Set.of("EMPTY", "NOT_EMPTY").contains(operator) && !StringUtils.hasText(value)) {
+            issues.add(issue("ERROR", "字典映射匹配值不能为空：" + itemName));
+        }
+        if ("REGEX".equals(operator) && StringUtils.hasText(value)) {
+            try {
+                Pattern.compile(value);
+            } catch (PatternSyntaxException e) {
+                issues.add(issue("ERROR", "字典映射正则表达式不合法：" + value + "，" + itemName));
+            }
+        }
+        if ("RANGE".equals(operator) && StringUtils.hasText(value) && !value.contains("-")) {
+            issues.add(issue("WARN", "字典映射区间建议使用 min-max 格式：" + itemName));
+        }
     }
 
     private void validateSqlTransformRule(ConfigWizardPayload.TransformRule rule, List<Map<String, Object>> issues) {
@@ -944,6 +1029,10 @@ public class ConfigWizardService {
         issue.put("level", level);
         issue.put("message", message);
         return issue;
+    }
+
+    private String textValue(Object value) {
+        return value == null ? null : String.valueOf(value);
     }
 
     private String firstText(String... values) {

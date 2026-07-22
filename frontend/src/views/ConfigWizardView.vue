@@ -29,7 +29,7 @@ type TraditionalRuleType = 'REGEX' | 'TABLE_COLUMN' | 'FIXED_CELL' | 'KEY_VALUE'
 type ImageQuality = 'FAST_150' | 'STANDARD_300' | 'HIGH_450'
 type TransformOutputMode = 'OVERWRITE_INPUT' | 'WRITE_TARGET' | 'DERIVE_FIELD'
 type ResultFieldSourceType = 'EXTRACTED' | 'DERIVED' | 'SYSTEM'
-type DictMatchMode = 'EQUALS' | 'CONTAINS' | 'REGEX' | 'RANGE'
+type DictConditionOperator = 'EQUALS' | 'CONTAINS' | 'REGEX' | 'RANGE' | 'EMPTY' | 'NOT_EMPTY'
 type TransformConditionLogic = 'ALL' | 'ANY'
 type TransformConditionOperator = 'NOT_EMPTY' | 'EMPTY' | 'EQUALS' | 'NOT_EQUALS' | 'CONTAINS' | 'NOT_CONTAINS' | 'GT' | 'GTE' | 'LT' | 'LTE' | 'REGEX'
 type SqlNoDataStrategy = 'SET_NULL' | 'REVIEW' | 'BLOCK'
@@ -38,8 +38,21 @@ type SqlNullStrategy = 'SET_NULL' | 'REVIEW'
 type ValidationRuleType = 'REQUIRED' | 'FORMAT' | 'RANGE' | 'CROSS_FIELD' | 'UNIQUE' | 'MASTER_DATA'
 
 interface DictItem {
-  sourceValues: Record<string, string>
+  id: string
+  ruleName: string
+  enabled: boolean
+  priority: number
+  conditionLogic: TransformConditionLogic
+  conditions: DictCondition[]
   target: string
+}
+
+interface DictCondition {
+  id: string
+  fieldCode: string
+  paramName: string
+  operator: DictConditionOperator
+  value: string
 }
 
 interface TransformInputField {
@@ -48,7 +61,6 @@ interface TransformInputField {
   required: boolean
   defaultValue: string
   sampleValue: string
-  dictMatchMode?: DictMatchMode
 }
 
 interface TransformCondition {
@@ -78,7 +90,6 @@ interface TransformRule {
   conditions: TransformCondition[]
   enabled: boolean
   onFail: 'KEEP_ORIGINAL' | 'SET_NULL' | 'BLOCK' | 'REVIEW'
-  dictMatchMode?: DictMatchMode
   dictItems: DictItem[]
   apiEndpoint: string
   apiMethod: 'GET' | 'POST'
@@ -184,14 +195,68 @@ const createTransformCondition = (fieldCode = ''): TransformCondition => ({
   operator: 'NOT_EMPTY',
   value: ''
 })
-const ensureDictItemSourceValues = (rule: TransformRule) => {
-  rule.dictItems = (rule.dictItems || []).map((item: any) => {
-    const sourceValues = item.sourceValues || {}
-    rule.inputFields.forEach((input) => {
-      if (sourceValues[input.paramName] === undefined) sourceValues[input.paramName] = ''
-    })
-    return { sourceValues, target: item.target || '' }
+const createDictCondition = (input?: TransformInputField): DictCondition => ({
+  id: `dict-cond-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+  fieldCode: input?.fieldCode || '',
+  paramName: input?.paramName || '',
+  operator: 'EQUALS',
+  value: ''
+})
+const createDictItem = (rule: TransformRule, seed?: Partial<DictItem>): DictItem => ({
+  id: seed?.id || `dict-rule-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+  ruleName: seed?.ruleName || `映射规则${(rule.dictItems || []).length + 1}`,
+  enabled: seed?.enabled !== false,
+  priority: seed?.priority || (rule.dictItems || []).length + 1,
+  conditionLogic: normalizeConditionLogic(seed?.conditionLogic),
+  conditions: seed?.conditions?.length ? seed.conditions : [createDictCondition(rule.inputFields[0])],
+  target: seed?.target || ''
+})
+const normalizeDictOperator = (operator: any): DictConditionOperator => {
+  return ['EQUALS', 'CONTAINS', 'REGEX', 'RANGE', 'EMPTY', 'NOT_EMPTY'].includes(operator) ? operator : 'EQUALS'
+}
+const normalizeConditionLogic = (logic: any): TransformConditionLogic => logic === 'ANY' ? 'ANY' : 'ALL'
+const normalizeDictCondition = (condition: any, rule: TransformRule): DictCondition => {
+  const input = condition.paramName
+    ? rule.inputFields.find((item) => item.paramName === condition.paramName)
+    : rule.inputFields.find((item) => item.fieldCode === condition.fieldCode)
+  return {
+    id: condition.id || `dict-cond-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    fieldCode: condition.fieldCode || input?.fieldCode || '',
+    paramName: condition.paramName || input?.paramName || toParamName(condition.fieldCode || ''),
+    operator: normalizeDictOperator(condition.operator || condition.matchMode),
+    value: condition.value || ''
+  }
+}
+const normalizeDictItem = (item: any, rule: TransformRule, index: number): DictItem => {
+  const legacyConditions = item.sourceValues
+    ? Object.entries(item.sourceValues)
+      .filter(([, value]) => String(value ?? '').trim())
+      .map(([paramName, value]) => {
+        const input = rule.inputFields.find((field) => field.paramName === paramName)
+        return {
+          id: `dict-cond-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+          fieldCode: input?.fieldCode || '',
+          paramName,
+          operator: 'EQUALS' as DictConditionOperator,
+          value: String(value ?? '')
+        }
+      })
+    : []
+  const conditions = Array.isArray(item.conditions) && item.conditions.length
+    ? item.conditions.map((condition: any) => normalizeDictCondition(condition, rule))
+    : legacyConditions
+  return createDictItem(rule, {
+    id: item.id,
+    ruleName: item.ruleName || `映射规则${index + 1}`,
+    enabled: item.enabled !== false,
+    priority: Number(item.priority || index + 1),
+    conditionLogic: normalizeConditionLogic(item.conditionLogic),
+    conditions: conditions.length ? conditions : [createDictCondition(rule.inputFields[0])],
+    target: item.target || ''
   })
+}
+const ensureDictItems = (rule: TransformRule) => {
+  rule.dictItems = (rule.dictItems || []).map((item: any, index) => normalizeDictItem(item, rule, index))
 }
 const normalizeTransformRule = (rule: any): TransformRule => {
   const inputFields = Array.isArray(rule.inputFields) ? rule.inputFields : []
@@ -200,10 +265,9 @@ const normalizeTransformRule = (rule: any): TransformRule => {
     paramName: input.paramName || toParamName(input.fieldCode || ''),
     required: input.required !== false,
     defaultValue: input.defaultValue || '',
-    sampleValue: input.sampleValue || '',
-    dictMatchMode: input.dictMatchMode || ''
+    sampleValue: input.sampleValue || ''
   })).filter((input: TransformInputField) => input.fieldCode)
-  rule.dictItems = (rule.dictItems || []).map((item: any) => ({ sourceValues: item.sourceValues || {}, target: item.target || '' }))
+  rule.dictItems = rule.dictItems || []
   const legacyCondition = rule.conditionField ? [{
     id: `cond-${rule.id || Date.now()}-legacy`,
     fieldCode: rule.conditionField,
@@ -220,7 +284,7 @@ const normalizeTransformRule = (rule: any): TransformRule => {
   delete rule.conditionField
   delete rule.conditionOperator
   delete rule.conditionValue
-  ensureDictItemSourceValues(rule)
+  ensureDictItems(rule)
   return rule as TransformRule
 }
 const transformRules = ref<TransformRule[]>([])
@@ -229,7 +293,6 @@ transformRules.value.forEach((rule) => {
   rule.outputMode = rule.outputMode || 'DERIVE_FIELD'
   rule.conditionEnabled = rule.conditionEnabled ?? false
   rule.conditionLogic = rule.conditionLogic || 'ALL'
-  rule.dictMatchMode = rule.dictMatchMode || (rule.ruleType === 'DICT' ? 'EQUALS' : 'EQUALS')
   rule.apiTimeout = rule.apiTimeout ?? 5
   rule.apiRetryCount = rule.apiRetryCount ?? 1
   rule.apiAuthMode = rule.apiAuthMode || 'SYSTEM'
@@ -796,6 +859,14 @@ const sqlNullStrategyLabel: Record<SqlNullStrategy, string> = {
   SET_NULL: '置空继续',
   REVIEW: '进入复核'
 }
+const dictConditionOperatorLabel: Record<DictConditionOperator, string> = {
+  EQUALS: '等于',
+  CONTAINS: '包含',
+  REGEX: '正则匹配',
+  RANGE: '区间',
+  EMPTY: '为空',
+  NOT_EMPTY: '不为空'
+}
 const transformRuleInputSummary = (rule: TransformRule) => {
   if (!rule.inputFields?.length) return '待配置依赖字段'
   return rule.inputFields.map((input) => input.fieldCode).join(' + ')
@@ -816,7 +887,7 @@ const updateTransformInputFields = (rule: TransformRule, fieldCodes: string[]) =
   const existing = new Map((rule.inputFields || []).map((input) => [input.fieldCode, input]))
   rule.inputFields = fieldCodes.map((fieldCode) => existing.get(fieldCode) || createTransformInputField(fieldCode))
   if (rule.outputMode === 'OVERWRITE_INPUT' && !rule.outputField && rule.inputFields.length) rule.outputField = rule.inputFields[0].fieldCode
-  ensureDictItemSourceValues(rule)
+  ensureDictItems(rule)
 }
 const handleTransformOutputModeChange = (rule: TransformRule) => {
   if (rule.outputMode === 'OVERWRITE_INPUT' && !rule.outputField && rule.inputFields.length) {
@@ -907,11 +978,49 @@ const rangeMatchesSample = (range: string, value: string) => {
   if (!Number.isFinite(numericValue) || !Number.isFinite(min) || !Number.isFinite(max)) return false
   return numericValue >= min && numericValue <= max
 }
-const transformValueMatches = (mode: DictMatchMode | undefined, expected: string, actual: string) => {
+const transformValueMatches = (mode: DictConditionOperator | undefined, expected: string, actual: string) => {
+  if (mode === 'EMPTY') return !actual
+  if (mode === 'NOT_EMPTY') return Boolean(actual)
   if (mode === 'CONTAINS') return actual.includes(expected)
   if (mode === 'REGEX') return regexMatchesSample(expected, actual)
   if (mode === 'RANGE') return rangeMatchesSample(expected, actual)
   return actual === expected
+}
+const dictConditionActualValue = (condition: DictCondition, sampleValues: Record<string, string>) => {
+  return String(sampleValues[condition.paramName] ?? sampleValues[condition.fieldCode] ?? '').trim()
+}
+const dictConditionMatchesSample = (condition: DictCondition, sampleValues: Record<string, string>) => {
+  return transformValueMatches(condition.operator || 'EQUALS', String(condition.value || '').trim(), dictConditionActualValue(condition, sampleValues))
+}
+const dictItemConditionSummary = (item: DictItem) => {
+  const conditions = item.conditions || []
+  if (!conditions.length) return '待配置命中条件'
+  const joiner = item.conditionLogic === 'ANY' ? ' 或 ' : ' 且 '
+  return conditions.map((condition) => {
+    const fieldName = fieldLabelByCode(condition.fieldCode)
+    const operator = dictConditionOperatorLabel[condition.operator || 'EQUALS']
+    const value = ['EMPTY', 'NOT_EMPTY'].includes(condition.operator) ? '' : ` ${condition.value || '待填写'}`
+    return `${fieldName} ${operator}${value}`
+  }).join(joiner)
+}
+const dictItemMatchStatus = (item: DictItem, sampleValues: Record<string, string>) => {
+  if (!item.enabled) return '未启用'
+  if (!item.conditions?.length) return '待配置'
+  return dictItemMatchesSample(item, sampleValues) ? '命中' : '未命中'
+}
+const dictItemMatchStatusByRule = (item: DictItem, rule: TransformRule) => dictItemMatchStatus(item, buildTransformSampleMap(rule))
+const dictItemMatchTagType = (item: DictItem, rule: TransformRule) => dictItemMatchStatusByRule(item, rule) === '命中' ? 'success' : 'info'
+const dictInputByFieldCode = (rule: TransformRule, fieldCode: string) => rule.inputFields.find((input) => input.fieldCode === fieldCode)
+const handleDictConditionFieldChange = (rule: TransformRule, condition: DictCondition) => {
+  const input = dictInputByFieldCode(rule, condition.fieldCode)
+  condition.paramName = input?.paramName || toParamName(condition.fieldCode)
+}
+const addDictCondition = (item: DictItem) => {
+  if (!selectedTransformRule.value) return
+  item.conditions.push(createDictCondition(selectedTransformRule.value.inputFields[0]))
+}
+const removeDictCondition = (item: DictItem, condition: DictCondition) => {
+  item.conditions = item.conditions.filter((row) => row.id !== condition.id)
 }
 const conditionValueMatches = (condition: TransformCondition, sampleValues: Record<string, string>) => {
   const actual = String(sampleValues[toParamName(condition.fieldCode)] ?? sampleValues[condition.fieldCode] ?? '').trim()
@@ -937,15 +1046,12 @@ const transformConditionsMatched = (rule: TransformRule, sampleValues: Record<st
   if (rule.conditionLogic === 'ANY') return conditions.some((condition) => conditionValueMatches(condition, sampleValues))
   return conditions.every((condition) => conditionValueMatches(condition, sampleValues))
 }
-const dictItemMatchesSample = (rule: TransformRule, item: DictItem, sampleValues: Record<string, string>) => {
-  let hasConstraint = false
-  const matched = (rule.inputFields || []).every((input) => {
-    const expected = String(item.sourceValues?.[input.paramName] || '').trim()
-    if (!expected) return true
-    hasConstraint = true
-    return transformValueMatches(input.dictMatchMode || rule.dictMatchMode, expected, String(sampleValues[input.paramName] || '').trim())
-  })
-  return matched && hasConstraint
+const dictItemMatchesSample = (item: DictItem, sampleValues: Record<string, string>) => {
+  if (!item.enabled || !item.conditions?.length) return false
+  const conditions = item.conditions.filter((condition) => condition.operator === 'EMPTY' || condition.operator === 'NOT_EMPTY' || String(condition.value || '').trim())
+  if (!conditions.length) return false
+  if (item.conditionLogic === 'ANY') return conditions.some((condition) => dictConditionMatchesSample(condition, sampleValues))
+  return conditions.every((condition) => dictConditionMatchesSample(condition, sampleValues))
 }
 
 const hasDuplicate = (values: string[]) => {
@@ -1410,7 +1516,12 @@ const copyTransformRule = (rule: TransformRule) => {
     ruleName: `${rule.ruleName}-副本`,
     inputFields: rule.inputFields.map((input) => ({ ...input })),
     conditions: rule.conditions.map((condition) => ({ ...condition, id: `cond-${Date.now()}-${Math.random().toString(36).slice(2, 8)}` })),
-    dictItems: rule.dictItems.map((item) => ({ sourceValues: { ...item.sourceValues }, target: item.target }))
+    dictItems: rule.dictItems.map((item) => createDictItem(rule, {
+      ...item,
+      id: `dict-rule-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      ruleName: `${item.ruleName}-副本`,
+      conditions: item.conditions.map((condition) => ({ ...condition, id: `dict-cond-${Date.now()}-${Math.random().toString(36).slice(2, 8)}` }))
+    }))
   }
   const currentIndex = transformRules.value.findIndex((item) => item.id === rule.id)
   transformRules.value.splice(currentIndex + 1, 0, copiedRule)
@@ -1517,7 +1628,7 @@ const addTransformRule = (ruleType: TransformRuleType) => {
     outputField: '',
     enabled: true,
     onFail: 'REVIEW',
-    dictItems: ruleType === 'DICT' ? [{ sourceValues: {}, target: '' }] : [],
+    dictItems: [],
     apiEndpoint: ruleType === 'API' ? `/api/example/{${defaultParamName}}` : '',
     apiMethod: 'GET',
     apiResponsePath: '$.data.value',
@@ -1528,7 +1639,6 @@ const addTransformRule = (ruleType: TransformRuleType) => {
     conditionEnabled: false,
     conditionLogic: 'ALL',
     conditions: fields.value[0]?.fieldCode ? [createTransformCondition(fields.value[0].fieldCode)] : [],
-    dictMatchMode: 'EQUALS',
     apiTimeout: 5,
     apiRetryCount: 1,
     apiAuthMode: 'SYSTEM',
@@ -1553,16 +1663,17 @@ const removeTransformCondition = (condition: TransformCondition) => {
 }
 const addDictItem = () => {
   if (!selectedTransformRule.value) return
-  const sourceValues = selectedTransformRule.value.inputFields.reduce<Record<string, string>>((result, input) => {
-    result[input.paramName] = ''
-    return result
-  }, {})
-  selectedTransformRule.value.dictItems.push({ sourceValues, target: '' })
+  selectedTransformRule.value.dictItems.push(createDictItem(selectedTransformRule.value))
 }
 const copyDictItem = (row: DictItem) => {
   if (!selectedTransformRule.value) return
   const index = selectedTransformRule.value.dictItems.indexOf(row)
-  selectedTransformRule.value.dictItems.splice(index + 1, 0, { sourceValues: { ...row.sourceValues }, target: row.target })
+  selectedTransformRule.value.dictItems.splice(index + 1, 0, createDictItem(selectedTransformRule.value, {
+    ...row,
+    id: `dict-rule-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    ruleName: `${row.ruleName}-副本`,
+    conditions: row.conditions.map((condition) => ({ ...condition, id: `dict-cond-${Date.now()}-${Math.random().toString(36).slice(2, 8)}` }))
+  }))
 }
 const removeDictItem = (row: DictItem) => {
   if (!selectedTransformRule.value) return
@@ -1581,7 +1692,8 @@ const runTransformPreview = () => {
     return
   }
   if (rule.ruleType === 'DICT') {
-    previewOutput.value = rule.dictItems.find((item) => dictItemMatchesSample(rule, item, sampleValues))?.target || '未命中字典，按失败策略处理'
+    const matchedItem = [...rule.dictItems].sort((a, b) => (a.priority || 0) - (b.priority || 0)).find((item) => dictItemMatchesSample(item, sampleValues))
+    previewOutput.value = matchedItem ? `命中${matchedItem.ruleName || '映射规则'}，输出 ${matchedItem.target || '未填写'}` : '未命中字典映射，按失败策略处理'
   } else if (rule.ruleType === 'API') {
     previewOutput.value = `模拟调用 ${replaceParamPlaceholders(rule.apiEndpoint, sampleValues)}；请求参数 ${JSON.stringify(sampleValues)}；响应取值 ${rule.apiResponsePath}`
   } else {
@@ -2618,20 +2730,9 @@ onMounted(async () => {
                           v-model="row.paramName"
                           :class="{ 'is-error-input': transformParamNameError(selectedTransformRule, row) }"
                           placeholder="如 productCode"
-                          @change="ensureDictItemSourceValues(selectedTransformRule)"
+                          @change="ensureDictItems(selectedTransformRule)"
                         />
                       </el-tooltip>
-                    </template>
-                  </el-table-column>
-                  <el-table-column v-if="selectedTransformRule.ruleType === 'DICT'" label="字典匹配" min-width="120">
-                    <template #default="{ row }">
-                      <el-select v-model="row.dictMatchMode" placeholder="匹配方式">
-                        <el-option label="继承默认" value="" />
-                        <el-option label="等于" value="EQUALS" />
-                        <el-option label="包含" value="CONTAINS" />
-                        <el-option label="正则" value="REGEX" />
-                        <el-option label="区间" value="RANGE" />
-                      </el-select>
                     </template>
                   </el-table-column>
                   <el-table-column label="必填" width="80">
@@ -2746,30 +2847,57 @@ onMounted(async () => {
             <section v-if="selectedTransformRule.ruleType === 'DICT'" class="rule-section">
               <div class="card-header">
                 <h3>类型配置：字典映射</h3>
-                <el-button size="small" @click="addDictItem">添加映射</el-button>
+                <el-button size="small" type="primary" @click="addDictItem">新增映射规则</el-button>
               </div>
-              <p class="muted mb-12">字典映射按参数名组合匹配；每个依赖字段可在“参数映射”中单独设置匹配方式，同一行多个匹配值需要全部命中才返回转换结果。</p>
-              <el-form label-width="90px" class="form-grid mb-12">
-                <el-form-item label="默认方式">
-                  <el-select v-model="selectedTransformRule.dictMatchMode">
-                    <el-option label="等于" value="EQUALS" />
-                    <el-option label="包含" value="CONTAINS" />
-                    <el-option label="正则" value="REGEX" />
-                    <el-option label="区间" value="RANGE" />
-                  </el-select>
-                </el-form-item>
-              </el-form>
-              <el-table :data="selectedTransformRule.dictItems">
-                <el-table-column
-                  v-for="input in selectedTransformRule.inputFields"
-                  :key="input.paramName"
-                  :label="`${input.paramName} 匹配值`"
-                  min-width="160"
-                >
-                  <template #default="{ row }"><el-input v-model="row.sourceValues[input.paramName]" placeholder="按该参数匹配" /></template>
+              <p class="muted mb-12">每条映射规则独立维护命中条件，可配置“产品代码等于 + 摘要包含”等组合；按优先级从小到大匹配，命中第一条后停止。</p>
+              <el-table :data="selectedTransformRule.dictItems" row-key="id" border>
+                <el-table-column type="expand">
+                  <template #default="{ row }">
+                    <div class="dict-condition-editor">
+                      <div class="condition-toolbar mb-8">
+                        <el-radio-group v-model="row.conditionLogic">
+                          <el-radio-button label="ALL">满足全部条件</el-radio-button>
+                          <el-radio-button label="ANY">满足任一条件</el-radio-button>
+                        </el-radio-group>
+                        <el-button size="small" @click="addDictCondition(row)">新增条件</el-button>
+                      </div>
+                      <div class="dict-condition-list">
+                        <div v-for="condition in row.conditions" :key="condition.id" class="dict-condition-row">
+                          <el-select v-model="condition.fieldCode" filterable placeholder="选择依赖字段" @change="handleDictConditionFieldChange(selectedTransformRule, condition)">
+                            <el-option v-for="input in selectedTransformRule.inputFields" :key="input.fieldCode" :label="fieldLabelByCode(input.fieldCode)" :value="input.fieldCode" />
+                          </el-select>
+                          <el-select v-model="condition.operator" placeholder="匹配方式">
+                            <el-option label="等于" value="EQUALS" />
+                            <el-option label="包含" value="CONTAINS" />
+                            <el-option label="正则匹配" value="REGEX" />
+                            <el-option label="区间" value="RANGE" />
+                            <el-option label="为空" value="EMPTY" />
+                            <el-option label="不为空" value="NOT_EMPTY" />
+                          </el-select>
+                          <el-input v-model="condition.value" :disabled="condition.operator === 'EMPTY' || condition.operator === 'NOT_EMPTY'" placeholder="匹配值，区间示例 0-100000" />
+                          <el-button link type="danger" @click="removeDictCondition(row, condition)">删除</el-button>
+                        </div>
+                      </div>
+                    </div>
+                  </template>
                 </el-table-column>
-                <el-table-column label="转换结果" min-width="180">
+                <el-table-column label="启用" width="70">
+                  <template #default="{ row }"><el-switch v-model="row.enabled" /></template>
+                </el-table-column>
+                <el-table-column label="优先级" width="100">
+                  <template #default="{ row }"><el-input-number v-model="row.priority" :min="1" :max="999" controls-position="right" /></template>
+                </el-table-column>
+                <el-table-column label="规则名称" min-width="170">
+                  <template #default="{ row }"><el-input v-model="row.ruleName" placeholder="如 申购识别" /></template>
+                </el-table-column>
+                <el-table-column label="命中条件摘要" min-width="320" show-overflow-tooltip>
+                  <template #default="{ row }">{{ dictItemConditionSummary(row) }}</template>
+                </el-table-column>
+                <el-table-column label="命中后输出" min-width="180">
                   <template #default="{ row }"><el-input v-model="row.target" placeholder="如：BUY、普通金额、产品名称" /></template>
+                </el-table-column>
+                <el-table-column label="样本状态" width="100">
+                  <template #default="{ row }"><el-tag :type="dictItemMatchTagType(row, selectedTransformRule)">{{ dictItemMatchStatusByRule(row, selectedTransformRule) }}</el-tag></template>
                 </el-table-column>
                 <el-table-column label="操作" width="110" fixed="right">
                   <template #default="{ row }">
