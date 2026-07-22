@@ -12,6 +12,7 @@ import {
   updateExtractConfigDraft,
   validateExtractConfig,
   type ConfigOptions,
+  type ConfigSummary,
   type ConfigValidateResult
 } from '../api/config'
 import {
@@ -1976,9 +1977,31 @@ const normalizeRoleFields = () => {
   form.ownerRole = normalizeRoleValue(form.ownerRole)
   form.visibleRoles = form.visibleRoles.map((role) => normalizeRoleValue(role))
 }
-const applyWizardPayload = (payload: any) => {
-  if (!payload) return
-  const baseInfo = payload.baseInfo || {}
+const resolveWizardPayload = (rawPayload: any) => {
+  if (!rawPayload) return {}
+  if (typeof rawPayload === 'string') {
+    try {
+      return JSON.parse(rawPayload)
+    } catch {
+      return {}
+    }
+  }
+  if (rawPayload.payload || rawPayload.configPayload) return resolveWizardPayload(rawPayload.payload || rawPayload.configPayload)
+  return rawPayload
+}
+const summaryToBaseInfo = (summary?: ConfigSummary) => ({
+  configName: summary?.configName || '',
+  category: summary?.category || '',
+  subCategory: summary?.subCategory || '',
+  templateType: summary?.templateType || '',
+  documentType: summary?.documentType || '',
+  departmentId: summary?.departmentId || '',
+  ownerRole: summary?.ownerRole || '',
+  defaultPriority: summary?.defaultPriority || form.defaultPriority
+})
+const applyWizardPayload = (rawPayload: any, summary?: ConfigSummary) => {
+  const payload = resolveWizardPayload(rawPayload)
+  const baseInfo = { ...summaryToBaseInfo(summary), ...(payload.baseInfo || {}) }
   const parseConfig = payload.parseConfig || {}
   const storageConfig = payload.storageConfig || {}
   const extractStrategy = payload.extractStrategy || {}
@@ -2003,7 +2026,7 @@ const applyWizardPayload = (payload: any) => {
     storageEnabled: storageConfig.storageEnabled ?? form.storageEnabled,
     storageMode: storageConfig.storageMode || form.storageMode,
     mappingProfileName: storageConfig.mappingProfileName || form.mappingProfileName,
-    targetTable: storageConfig.targetTable || form.targetTable,
+    targetTable: storageConfig.targetTable || summary?.targetTable || form.targetTable,
     targetTableName: storageConfig.targetTableName || form.targetTableName,
     targetTableComment: storageConfig.targetTableComment || form.targetTableComment,
     saveMode: storageConfig.saveMode || form.saveMode,
@@ -2081,7 +2104,7 @@ const loadConfigForEdit = async () => {
     currentConfigCode.value = detail.summary.configCode
     currentVersion.value = detail.summary.version || 1
     currentStatus.value = normalizeStatus(detail.summary.status)
-    applyWizardPayload(detail.payload)
+    applyWizardPayload(detail.payload, detail.summary)
     ElMessage.success(isReadonlyVersion.value ? '已加载历史版本，只读查看' : '已加载配置草稿')
   } catch (error) {
     ElMessage.error(error instanceof Error ? error.message : '配置加载失败')
@@ -2095,7 +2118,7 @@ const copyCurrentVersion = async () => {
     currentConfigCode.value = detail.summary.configCode
     currentVersion.value = detail.summary.version || 1
     currentStatus.value = normalizeStatus(detail.summary.status)
-    applyWizardPayload(detail.payload)
+    applyWizardPayload(detail.payload, detail.summary)
     router.replace({ path: '/configs/wizard', query: { id: detail.summary.id } })
     ElMessage.success(`已复制为 V${detail.summary.version} 草稿，可继续编辑`)
   } catch (error) {
@@ -2103,32 +2126,48 @@ const copyCurrentVersion = async () => {
   }
 }
 const loadWizardOptions = async () => {
+  const isCreateMode = !route.query.id
   try {
     options.value = await getConfigOptions()
+    normalizeRoleFields()
+  } catch (error) {
+    ElMessage.error(error instanceof Error ? error.message : '配置选项加载失败')
+  }
+  try {
     llmModelOptions.value = await listLlmModelOptions()
+    if (!form.llmModelCode && llmModelOptions.value.length) {
+      form.llmModelCode = llmModelOptions.value.find((item) => item.defaultModel)?.modelCode || llmModelOptions.value[0].modelCode
+    }
+  } catch (error) {
+    ElMessage.warning(error instanceof Error ? error.message : 'LLM 模型选项加载失败')
+  }
+  try {
     ocrEngineOptions.value = await listOcrEngineOptions()
+    if (isCreateMode && !form.engineCode) {
+      form.engineCode = ocrEngineOptions.value.find((item) => item.defaultEngine)?.engineCode || ''
+    }
+  } catch (error) {
+    ElMessage.warning(error instanceof Error ? error.message : 'OCR 引擎选项加载失败')
+  }
+  try {
     promptTemplateDefaults.value = await getPromptTemplateDefaults()
-    const isCreateMode = !route.query.id
     if (isCreateMode) {
       aiSystemPrompt.value = promptTemplateDefaults.value.systemTemplate || fallbackSystemPromptTemplate
       setAiUserPrompt(fieldDrivenUserPrompt.value, true)
     }
-    if (isCreateMode && !form.engineCode) {
-      form.engineCode = ocrEngineOptions.value.find((item) => item.defaultEngine)?.engineCode || ''
-    }
-    if (!form.llmModelCode && llmModelOptions.value.length) {
-      form.llmModelCode = llmModelOptions.value.find((item) => item.defaultModel)?.modelCode || llmModelOptions.value[0].modelCode
-    }
-    normalizeRoleFields()
-    if (isCreateMode && form.storageMode === 'REUSE' && form.targetTable) void handleTargetTableChange(form.targetTable)
   } catch (error) {
-    ElMessage.error(error instanceof Error ? error.message : '配置选项加载失败')
+    if (isCreateMode) setAiUserPrompt(fieldDrivenUserPrompt.value, true)
+    ElMessage.warning(error instanceof Error ? error.message : '提示词模板加载失败')
   }
+  if (isCreateMode && form.storageMode === 'REUSE' && form.targetTable) void handleTargetTableChange(form.targetTable)
 }
 
 onMounted(async () => {
   await loadWizardOptions()
   await loadConfigForEdit()
+})
+watch(() => route.query.id, async (nextId, previousId) => {
+  if (nextId && nextId !== previousId) await loadConfigForEdit()
 })
 </script>
 
