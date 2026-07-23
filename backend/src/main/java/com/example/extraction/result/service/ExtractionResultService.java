@@ -148,7 +148,7 @@ public class ExtractionResultService {
         record.setConfidenceJson(writeJson(transformOutcome.confidence()));
         record.setOverallConfidence(overallConfidence);
         record.setNeedReview(finalNeedReview ? "1" : "0");
-        record.setStatus(finalNeedReview ? "WAIT_REVIEW" : storageEnabled(payload) ? "STORED" : "EXTRACTED");
+        record.setStatus(finalNeedReview ? "WAIT_REVIEW" : "EXTRACTED");
         record.setFieldCount(countBusinessFields(transformOutcome.result()));
         record.setTargetTable(resolveTargetTable(payload));
         record.setMappingProfile(resolveMappingProfile(payload, task));

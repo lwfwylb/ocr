@@ -9,7 +9,9 @@ import com.example.extraction.model.service.ModelCallLogService;
 import com.example.extraction.ocr.OcrParseService;
 import com.example.extraction.ocr.OcrTaskParseResult;
 import com.example.extraction.result.domain.ExtractResultRecord;
+import com.example.extraction.result.dto.StorageExecuteRequest;
 import com.example.extraction.result.service.ExtractionResultService;
+import com.example.extraction.result.service.StorageResultService;
 import com.example.extraction.task.domain.ExtractTaskRecord;
 import com.example.extraction.task.domain.TaskStageLogRecord;
 import com.example.extraction.task.dto.TaskResponse;
@@ -32,6 +34,7 @@ public class TaskExecutionService {
     private final TaskStageLogMapper taskStageLogMapper;
     private final ExtractTaskService extractTaskService;
     private final ExtractionResultService extractionResultService;
+    private final StorageResultService storageResultService;
     private final ModelCallLogService modelCallLogService;
     private final DocumentArtifactService documentArtifactService;
     private final OcrParseService ocrParseService;
@@ -40,6 +43,7 @@ public class TaskExecutionService {
                                 TaskStageLogMapper taskStageLogMapper,
                                 ExtractTaskService extractTaskService,
                                 ExtractionResultService extractionResultService,
+                                StorageResultService storageResultService,
                                 ModelCallLogService modelCallLogService,
                                 DocumentArtifactService documentArtifactService,
                                 OcrParseService ocrParseService) {
@@ -47,6 +51,7 @@ public class TaskExecutionService {
         this.taskStageLogMapper = taskStageLogMapper;
         this.extractTaskService = extractTaskService;
         this.extractionResultService = extractionResultService;
+        this.storageResultService = storageResultService;
         this.modelCallLogService = modelCallLogService;
         this.documentArtifactService = documentArtifactService;
         this.ocrParseService = ocrParseService;
@@ -106,6 +111,16 @@ public class TaskExecutionService {
             updateState(task, "EXTRACTING", "加工校验", 80, null, null);
             logSuccess(task, "VALIDATE", "加工校验", "按配置执行加工校验；未启用时自动跳过", "加工校验完成");
 
+            if (!"1".equals(result.getNeedReview()) && storageTargetEnabled(result)) {
+                runningStage = "结果落库";
+                updateState(task, "EXTRACTING", "结果落库", 90, null, null);
+                StorageExecuteRequest storageRequest = new StorageExecuteRequest();
+                storageRequest.setStoredBy("system");
+                storageRequest.setDuplicateStrategy("UPSERT_BY_UNIQUE_KEY");
+                storageResultService.execute(task.getTaskId(), storageRequest);
+                logSuccess(task, "STORAGE", "结果落库", "按目标表字段定义和唯一约束写入物理结果表", "物理结果表与落库台账写入成功");
+            }
+
             if ("1".equals(result.getNeedReview())) {
                 runningStage = "复核判断";
                 updateState(task, "WAIT_REVIEW", "等待人工复核", 90, null, null);
@@ -133,6 +148,10 @@ public class TaskExecutionService {
             fail(task, "EXECUTION_LINKAGE_ERROR", runningStage + "依赖异常：" + firstText(e.getMessage(), e.getClass().getSimpleName()));
             return extractTaskService.detail(taskId);
         }
+    }
+
+    private boolean storageTargetEnabled(ExtractResultRecord result) {
+        return result != null && StringUtils.hasText(result.getTargetTable()) && !"未启用落库".equals(result.getTargetTable());
     }
 
     private void logParseModelFailure(ExtractTaskRecord task, String runningStage, String errorMessage) {

@@ -123,4 +123,11 @@
             updated_at = #{updatedAt}
         where task_id = #{taskId}
     </update>
+
+    <update id="updateStorageStatus" parameterType="com.example.extraction.result.domain.ExtractResultRecord">
+        update extract_result_record
+        set status = #{status},
+            updated_at = #{updatedAt}
+        where task_id = #{taskId}
+    </update>
 </mapper>

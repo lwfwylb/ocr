@@ -17,6 +17,7 @@ import com.example.extraction.result.dto.ReviewFieldResponse;
 import com.example.extraction.result.dto.ReviewLogResponse;
 import com.example.extraction.result.dto.ReviewQueryRequest;
 import com.example.extraction.result.dto.ReviewSubmitRequest;
+import com.example.extraction.result.dto.StorageExecuteRequest;
 import com.example.extraction.task.domain.ExtractTaskRecord;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
@@ -38,17 +39,20 @@ public class ReviewService {
     private final DocumentParseResultMapper documentParseResultMapper;
     private final ReviewLogMapper reviewLogMapper;
     private final ExtractTaskMapper extractTaskMapper;
+    private final StorageResultService storageResultService;
     private final ObjectMapper objectMapper;
 
     public ReviewService(ExtractResultMapper extractResultMapper,
                          DocumentParseResultMapper documentParseResultMapper,
                          ReviewLogMapper reviewLogMapper,
                          ExtractTaskMapper extractTaskMapper,
+                         StorageResultService storageResultService,
                          ObjectMapper objectMapper) {
         this.extractResultMapper = extractResultMapper;
         this.documentParseResultMapper = documentParseResultMapper;
         this.reviewLogMapper = reviewLogMapper;
         this.extractTaskMapper = extractTaskMapper;
+        this.storageResultService = storageResultService;
         this.objectMapper = objectMapper;
     }
 
@@ -101,10 +105,16 @@ public class ReviewService {
         Map<String, Object> updated = mergeFields(readJson(result.getResultJson()), request);
         result.setResultJson(writeJson(updated));
         result.setNeedReview("0");
-        result.setStatus("STORED");
+        result.setStatus("EXTRACTED");
         result.setFieldCount(updated.size());
         result.setUpdatedAt(LocalDateTime.now());
         extractResultMapper.updateReviewState(result);
+        if (storageTargetEnabled(result)) {
+            StorageExecuteRequest storageRequest = new StorageExecuteRequest();
+            storageRequest.setStoredBy(firstText(request == null ? null : request.getReviewer(), "system"));
+            storageRequest.setDuplicateStrategy("UPSERT_BY_UNIQUE_KEY");
+            storageResultService.execute(taskId, storageRequest);
+        }
         updateTaskState(taskId, "COMPLETED", "复核通过", 100, null, null);
         writeLog(result, "APPROVE", beforeJson, result.getResultJson(), request);
         return detail(taskId);
@@ -125,6 +135,10 @@ public class ReviewService {
                 firstText(request == null ? null : request.getComment(), "人工复核退回重提取"));
         writeLog(result, "REJECT", beforeJson, result.getResultJson(), request);
         return detail(taskId);
+    }
+
+    private boolean storageTargetEnabled(ExtractResultRecord result) {
+        return result != null && StringUtils.hasText(result.getTargetTable()) && !"未启用落库".equals(result.getTargetTable());
     }
 
     private ExtractResultRecord requireResult(String taskId) {

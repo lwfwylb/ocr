@@ -205,10 +205,10 @@ const executeStorageForResult = async (row: ResultSummary) => {
     ElMessage.warning('当前配置未启用结果落库，无需执行落库')
     return
   }
-  await ElMessageBox.confirm('确认将该提取结果写入落库台账？待复核或失败结果不允许落库。', '执行落库', { type: 'warning' })
+  await ElMessageBox.confirm('确认将该提取结果写入物理结果表？待复核或失败结果不允许落库。', '执行落库', { type: 'warning' })
   try {
-    await executeStorage(row.taskId, { storedBy: '当前用户', duplicateStrategy: 'UPSERT_BY_TASK_ID' })
-    ElMessage.success('落库成功，可在落库数据查询中查看')
+    await executeStorage(row.taskId, { storedBy: '当前用户', duplicateStrategy: 'UPSERT_BY_UNIQUE_KEY' })
+    ElMessage.success('落库成功，已写入物理结果表并记录落库台账')
     await loadResults()
   } catch (error) {
     ElMessage.error(error instanceof Error ? error.message : '执行落库失败')
@@ -237,7 +237,7 @@ const resetQuery = () => {
   loadResults()
 }
 
-const getStatus = (status?: string) => statusMap[(status || 'STORED') as ResultStatus] || { label: status || '-', type: 'info' }
+const getStatus = (status?: string) => statusMap[(status || 'EXTRACTED') as ResultStatus] || { label: status || '-', type: 'info' }
 const formatSource = (value?: string) => (value ? sourceTypeMap[value] || value : '-')
 const formatConfidence = (value?: number) => Number(value || 0)
 const formatValue = (value: unknown) => {
@@ -421,7 +421,7 @@ onMounted(() => {
             <pre class="parse-preview">{{ selectedDetail?.parseText || '暂无解析文本' }}</pre>
           </el-tab-pane>
           <el-tab-pane label="落库预览" name="storage">
-            <el-alert v-if="!isStorageDisabled" title="落库预览由后端按当前配置的目标表字段定义、字段映射、必填和唯一约束生成；第一版仍写入平台落库台账，不直接写真实业务结果表。" type="info" :closable="false" class="mb-12" />
+            <el-alert v-if="!isStorageDisabled" title="落库预览由后端按当前配置的目标表字段定义、字段映射、必填和唯一约束生成；执行落库会写入物理结果表，并同步记录平台落库台账。" type="info" :closable="false" class="mb-12" />
             <el-empty v-if="isStorageDisabled" description="当前配置未启用结果落库，无落库预览。" />
             <el-table v-else :data="storageRows">
               <el-table-column prop="targetTable" label="目标表" min-width="160" />

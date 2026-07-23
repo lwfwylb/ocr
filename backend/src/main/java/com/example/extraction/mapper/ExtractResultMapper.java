@@ -17,4 +17,6 @@ public interface ExtractResultMapper {
     int update(ExtractResultRecord record);
 
     int updateReviewState(ExtractResultRecord record);
+
+    int updateStorageStatus(ExtractResultRecord record);
 }
